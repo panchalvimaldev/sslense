@@ -2,6 +2,8 @@
 
 SSLense is a .NET 8 Windows tool for issuing and automatically renewing Let's Encrypt certificates for IIS. The CLI and Windows Service use the same `SSLense.Core` services and the same state under `C:\ProgramData\SSLense`.
 
+The post-MVP productization plan is documented in [COMMERCIAL_ROADMAP.md](COMMERCIAL_ROADMAP.md).
+
 > SSLense currently uses the Let's Encrypt **staging** endpoint only. Staging certificates are for testing and are not trusted by browsers. Production issuance remains disabled until it is explicitly enabled in a later phase.
 
 ## Requirements

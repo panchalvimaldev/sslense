@@ -152,3 +152,7 @@ GUI rules:
 - Explain any decision where a library choice or fallback (Certes vs custom ACME) is made.
 - Do not run anything against Let's Encrypt **production** until I explicitly say so.
 - Ask me before adding new NuGet packages beyond those listed above.
+
+## 9. Commercial development
+
+The post-MVP security, reliability, packaging, paid-feature, enterprise, and go-to-market development plan is maintained in [COMMERCIAL_ROADMAP.md](COMMERCIAL_ROADMAP.md). Treat its P0 commercial release gates as mandatory before accepting paying production customers.
