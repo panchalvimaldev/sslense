@@ -1,0 +1,188 @@
+using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
+using SSLense.Core;
+using SSLense.Core.Renewal;
+
+namespace SSLense.Gui.ViewModels;
+
+public partial class DashboardViewModel : ObservableObject
+{
+    private readonly IRenewalService _renewalService;
+    private readonly ILogger<DashboardViewModel> _logger;
+    private readonly AsyncRelayCommand _refreshCommand;
+    private readonly AsyncRelayCommand _renewSelectedCommand;
+    private readonly AsyncRelayCommand _renewAllCommand;
+    private readonly RelayCommand _cancelCommand;
+
+    [ObservableProperty]
+    private CertificateRowViewModel? selectedCertificate;
+
+    [ObservableProperty]
+    private bool isBusy;
+
+    [ObservableProperty]
+    private string activity = "Ready.";
+
+    [ObservableProperty]
+    private string? errorMessage;
+
+    public DashboardViewModel(
+        IRenewalService renewalService,
+        ILogger<DashboardViewModel> logger)
+    {
+        _renewalService = renewalService;
+        _logger = logger;
+        _refreshCommand = new AsyncRelayCommand(RefreshAsync, CanRun);
+        _renewSelectedCommand = new AsyncRelayCommand(RenewSelectedAsync, CanRenewSelected);
+        _renewAllCommand = new AsyncRelayCommand(RenewAllAsync, CanRenewAll);
+        _cancelCommand = new RelayCommand(Cancel, CanCancel);
+    }
+
+    public ObservableCollection<CertificateRowViewModel> Certificates { get; } = [];
+
+    public ObservableCollection<string> ProgressLines { get; } = [];
+
+    public IAsyncRelayCommand RefreshCommand => _refreshCommand;
+
+    public IAsyncRelayCommand RenewSelectedCommand => _renewSelectedCommand;
+
+    public IAsyncRelayCommand RenewAllCommand => _renewAllCommand;
+
+    public IRelayCommand CancelCommand => _cancelCommand;
+
+    public Task InitializeAsync() => _refreshCommand.ExecuteAsync(null);
+
+    partial void OnSelectedCertificateChanged(CertificateRowViewModel? value) =>
+        _renewSelectedCommand.NotifyCanExecuteChanged();
+
+    partial void OnIsBusyChanged(bool value)
+    {
+        _refreshCommand.NotifyCanExecuteChanged();
+        _renewSelectedCommand.NotifyCanExecuteChanged();
+        _renewAllCommand.NotifyCanExecuteChanged();
+        _cancelCommand.NotifyCanExecuteChanged();
+    }
+
+    private Task RefreshAsync(CancellationToken cancellationToken) =>
+        RunOperationAsync("Refreshing managed certificates...", LoadCertificatesAsync, cancellationToken);
+
+    private Task RenewSelectedAsync(CancellationToken cancellationToken)
+    {
+        var selected = SelectedCertificate;
+        if (selected is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return RunOperationAsync(
+            $"Renewing {selected.SiteName}...",
+            async token =>
+            {
+                var results = await _renewalService.RenewAsync(
+                        new RenewalRequest(SiteName: selected.SiteName, Force: true),
+                        CreateProgress(),
+                        token)
+                    .ConfigureAwait(true);
+                AddResults(results);
+                await LoadCertificatesAsync(token).ConfigureAwait(true);
+            },
+            cancellationToken);
+    }
+
+    private Task RenewAllAsync(CancellationToken cancellationToken) =>
+        RunOperationAsync(
+            "Checking all managed certificates for renewal...",
+            async token =>
+            {
+                var results = await _renewalService.RenewAsync(
+                        new RenewalRequest(All: true),
+                        CreateProgress(),
+                        token)
+                    .ConfigureAwait(true);
+                AddResults(results);
+                await LoadCertificatesAsync(token).ConfigureAwait(true);
+            },
+            cancellationToken);
+
+    private async Task RunOperationAsync(
+        string activity,
+        Func<CancellationToken, Task> action,
+        CancellationToken cancellationToken)
+    {
+        IsBusy = true;
+        ErrorMessage = null;
+        Activity = activity;
+        try
+        {
+            await action(cancellationToken).ConfigureAwait(true);
+            Activity = "Ready.";
+        }
+        catch (OperationCanceledException)
+        {
+            Activity = "Operation cancelled.";
+            AddProgress("cancel", "Operation cancelled.");
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "Dashboard operation failed");
+            ErrorMessage = exception.Message;
+            Activity = "Operation failed.";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task LoadCertificatesAsync(CancellationToken cancellationToken)
+    {
+        var statuses = await _renewalService.GetStatusAsync(cancellationToken).ConfigureAwait(true);
+        Certificates.Clear();
+        foreach (var status in statuses)
+        {
+            Certificates.Add(new CertificateRowViewModel(status));
+        }
+
+        Activity = statuses.Count == 0
+            ? "No managed certificates. Issue one with the CLI or the Phase 7 wizard."
+            : $"Loaded {statuses.Count} managed certificate(s).";
+        _renewAllCommand.NotifyCanExecuteChanged();
+    }
+
+    private IProgress<ProgressEvent> CreateProgress() =>
+        new Progress<ProgressEvent>(value => AddProgress(value.Step, value.Message));
+
+    private void AddResults(IEnumerable<RenewalResult> results)
+    {
+        foreach (var result in results)
+        {
+            AddProgress(result.Succeeded ? "result" : "error", $"{result.SiteName}: {result.Message}");
+        }
+    }
+
+    private void AddProgress(string step, string message)
+    {
+        ProgressLines.Add($"[{DateTime.Now:HH:mm:ss}] [{step}] {message}");
+        while (ProgressLines.Count > 200)
+        {
+            ProgressLines.RemoveAt(0);
+        }
+    }
+
+    private bool CanRun() => !IsBusy;
+
+    private bool CanRenewSelected() => !IsBusy && SelectedCertificate is not null;
+
+    private bool CanRenewAll() => !IsBusy && Certificates.Count > 0;
+
+    private bool CanCancel() => IsBusy;
+
+    private void Cancel()
+    {
+        _refreshCommand.Cancel();
+        _renewSelectedCommand.Cancel();
+        _renewAllCommand.Cancel();
+    }
+}

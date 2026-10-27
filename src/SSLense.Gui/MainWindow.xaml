@@ -1,0 +1,73 @@
+<Window x:Class="SSLense.Gui.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:SSLense.Gui.ViewModels"
+        xmlns:views="clr-namespace:SSLense.Gui.Views"
+        Title="SSLense" Height="700" Width="1120"
+        MinHeight="560" MinWidth="900"
+        WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <DataTemplate DataType="{x:Type vm:DashboardViewModel}">
+            <views:DashboardView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:LogsViewModel}">
+            <views:LogsView />
+        </DataTemplate>
+    </Window.Resources>
+    <Grid Background="#F3F5F7">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="210" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Border Background="#18212B">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Margin="22,24,22,20">
+                    <TextBlock Text="SSLense" Foreground="White" FontSize="26" FontWeight="SemiBold" />
+                    <TextBlock Text="IIS certificate manager" Foreground="#AFC0D0" Margin="0,4,0,0" />
+                    <Border Background="#374B5E" CornerRadius="3" Margin="0,14,0,0" Padding="8,4">
+                        <TextBlock Text="STAGING ONLY" Foreground="#FFF2B2" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                    </Border>
+                </StackPanel>
+                <ListBox ItemsSource="{Binding Pages}"
+                         SelectedItem="{Binding SelectedPage}"
+                         Background="Transparent" BorderThickness="0"
+                         Foreground="White" Padding="10,0">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Padding" Value="14,11" />
+                            <Setter Property="Margin" Value="0,2" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <Border x:Name="ItemBorder" Background="Transparent" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="ItemBorder" Property="Background" Value="#2F80ED" />
+                                            </Trigger>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="ItemBorder" Property="Background" Value="#31506B" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Title}" FontSize="15" />
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <ContentControl Grid.Column="1"
+                        Content="{Binding SelectedPage.ViewModel}"
+                        Margin="26" />
+    </Grid>
+</Window>

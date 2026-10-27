@@ -1,0 +1,90 @@
+using System.Text.Json;
+
+namespace SSLense.Core.Config;
+
+public sealed class JsonConfigStore : IConfigStore
+{
+    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true
+    };
+
+    private readonly IFileSystem _fileSystem;
+    private readonly string _configPath;
+    private readonly string _lockPath;
+    private readonly SemaphoreSlim _gate = new(1, 1);
+
+    public JsonConfigStore(IFileSystem fileSystem)
+        : this(fileSystem, AppPaths.ConfigFile, AppPaths.ConfigLockFile)
+    {
+    }
+
+    public JsonConfigStore(IFileSystem fileSystem, string configPath)
+        : this(fileSystem, configPath, $"{configPath}.lock")
+    {
+    }
+
+    public JsonConfigStore(IFileSystem fileSystem, string configPath, string lockPath)
+    {
+        _fileSystem = fileSystem ?? throw new ArgumentNullException(nameof(fileSystem));
+        _configPath = string.IsNullOrWhiteSpace(configPath)
+            ? throw new ArgumentException("A config path is required.", nameof(configPath))
+            : configPath;
+        _lockPath = string.IsNullOrWhiteSpace(lockPath)
+            ? throw new ArgumentException("A lock path is required.", nameof(lockPath))
+            : lockPath;
+    }
+
+    public async Task<AppConfig> LoadAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var fileLock = await _fileSystem
+                .AcquireExclusiveFileLockAsync(_lockPath, cancellationToken)
+                .ConfigureAwait(false);
+            if (!_fileSystem.FileExists(_configPath))
+            {
+                return new AppConfig();
+            }
+
+            var json = await _fileSystem.ReadAllTextAsync(_configPath, cancellationToken)
+                .ConfigureAwait(false);
+            var config = JsonSerializer.Deserialize<AppConfig>(json, SerializerOptions)
+                ?? throw new InvalidDataException($"Configuration file '{_configPath}' is empty.");
+            return config.Notifications is null
+                ? config with { Notifications = new NotificationConfig() }
+                : config;
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException(
+                $"Configuration file '{_configPath}' contains invalid JSON.",
+                exception);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task SaveAsync(AppConfig config, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var fileLock = await _fileSystem
+                .AcquireExclusiveFileLockAsync(_lockPath, cancellationToken)
+                .ConfigureAwait(false);
+            var json = JsonSerializer.Serialize(config, SerializerOptions);
+            await _fileSystem.WriteAllTextAtomicAsync(_configPath, json, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+}

@@ -1,0 +1,519 @@
+using SSLense.Core;
+using SSLense.Core.Acme;
+using SSLense.Core.Config;
+using SSLense.Core.Iis;
+using SSLense.Core.Renewal;
+using SSLense.Core.WindowsServices;
+using SSLense.Core.Notifications;
+using SSLense.Cli;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Serilog;
+using System.CommandLine;
+
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .WriteTo.Console()
+    .WriteTo.File(
+        Path.Combine(AppPaths.LogDirectory, "sslense-.log"),
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 30,
+        shared: true)
+    .CreateLogger();
+
+try
+{
+    var builder = Host.CreateApplicationBuilder(args);
+    builder.Services.AddSerilog();
+    builder.Services.AddSSLenseCore();
+
+    using var host = builder.Build();
+    var rootCommand = CreateRootCommand(host.Services);
+    return rootCommand.Parse(args).Invoke();
+}
+catch (Exception exception)
+{
+    Log.Fatal(exception, "SSLense terminated unexpectedly");
+    Console.Error.WriteLine($"Error: {exception.Message}");
+    return 1;
+}
+finally
+{
+    await Log.CloseAndFlushAsync();
+}
+
+static RootCommand CreateRootCommand(IServiceProvider services)
+{
+    var rootCommand = new RootCommand("Manage Let's Encrypt certificates for IIS.");
+    var listSitesCommand = new Command("list-sites", "List IIS sites and their bindings.");
+
+    listSitesCommand.SetAction((_, cancellationToken) =>
+        ListSitesAsync(services.GetRequiredService<IIisService>(), cancellationToken));
+    rootCommand.Subcommands.Add(listSitesCommand);
+
+    var siteOption = new Option<string>("--site")
+    {
+        Description = "IIS site name.",
+        Required = true
+    };
+    var hostsOption = new Option<string?>("--hosts")
+    {
+        Description = "Comma-separated host names. Defaults to named HTTP bindings on the site."
+    };
+    var emailOption = new Option<string>("--email")
+    {
+        Description = "Email address for the Let's Encrypt staging account.",
+        Required = true
+    };
+    var stagingOption = new Option<bool>("--staging")
+    {
+        Description = "Use Let's Encrypt staging (always enabled until production is explicitly authorized)."
+    };
+    var outputOption = new Option<string?>("--output")
+    {
+        Description = "Directory for certificate.pem and certificate.pfx."
+    };
+    var forceOption = new Option<bool>("--force")
+    {
+        Description = "Replace an existing valid certificate for the requested hosts."
+    };
+    var issueCommand = new Command("issue", "Obtain and install a staging certificate using HTTP-01.");
+    issueCommand.Options.Add(siteOption);
+    issueCommand.Options.Add(hostsOption);
+    issueCommand.Options.Add(emailOption);
+    issueCommand.Options.Add(stagingOption);
+    issueCommand.Options.Add(outputOption);
+    issueCommand.Options.Add(forceOption);
+    issueCommand.SetAction((parseResult, cancellationToken) => IssueAsync(
+        services.GetRequiredService<IAcmeService>(),
+        parseResult.GetRequiredValue(siteOption),
+        parseResult.GetValue(hostsOption),
+        parseResult.GetRequiredValue(emailOption),
+        parseResult.GetValue(outputOption),
+        parseResult.GetValue(forceOption),
+        cancellationToken));
+    rootCommand.Subcommands.Add(issueCommand);
+
+    var renewAllOption = new Option<bool>("--all")
+    {
+        Description = "Renew all managed certificates that are due."
+    };
+    var renewSiteOption = new Option<string?>("--site")
+    {
+        Description = "Renew the managed certificate for one IIS site."
+    };
+    var renewForceOption = new Option<bool>("--force")
+    {
+        Description = "Renew selected certificates even when they are not due."
+    };
+    var renewCommand = new Command("renew", "Renew staging certificates that are within the configured threshold.");
+    renewCommand.Options.Add(renewAllOption);
+    renewCommand.Options.Add(renewSiteOption);
+    renewCommand.Options.Add(renewForceOption);
+    renewCommand.SetAction((parseResult, cancellationToken) => RenewAsync(
+        services.GetRequiredService<IRenewalService>(),
+        parseResult.GetValue(renewAllOption),
+        parseResult.GetValue(renewSiteOption),
+        parseResult.GetValue(renewForceOption),
+        cancellationToken));
+    rootCommand.Subcommands.Add(renewCommand);
+
+    var statusCommand = new Command("status", "Show managed staging certificates and renewal status.");
+    statusCommand.SetAction((_, cancellationToken) =>
+        StatusAsync(services.GetRequiredService<IRenewalService>(), cancellationToken));
+    rootCommand.Subcommands.Add(statusCommand);
+
+    var servicePathOption = new Option<string?>("--service-path")
+    {
+        Description = "Path to the published SSLense.Service.exe. Defaults to the CLI directory."
+    };
+    var installServiceCommand = new Command("install-service", "Install and start the automatic renewal service.");
+    installServiceCommand.Options.Add(servicePathOption);
+    installServiceCommand.SetAction((parseResult, cancellationToken) => InstallServiceAsync(
+        services.GetRequiredService<IWindowsServiceManager>(),
+        parseResult.GetValue(servicePathOption),
+        cancellationToken));
+    rootCommand.Subcommands.Add(installServiceCommand);
+
+    var uninstallServiceCommand = new Command("uninstall-service", "Stop and remove the automatic renewal service.");
+    uninstallServiceCommand.SetAction((_, cancellationToken) => UninstallServiceAsync(
+        services.GetRequiredService<IWindowsServiceManager>(),
+        cancellationToken));
+    rootCommand.Subcommands.Add(uninstallServiceCommand);
+
+    var notificationsCommand = new Command("notifications", "Configure and test renewal notifications.");
+    var smtpHostOption = new Option<string?>("--smtp-host") { Description = "SMTP server host name." };
+    var smtpPortOption = new Option<int?>("--smtp-port") { Description = "SMTP port (default: 587)." };
+    var smtpUserOption = new Option<string?>("--smtp-user") { Description = "SMTP username. Password is prompted securely." };
+    var smtpFromOption = new Option<string?>("--smtp-from") { Description = "SMTP sender address." };
+    var smtpToOption = new Option<string?>("--smtp-to") { Description = "SMTP recipient address." };
+    var smtpNoTlsOption = new Option<bool>("--smtp-no-tls") { Description = "Disable SMTP TLS." };
+    var webhookOption = new Option<bool>("--webhook") { Description = "Prompt securely for a webhook URL." };
+    var notifySuccessOption = new Option<bool>("--notify-success") { Description = "Send optional successful-renewal notifications." };
+    var configureNotificationsCommand = new Command("configure", "Replace notification settings. Secrets are protected with DPAPI.");
+    configureNotificationsCommand.Options.Add(smtpHostOption);
+    configureNotificationsCommand.Options.Add(smtpPortOption);
+    configureNotificationsCommand.Options.Add(smtpUserOption);
+    configureNotificationsCommand.Options.Add(smtpFromOption);
+    configureNotificationsCommand.Options.Add(smtpToOption);
+    configureNotificationsCommand.Options.Add(smtpNoTlsOption);
+    configureNotificationsCommand.Options.Add(webhookOption);
+    configureNotificationsCommand.Options.Add(notifySuccessOption);
+    configureNotificationsCommand.SetAction((parseResult, cancellationToken) => ConfigureNotificationsAsync(
+        services.GetRequiredService<INotificationSettingsService>(),
+        parseResult.GetValue(smtpHostOption),
+        parseResult.GetValue(smtpPortOption),
+        parseResult.GetValue(smtpUserOption),
+        parseResult.GetValue(smtpFromOption),
+        parseResult.GetValue(smtpToOption),
+        parseResult.GetValue(smtpNoTlsOption),
+        parseResult.GetValue(webhookOption),
+        parseResult.GetValue(notifySuccessOption),
+        cancellationToken));
+    notificationsCommand.Subcommands.Add(configureNotificationsCommand);
+
+    var testNotificationsCommand = new Command("test", "Send a test through every configured notification channel.");
+    testNotificationsCommand.SetAction((_, cancellationToken) => TestNotificationsAsync(
+        services.GetRequiredService<INotifier>(),
+        cancellationToken));
+    notificationsCommand.Subcommands.Add(testNotificationsCommand);
+
+    var clearNotificationsCommand = new Command("clear", "Remove all saved notification settings.");
+    clearNotificationsCommand.SetAction((_, cancellationToken) => ClearNotificationsAsync(
+        services.GetRequiredService<INotificationSettingsService>(),
+        cancellationToken));
+    notificationsCommand.Subcommands.Add(clearNotificationsCommand);
+    rootCommand.Subcommands.Add(notificationsCommand);
+
+    return rootCommand;
+}
+
+static async Task<int> ConfigureNotificationsAsync(
+    INotificationSettingsService settingsService,
+    string? smtpHost,
+    int? smtpPort,
+    string? smtpUser,
+    string? smtpFrom,
+    string? smtpTo,
+    bool smtpNoTls,
+    bool configureWebhook,
+    bool notifySuccess,
+    CancellationToken cancellationToken)
+{
+    try
+    {
+        SmtpSettingsRequest? smtp = null;
+        if (!string.IsNullOrWhiteSpace(smtpHost))
+        {
+            if (string.IsNullOrWhiteSpace(smtpFrom) || string.IsNullOrWhiteSpace(smtpTo))
+            {
+                throw new ArgumentException("--smtp-from and --smtp-to are required with --smtp-host.");
+            }
+
+            var password = string.IsNullOrWhiteSpace(smtpUser)
+                ? null
+                : ReadHiddenValue("SMTP password: ");
+            smtp = new SmtpSettingsRequest(
+                smtpHost,
+                smtpPort ?? 587,
+                !smtpNoTls,
+                smtpUser,
+                password,
+                smtpFrom,
+                smtpTo);
+        }
+
+        var webhookUrl = configureWebhook ? ReadHiddenValue("Webhook URL: ") : null;
+        await settingsService.ConfigureAsync(
+                new NotificationSettingsRequest(smtp, webhookUrl, notifySuccess),
+                cancellationToken)
+            .ConfigureAwait(false);
+        Console.WriteLine("Notification settings saved. Passwords and webhook URLs are DPAPI-protected.");
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to configure notifications");
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> TestNotificationsAsync(INotifier notifier, CancellationToken cancellationToken)
+{
+    try
+    {
+        await notifier.NotifyAsync(
+                new NotificationMessage(
+                    NotificationKind.Test,
+                    "SSLense test notification",
+                    "SSLense notification delivery is configured correctly."),
+                cancellationToken)
+            .ConfigureAwait(false);
+        Console.WriteLine("Test notification sent through every configured channel.");
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Test notification failed");
+        Console.Error.WriteLine($"Error: {FormatExceptionMessages(exception)}");
+        return 1;
+    }
+}
+
+static async Task<int> ClearNotificationsAsync(
+    INotificationSettingsService settingsService,
+    CancellationToken cancellationToken)
+{
+    try
+    {
+        await settingsService.ClearAsync(cancellationToken).ConfigureAwait(false);
+        Console.WriteLine("Notification settings cleared.");
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to clear notification settings");
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
+static string ReadHiddenValue(string prompt)
+{
+    Console.Write(prompt);
+    if (Console.IsInputRedirected)
+    {
+        return Console.ReadLine() ?? string.Empty;
+    }
+
+    var characters = new List<char>();
+    while (true)
+    {
+        var key = Console.ReadKey(intercept: true);
+        if (key.Key == ConsoleKey.Enter)
+        {
+            Console.WriteLine();
+            return new string(characters.ToArray());
+        }
+
+        if (key.Key == ConsoleKey.Backspace)
+        {
+            if (characters.Count > 0)
+            {
+                characters.RemoveAt(characters.Count - 1);
+            }
+            continue;
+        }
+
+        if (!char.IsControl(key.KeyChar))
+        {
+            characters.Add(key.KeyChar);
+        }
+    }
+}
+
+static string FormatExceptionMessages(Exception exception) => exception is AggregateException aggregate
+    ? string.Join(" ", aggregate.Flatten().InnerExceptions.Select(value => value.Message))
+    : exception.Message;
+
+static async Task<int> RenewAsync(
+    IRenewalService renewalService,
+    bool all,
+    string? siteName,
+    bool force,
+    CancellationToken cancellationToken)
+{
+    try
+    {
+        var results = await renewalService.RenewAsync(
+                new RenewalRequest(all, siteName, force),
+                new ConsoleProgress(),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (results.Count == 0)
+        {
+            Console.WriteLine("No managed certificates were found.");
+            return 0;
+        }
+
+        foreach (var result in results)
+        {
+            var outcome = !result.Attempted ? "SKIPPED" : result.Succeeded ? "SUCCESS" : "FAILED";
+            Console.WriteLine($"{outcome}: {result.SiteName} - {result.Message}");
+            if (result.NewThumbprint is not null)
+            {
+                Console.WriteLine($"  New thumbprint: {result.NewThumbprint}");
+            }
+        }
+
+        return results.Any(value => !value.Succeeded) ? 1 : 0;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Certificate renewal command failed");
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> StatusAsync(
+    IRenewalService renewalService,
+    CancellationToken cancellationToken)
+{
+    try
+    {
+        var statuses = await renewalService.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        if (statuses.Count == 0)
+        {
+            Console.WriteLine("No managed certificates were found.");
+            return 0;
+        }
+
+        foreach (var status in statuses)
+        {
+            Console.WriteLine(status.SiteName);
+            Console.WriteLine($"  Hosts: {string.Join(", ", status.Hosts)}");
+            Console.WriteLine($"  Issued: {status.NotBefore:yyyy-MM-dd HH:mm:ss} UTC");
+            Console.WriteLine($"  Expires: {status.NotAfter:yyyy-MM-dd HH:mm:ss} UTC ({status.DaysRemaining} days left)");
+            Console.WriteLine($"  Thumbprint: {status.Thumbprint}");
+            var lastResult = status.LastRenewalSucceeded switch
+            {
+                true => $"Success - {status.LastRenewalMessage}",
+                false => $"Failed - {status.LastRenewalMessage}",
+                null => "Not attempted"
+            };
+            Console.WriteLine($"  Last renewal: {lastResult}");
+            if (status.LastRenewalAttempt is not null)
+            {
+                Console.WriteLine($"  Last attempt: {status.LastRenewalAttempt:yyyy-MM-dd HH:mm:ss} UTC");
+            }
+        }
+
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to read managed certificate status");
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> InstallServiceAsync(
+    IWindowsServiceManager serviceManager,
+    string? servicePath,
+    CancellationToken cancellationToken)
+{
+    try
+    {
+        var executablePath = servicePath ?? Path.Combine(AppContext.BaseDirectory, "SSLense.Service.exe");
+        await serviceManager.InstallAsync(executablePath, cancellationToken).ConfigureAwait(false);
+        Console.WriteLine("SSLense Renewal Service was installed and started.");
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to install the SSLense Renewal Service");
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> UninstallServiceAsync(
+    IWindowsServiceManager serviceManager,
+    CancellationToken cancellationToken)
+{
+    try
+    {
+        await serviceManager.UninstallAsync(cancellationToken).ConfigureAwait(false);
+        Console.WriteLine("SSLense Renewal Service is not installed.");
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to uninstall the SSLense Renewal Service");
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> IssueAsync(
+    IAcmeService acmeService,
+    string siteName,
+    string? hostsValue,
+    string email,
+    string? outputDirectory,
+    bool force,
+    CancellationToken cancellationToken)
+{
+    try
+    {
+        var hosts = string.IsNullOrWhiteSpace(hostsValue)
+            ? Array.Empty<string>()
+            : hostsValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var result = await acmeService.IssueAsync(
+                new AcmeIssueRequest(siteName, hosts, email, outputDirectory, force),
+                new ConsoleProgress(),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        Console.WriteLine("Staging certificate issued, installed, and bound successfully.");
+        Console.WriteLine($"Thumbprint: {result.CertificateThumbprint}");
+        Console.WriteLine($"Valid from: {result.NotBefore:yyyy-MM-dd HH:mm:ss} UTC");
+        Console.WriteLine($"Valid until: {result.NotAfter:yyyy-MM-dd HH:mm:ss} UTC");
+        Console.WriteLine($"PEM: {result.CertificatePemPath}");
+        Console.WriteLine($"PFX: {result.PfxPath}");
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to issue a staging certificate for IIS site {SiteName}", siteName);
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> ListSitesAsync(IIisService iisService, CancellationToken cancellationToken)
+{
+    try
+    {
+        var sites = await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
+        if (sites.Count == 0)
+        {
+            Console.WriteLine("No IIS sites were found.");
+            return 0;
+        }
+
+        foreach (var site in sites)
+        {
+            Console.WriteLine($"{site.Name} (ID {site.Id}, {site.State})");
+            Console.WriteLine($"  Path: {site.PhysicalPath ?? "<not configured>"}");
+
+            if (site.Bindings.Count == 0)
+            {
+                Console.WriteLine("  Bindings: <none>");
+                continue;
+            }
+
+            foreach (var binding in site.Bindings)
+            {
+                var host = string.IsNullOrWhiteSpace(binding.HostName) ? "*" : binding.HostName;
+                var certificate = binding.CertificateThumbprint is null
+                    ? string.Empty
+                    : $", certificate {binding.CertificateThumbprint}";
+                var sni = binding.UsesSni ? ", SNI" : string.Empty;
+                Console.WriteLine(
+                    $"  {binding.Protocol}://{host}:{binding.Port} [{binding.IpAddress}]{certificate}{sni}");
+            }
+        }
+
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to list IIS sites");
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
