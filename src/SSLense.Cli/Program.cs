@@ -5,6 +5,8 @@ using SSLense.Core.Iis;
 using SSLense.Core.Renewal;
 using SSLense.Core.WindowsServices;
 using SSLense.Core.Notifications;
+using SSLense.Core.Certificates;
+using SSLense.Core.Validation;
 using SSLense.Cli;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -123,6 +125,40 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         StatusAsync(services.GetRequiredService<IRenewalService>(), cancellationToken));
     rootCommand.Subcommands.Add(statusCommand);
 
+    var preflightSiteOption = new Option<string>("--site") { Required = true, Description = "IIS site name." };
+    var preflightHostsOption = new Option<string>("--hosts") { Required = true, Description = "Comma-separated host names." };
+    var preflightCommand = new Command("preflight", "Run IIS and HTTP-01 readiness checks.");
+    preflightCommand.Options.Add(preflightSiteOption);
+    preflightCommand.Options.Add(preflightHostsOption);
+    preflightCommand.SetAction((result, token) => PreflightAsync(
+        services.GetRequiredService<IPreflightService>(),
+        result.GetRequiredValue(preflightSiteOption),
+        result.GetRequiredValue(preflightHostsOption), token));
+    rootCommand.Subcommands.Add(preflightCommand);
+
+    var detailsSiteOption = new Option<string>("--site") { Required = true, Description = "Managed IIS site name." };
+    var detailsCommand = new Command("details", "Show certificate details, bindings, and recent logs.");
+    detailsCommand.Options.Add(detailsSiteOption);
+    detailsCommand.SetAction((result, token) => DetailsAsync(
+        services.GetRequiredService<ICertificateManagementService>(), result.GetRequiredValue(detailsSiteOption), token));
+    rootCommand.Subcommands.Add(detailsCommand);
+
+    var removeSiteOption = new Option<string>("--site") { Required = true, Description = "Managed IIS site name." };
+    var removeYesOption = new Option<bool>("--yes") { Description = "Confirm removal of matching HTTPS bindings and the managed certificate." };
+    var removeCommand = new Command("remove", "Remove a managed certificate and its matching IIS HTTPS bindings.");
+    removeCommand.Options.Add(removeSiteOption); removeCommand.Options.Add(removeYesOption);
+    removeCommand.SetAction((result, token) => RemoveAsync(
+        services.GetRequiredService<ICertificateManagementService>(), result.GetRequiredValue(removeSiteOption), result.GetValue(removeYesOption), token));
+    rootCommand.Subcommands.Add(removeCommand);
+
+    var settingsEmailOption = new Option<string?>("--email") { Description = "Default ACME account email." };
+    var settingsDaysOption = new Option<int>("--renewal-days") { Required = true, Description = "Renewal threshold, 1-89 days." };
+    var configureCommand = new Command("configure", "Save general staging and renewal settings.");
+    configureCommand.Options.Add(settingsEmailOption); configureCommand.Options.Add(settingsDaysOption);
+    configureCommand.SetAction((result, token) => ConfigureGeneralAsync(
+        services.GetRequiredService<ISettingsService>(), result.GetValue(settingsEmailOption), result.GetRequiredValue(settingsDaysOption), token));
+    rootCommand.Subcommands.Add(configureCommand);
+
     var servicePathOption = new Option<string?>("--service-path")
     {
         Description = "Path to the published SSLense.Service.exe. Defaults to the CLI directory."
@@ -140,6 +176,19 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         services.GetRequiredService<IWindowsServiceManager>(),
         cancellationToken));
     rootCommand.Subcommands.Add(uninstallServiceCommand);
+
+    foreach (var item in new[]
+    {
+        (Name: "service-status", Description: "Show the automatic renewal service status.", Action: "status"),
+        (Name: "start-service", Description: "Start the automatic renewal service.", Action: "start"),
+        (Name: "stop-service", Description: "Stop the automatic renewal service.", Action: "stop")
+    })
+    {
+        var command = new Command(item.Name, item.Description);
+        command.SetAction((_, token) => ServiceActionAsync(
+            services.GetRequiredService<IWindowsServiceManager>(), item.Action, token));
+        rootCommand.Subcommands.Add(command);
+    }
 
     var notificationsCommand = new Command("notifications", "Configure and test renewal notifications.");
     var smtpHostOption = new Option<string?>("--smtp-host") { Description = "SMTP server host name." };
@@ -186,6 +235,55 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     rootCommand.Subcommands.Add(notificationsCommand);
 
     return rootCommand;
+}
+
+static async Task<int> PreflightAsync(IPreflightService service, string site, string hostsValue, CancellationToken token)
+{
+    try
+    {
+        var hosts = hostsValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var checks = await service.CheckAsync(site, hosts, token).ConfigureAwait(false);
+        foreach (var check in checks) Console.WriteLine($"{(check.Succeeded ? "PASS" : "FAIL")}: {check.Name} - {check.Message}");
+        return checks.All(value => value.Succeeded) ? 0 : 1;
+    }
+    catch (Exception exception) { Log.Error(exception, "Pre-flight check failed"); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
+}
+
+static async Task<int> DetailsAsync(ICertificateManagementService service, string site, CancellationToken token)
+{
+    try
+    {
+        var detail = await service.GetDetailsAsync(site, token).ConfigureAwait(false);
+        Console.WriteLine($"Site: {detail.SiteName}\nHosts: {string.Join(", ", detail.Hosts)}\nIssuer: {detail.Issuer}\nThumbprint: {detail.Thumbprint}\nIssued: {detail.NotBefore:O}\nExpires: {detail.NotAfter:O}\nBound sites: {string.Join(", ", detail.BoundSites)}");
+        Console.WriteLine("Recent logs:"); foreach (var line in detail.RecentLogLines) Console.WriteLine($"  {line}");
+        return 0;
+    }
+    catch (Exception exception) { Log.Error(exception, "Failed to read certificate details"); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
+}
+
+static async Task<int> RemoveAsync(ICertificateManagementService service, string site, bool confirmed, CancellationToken token)
+{
+    if (!confirmed) { Console.Error.WriteLine("Error: --yes is required because removal deletes matching HTTPS bindings."); return 1; }
+    try { await service.RemoveAsync(site, token).ConfigureAwait(false); Console.WriteLine($"Removed managed certificate for '{site}'."); return 0; }
+    catch (Exception exception) { Log.Error(exception, "Failed to remove certificate for {Site}", site); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
+}
+
+static async Task<int> ConfigureGeneralAsync(ISettingsService service, string? email, int days, CancellationToken token)
+{
+    try { await service.SaveGeneralAsync(email, days, token).ConfigureAwait(false); Console.WriteLine("General staging settings saved."); return 0; }
+    catch (Exception exception) { Log.Error(exception, "Failed to save general settings"); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
+}
+
+static async Task<int> ServiceActionAsync(IWindowsServiceManager service, string action, CancellationToken token)
+{
+    try
+    {
+        if (action == "start") await service.StartAsync(token).ConfigureAwait(false);
+        else if (action == "stop") await service.StopAsync(token).ConfigureAwait(false);
+        var status = await service.GetStatusAsync(token).ConfigureAwait(false);
+        Console.WriteLine($"SSLense service status: {status}"); return 0;
+    }
+    catch (Exception exception) { Log.Error(exception, "Service action {Action} failed", action); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
 }
 
 static async Task<int> ConfigureNotificationsAsync(

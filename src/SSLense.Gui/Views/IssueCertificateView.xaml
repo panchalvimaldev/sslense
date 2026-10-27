@@ -1,0 +1,57 @@
+<UserControl x:Class="SSLense.Gui.Views.IssueCertificateView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <UserControl.Resources><BooleanToVisibilityConverter x:Key="BoolToVisibility" /></UserControl.Resources>
+ <Grid>
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <StackPanel Margin="0,0,0,18">
+   <TextBlock Text="Issue Certificate" FontSize="28" FontWeight="SemiBold" Foreground="#17212B"/>
+   <TextBlock Text="{Binding StepTitle}" Foreground="#5E6B76" Margin="0,4,0,0"/>
+  </StackPanel>
+  <Border Grid.Row="1" Background="White" BorderBrush="#D8DEE4" BorderThickness="1" CornerRadius="5" Padding="22">
+   <Grid>
+    <StackPanel Visibility="{Binding IsStepOne, Converter={StaticResource BoolToVisibility}}">
+     <TextBlock Text="Choose an IIS site and host names" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,16"/>
+     <TextBlock Text="IIS site"/><ComboBox ItemsSource="{Binding Sites}" SelectedItem="{Binding SelectedSite}" DisplayMemberPath="Name" Margin="0,5,0,16" Padding="6"/>
+     <TextBlock Text="Host names" FontWeight="SemiBold" Margin="0,0,0,8"/>
+     <ItemsControl ItemsSource="{Binding Hosts}"><ItemsControl.ItemTemplate><DataTemplate>
+      <Grid Margin="0,4"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="220"/></Grid.ColumnDefinitions>
+       <CheckBox Content="{Binding Host}" IsChecked="{Binding IsSelected}"/>
+       <TextBlock Grid.Column="1" Text="{Binding BindingStatus}"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="#247A3D"/><Style.Triggers><DataTrigger Binding="{Binding HasHttpBinding}" Value="False"><Setter Property="Foreground" Value="#B42318"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
+      </Grid>
+     </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+    </StackPanel>
+
+    <StackPanel Visibility="{Binding IsStepTwo, Converter={StaticResource BoolToVisibility}}">
+     <TextBlock Text="Account and pre-flight checks" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,16"/>
+     <TextBlock Text="Let's Encrypt account email"/><TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" Margin="0,5,0,12" Padding="7"/>
+     <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+      <RadioButton Content="Staging (enabled)" IsChecked="True" Margin="0,0,20,0"/>
+      <RadioButton Content="Production (disabled until explicitly authorized)" IsEnabled="False"/>
+     </StackPanel>
+     <Button Content="Run Pre-flight Check" Command="{Binding PreflightCommand}" Padding="14,7" HorizontalAlignment="Left" Margin="0,0,0,12"/>
+     <DataGrid ItemsSource="{Binding PreflightChecks}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" Height="230">
+      <DataGrid.Columns><DataGridTextColumn Header="Check" Binding="{Binding Name}" Width="1.2*"/><DataGridTextColumn Header="Result" Binding="{Binding Result}" Width="70"/><DataGridTextColumn Header="Details" Binding="{Binding Message}" Width="2*"/></DataGrid.Columns>
+     </DataGrid>
+     <TextBlock Text="{Binding ResultMessage}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+    </StackPanel>
+
+    <StackPanel Visibility="{Binding IsStepThree, Converter={StaticResource BoolToVisibility}}">
+     <TextBlock Text="Issuing staging certificate" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,16"/>
+     <ListBox ItemsSource="{Binding ProgressLines}" Height="330" FontFamily="Consolas" FontSize="12"/>
+     <TextBlock Text="{Binding ResultMessage}" FontWeight="SemiBold" Foreground="#247A3D" Margin="0,12,0,0" TextWrapping="Wrap"/>
+    </StackPanel>
+   </Grid>
+  </Border>
+  <DockPanel Grid.Row="2" Margin="0,14,0,0">
+   <TextBlock Text="{Binding ErrorMessage}" Foreground="#B42318" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center"/>
+   <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+    <Button Content="Back" Command="{Binding BackCommand}" Padding="14,7" Margin="6,0"/>
+    <Button Content="Next" Command="{Binding NextCommand}" Padding="14,7" Margin="6,0"/>
+    <Button Content="Issue Staging Certificate" Command="{Binding IssueCommand}" Padding="14,7" Margin="6,0"/>
+    <Button Content="Cancel" Command="{Binding CancelCommand}" Padding="14,7" Margin="6,0"/>
+    <Button Content="Start Over" Command="{Binding StartOverCommand}" Padding="14,7" Margin="6,0"/>
+   </StackPanel>
+  </DockPanel>
+ </Grid>
+</UserControl>

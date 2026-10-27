@@ -14,4 +14,6 @@ public interface IManagedCertificateStore
         DateTimeOffset attemptedAt,
         string message,
         CancellationToken cancellationToken = default);
+
+    Task RemoveAsync(string siteName, CancellationToken cancellationToken = default);
 }

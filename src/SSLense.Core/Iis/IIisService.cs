@@ -10,4 +10,10 @@ public interface IIisService
         string certificateThumbprint,
         string certificateStoreName = "My",
         CancellationToken cancellationToken = default);
+
+    Task RemoveHttpsBindingsAsync(
+        string siteName,
+        IReadOnlyList<string> hosts,
+        string expectedCertificateThumbprint,
+        CancellationToken cancellationToken = default);
 }

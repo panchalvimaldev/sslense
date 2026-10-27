@@ -31,7 +31,11 @@ public partial class App : Application
             var builder = Host.CreateApplicationBuilder(e.Args);
             builder.Services.AddSerilog();
             builder.Services.AddSSLenseCore();
+            builder.Services.AddSingleton<INavigationService, NavigationService>();
             builder.Services.AddSingleton<DashboardViewModel>();
+            builder.Services.AddSingleton<IssueCertificateViewModel>();
+            builder.Services.AddSingleton<CertificateDetailsViewModel>();
+            builder.Services.AddSingleton<SettingsViewModel>();
             builder.Services.AddSingleton<LogsViewModel>();
             builder.Services.AddSingleton<MainViewModel>();
             builder.Services.AddSingleton<MainWindow>();

@@ -37,6 +37,9 @@ public static class DependencyInjection
         services.AddTransient<INotifier, Notifier>();
         services.AddTransient<INotificationSettingsService, NotificationSettingsService>();
         services.AddSingleton<ILogService, LogService>();
+        services.AddTransient<IPreflightService, PreflightService>();
+        services.AddTransient<ISettingsService, SettingsService>();
+        services.AddTransient<ICertificateManagementService, CertificateManagementService>();
         return services;
     }
 }

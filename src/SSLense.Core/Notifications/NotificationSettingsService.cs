@@ -15,7 +15,10 @@ internal sealed class NotificationSettingsService(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var smtp = request.Smtp is null ? null : CreateSmtpConfig(request.Smtp);
+        var config = await configStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+        var smtp = request.Smtp is null ? null : CreateSmtpConfig(
+            request.Smtp,
+            request.PreserveExistingSmtpPassword ? config.Notifications.Smtp?.ProtectedPassword : null);
         WebhookNotificationConfig? webhook = null;
         if (!string.IsNullOrWhiteSpace(request.WebhookUrl))
         {
@@ -27,13 +30,16 @@ internal sealed class NotificationSettingsService(
 
             webhook = new WebhookNotificationConfig(Protect(uri.AbsoluteUri));
         }
+        else if (request.PreserveExistingWebhook)
+        {
+            webhook = config.Notifications.Webhook;
+        }
 
         if (smtp is null && webhook is null)
         {
             throw new ArgumentException("Configure at least one SMTP or webhook notification channel.");
         }
 
-        var config = await configStore.LoadAsync(cancellationToken).ConfigureAwait(false);
         await configStore.SaveAsync(
                 config with
                 {
@@ -57,7 +63,7 @@ internal sealed class NotificationSettingsService(
             .ConfigureAwait(false);
     }
 
-    private SmtpNotificationConfig CreateSmtpConfig(SmtpSettingsRequest smtp)
+    private SmtpNotificationConfig CreateSmtpConfig(SmtpSettingsRequest smtp, string? existingProtectedPassword)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(smtp.Host);
         if (smtp.Port is < 1 or > 65535)
@@ -67,7 +73,7 @@ internal sealed class NotificationSettingsService(
 
         ValidateEmail(smtp.From, "SMTP from address");
         ValidateEmail(smtp.To, "SMTP recipient address");
-        if (!string.IsNullOrWhiteSpace(smtp.Username) && smtp.Password is null)
+        if (!string.IsNullOrWhiteSpace(smtp.Username) && smtp.Password is null && existingProtectedPassword is null)
         {
             throw new ArgumentException("An SMTP password is required when a username is configured.");
         }
@@ -77,7 +83,7 @@ internal sealed class NotificationSettingsService(
             smtp.Port,
             smtp.EnableSsl,
             smtp.Username?.Trim(),
-            smtp.Password is null ? null : Protect(smtp.Password),
+            smtp.Password is null ? existingProtectedPassword : Protect(smtp.Password),
             smtp.From.Trim(),
             smtp.To.Trim());
     }

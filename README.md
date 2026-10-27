@@ -122,7 +122,7 @@ Start the WPF dashboard from PowerShell or Visual Studio:
 dotnet run --project .\src\SSLense.Gui
 ```
 
-Windows displays an administrator elevation prompt because the application manifest requests `requireAdministrator`. The Phase 6 GUI provides:
+Windows displays an administrator elevation prompt because the application manifest requests `requireAdministrator`. The GUI provides:
 
 - A Dashboard showing site, host names, expiry, days remaining, and renewal status
 - Green, amber, and red certificate health rows
@@ -130,8 +130,28 @@ Windows displays an administrator elevation prompt because the application manif
 - Renewal checks for all due certificates
 - Cancellable operations with live progress
 - A live log viewer with level filtering and access to the log folder
+- A three-step staging issuance wizard with IIS selection, pre-flight checks, live progress, and cancellation
+- Certificate details, renewal, confirmed removal, bindings, issuer, validity, and recent logs
+- General, SMTP/webhook, and Windows Service settings
 
-The **Issue New** button is intentionally disabled until the Phase 7 issuance wizard is implemented. Existing certificates can still be issued through the CLI and appear in the Dashboard after refresh.
+Production remains visibly disabled until it is explicitly authorized. Use **Issue New** on the Dashboard to open the staging wizard. Removing a certificate requires confirmation and removes only matching HTTPS bindings; a certificate still used by another IIS site is retained in the Windows certificate store.
+
+The Phase 7 Core operations also have CLI equivalents:
+
+```powershell
+dotnet run --project .\src\SSLense.Cli -- preflight --site "My IIS Site" --hosts example.com
+dotnet run --project .\src\SSLense.Cli -- details --site "My IIS Site"
+dotnet run --project .\src\SSLense.Cli -- configure --email admin@example.com --renewal-days 30
+dotnet run --project .\src\SSLense.Cli -- service-status
+dotnet run --project .\src\SSLense.Cli -- start-service
+dotnet run --project .\src\SSLense.Cli -- stop-service
+```
+
+Certificate removal is destructive and therefore requires explicit CLI confirmation:
+
+```powershell
+dotnet run --project .\src\SSLense.Cli -- remove --site "My IIS Site" --yes
+```
 
 ## Data and logs
 

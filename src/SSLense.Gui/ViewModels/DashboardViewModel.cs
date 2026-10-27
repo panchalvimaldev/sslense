@@ -11,6 +11,7 @@ public partial class DashboardViewModel : ObservableObject
 {
     private readonly IRenewalService _renewalService;
     private readonly ILogger<DashboardViewModel> _logger;
+    private readonly INavigationService _navigation;
     private readonly AsyncRelayCommand _refreshCommand;
     private readonly AsyncRelayCommand _renewSelectedCommand;
     private readonly AsyncRelayCommand _renewAllCommand;
@@ -30,14 +31,20 @@ public partial class DashboardViewModel : ObservableObject
 
     public DashboardViewModel(
         IRenewalService renewalService,
-        ILogger<DashboardViewModel> logger)
+        ILogger<DashboardViewModel> logger,
+        INavigationService navigation)
     {
         _renewalService = renewalService;
         _logger = logger;
+        _navigation = navigation;
         _refreshCommand = new AsyncRelayCommand(RefreshAsync, CanRun);
         _renewSelectedCommand = new AsyncRelayCommand(RenewSelectedAsync, CanRenewSelected);
         _renewAllCommand = new AsyncRelayCommand(RenewAllAsync, CanRenewAll);
         _cancelCommand = new RelayCommand(Cancel, CanCancel);
+        IssueNewCommand = new RelayCommand(() => _navigation.Navigate("Issue"), () => !IsBusy);
+        ViewDetailsCommand = new RelayCommand(
+            () => _navigation.Navigate("Details", SelectedCertificate?.SiteName),
+            CanRenewSelected);
     }
 
     public ObservableCollection<CertificateRowViewModel> Certificates { get; } = [];
@@ -51,11 +58,13 @@ public partial class DashboardViewModel : ObservableObject
     public IAsyncRelayCommand RenewAllCommand => _renewAllCommand;
 
     public IRelayCommand CancelCommand => _cancelCommand;
+    public IRelayCommand IssueNewCommand { get; }
+    public IRelayCommand ViewDetailsCommand { get; }
 
     public Task InitializeAsync() => _refreshCommand.ExecuteAsync(null);
 
     partial void OnSelectedCertificateChanged(CertificateRowViewModel? value) =>
-        _renewSelectedCommand.NotifyCanExecuteChanged();
+        NotifySelectionCommands();
 
     partial void OnIsBusyChanged(bool value)
     {
@@ -63,6 +72,8 @@ public partial class DashboardViewModel : ObservableObject
         _renewSelectedCommand.NotifyCanExecuteChanged();
         _renewAllCommand.NotifyCanExecuteChanged();
         _cancelCommand.NotifyCanExecuteChanged();
+        (IssueNewCommand as RelayCommand)?.NotifyCanExecuteChanged();
+        (ViewDetailsCommand as RelayCommand)?.NotifyCanExecuteChanged();
     }
 
     private Task RefreshAsync(CancellationToken cancellationToken) =>
@@ -184,5 +195,11 @@ public partial class DashboardViewModel : ObservableObject
         _refreshCommand.Cancel();
         _renewSelectedCommand.Cancel();
         _renewAllCommand.Cancel();
+    }
+
+    private void NotifySelectionCommands()
+    {
+        _renewSelectedCommand.NotifyCanExecuteChanged();
+        (ViewDetailsCommand as RelayCommand)?.NotifyCanExecuteChanged();
     }
 }

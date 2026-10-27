@@ -15,7 +15,8 @@
                 <TextBlock Text="Managed IIS certificates and staging renewal status" Foreground="#5E6B76" Margin="0,4,0,0" />
             </StackPanel>
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="Issue New" IsEnabled="False" ToolTip="Issue wizard arrives in Phase 7" Padding="14,7" Margin="0,0,8,0" />
+                <Button Content="Issue New" Command="{Binding IssueNewCommand}" Padding="14,7" Margin="0,0,8,0" />
+                <Button Content="View Details" Command="{Binding ViewDetailsCommand}" Padding="14,7" Margin="0,0,8,0" />
                 <Button Content="Renew Selected" Command="{Binding RenewSelectedCommand}" Padding="14,7" Margin="0,0,8,0"
                         ToolTip="Immediately replace the selected staging certificate" />
                 <Button Content="Renew All Due" Command="{Binding RenewAllCommand}" Padding="14,7" Margin="0,0,8,0" />

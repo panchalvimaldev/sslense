@@ -13,6 +13,15 @@
         <DataTemplate DataType="{x:Type vm:LogsViewModel}">
             <views:LogsView />
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:IssueCertificateViewModel}">
+            <views:IssueCertificateView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:CertificateDetailsViewModel}">
+            <views:CertificateDetailsView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
+            <views:SettingsView />
+        </DataTemplate>
     </Window.Resources>
     <Grid Background="#F3F5F7">
         <Grid.ColumnDefinitions>

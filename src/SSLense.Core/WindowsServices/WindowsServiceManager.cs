@@ -7,6 +7,32 @@ internal sealed class WindowsServiceManager(IFileSystem fileSystem) : IWindowsSe
 {
     public const string ServiceName = "SSLense";
 
+    public async Task<WindowsServiceStatus> GetStatusAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await RunScAsync(["query", ServiceName], cancellationToken).ConfigureAwait(false);
+        if (result.ExitCode != 0)
+        {
+            return WindowsServiceStatus.NotInstalled;
+        }
+
+        if (result.Output.Contains("RUNNING", StringComparison.OrdinalIgnoreCase))
+        {
+            return WindowsServiceStatus.Running;
+        }
+
+        if (result.Output.Contains("STOPPED", StringComparison.OrdinalIgnoreCase))
+        {
+            return WindowsServiceStatus.Stopped;
+        }
+
+        if (result.Output.Contains("PENDING", StringComparison.OrdinalIgnoreCase))
+        {
+            return WindowsServiceStatus.Pending;
+        }
+
+        return WindowsServiceStatus.Unknown;
+    }
+
     public async Task InstallAsync(
         string executablePath,
         CancellationToken cancellationToken = default)
@@ -46,6 +72,31 @@ internal sealed class WindowsServiceManager(IFileSystem fileSystem) : IWindowsSe
 
         _ = await RunScAsync(["stop", ServiceName], cancellationToken).ConfigureAwait(false);
         await RunRequiredScAsync(["delete", ServiceName], cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task StartAsync(CancellationToken cancellationToken = default)
+    {
+        var status = await GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        if (status == WindowsServiceStatus.NotInstalled)
+        {
+            throw new InvalidOperationException("The SSLense service is not installed.");
+        }
+
+        if (status != WindowsServiceStatus.Running)
+        {
+            await RunRequiredScAsync(["start", ServiceName], cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken = default)
+    {
+        var status = await GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        if (status == WindowsServiceStatus.NotInstalled || status == WindowsServiceStatus.Stopped)
+        {
+            return;
+        }
+
+        await RunRequiredScAsync(["stop", ServiceName], cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task RunRequiredScAsync(

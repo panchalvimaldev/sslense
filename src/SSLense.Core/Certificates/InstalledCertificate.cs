@@ -4,4 +4,5 @@ public sealed record InstalledCertificate(
     string Thumbprint,
     DateTimeOffset NotBefore,
     DateTimeOffset NotAfter,
-    bool HasPrivateKey);
+    bool HasPrivateKey,
+    string? Issuer = null);

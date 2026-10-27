@@ -79,6 +79,17 @@ public sealed class JsonManagedCertificateStore : IManagedCertificateStore
         await WriteUnsafeAsync(records, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task RemoveAsync(string siteName, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(siteName);
+        await using var fileLock = await _fileSystem
+            .AcquireExclusiveFileLockAsync(_lockPath, cancellationToken)
+            .ConfigureAwait(false);
+        var records = (await ReadUnsafeAsync(cancellationToken).ConfigureAwait(false)).ToList();
+        records.RemoveAll(value => string.Equals(value.SiteName, siteName, StringComparison.OrdinalIgnoreCase));
+        await WriteUnsafeAsync(records, cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task<IReadOnlyList<ManagedCertificate>> ReadUnsafeAsync(
         CancellationToken cancellationToken)
     {

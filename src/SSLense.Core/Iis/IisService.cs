@@ -142,6 +142,59 @@ internal sealed class IisService : IIisService
         }
     }
 
+    public Task RemoveHttpsBindingsAsync(
+        string siteName,
+        IReadOnlyList<string> hosts,
+        string expectedCertificateThumbprint,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var expectedHash = Convert.FromHexString(NormalizeThumbprint(expectedCertificateThumbprint));
+        try
+        {
+            using var serverManager = new ServerManager();
+            var site = FindSite(serverManager, siteName);
+            foreach (var host in hosts)
+            {
+                var binding = FindHttpsBinding(site, host);
+                if (binding is null)
+                {
+                    continue;
+                }
+
+                if (binding.CertificateHash is null || !binding.CertificateHash.SequenceEqual(expectedHash))
+                {
+                    throw new InvalidOperationException(
+                        $"The HTTPS binding for '{host}' uses a different certificate and was not removed.");
+                }
+
+                site.Bindings.Remove(binding);
+            }
+
+            serverManager.CommitChanges();
+
+            using var verificationManager = new ServerManager();
+            var verificationSite = FindSite(verificationManager, siteName);
+            foreach (var host in hosts)
+            {
+                var binding = FindHttpsBinding(verificationSite, host);
+                if (binding?.CertificateHash is { } hash && hash.SequenceEqual(expectedHash))
+                {
+                    throw new InvalidOperationException(
+                        $"HTTPS binding removal verification failed for '{host}'. The certificate was not removed from the store.");
+                }
+            }
+
+            return Task.CompletedTask;
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw new InvalidOperationException(
+                "IIS bindings could not be removed. Run SSLense as Administrator.",
+                exception);
+        }
+    }
+
     private static IisSite MapSite(Site site)
     {
         var rootApplication = site.Applications.FirstOrDefault(application => application.Path == "/");

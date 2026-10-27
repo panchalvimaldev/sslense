@@ -106,7 +106,8 @@ internal sealed class WindowsCertificateStore : ICertificateStore
         NormalizeThumbprint(certificate.Thumbprint),
         certificate.NotBefore.ToUniversalTime(),
         certificate.NotAfter.ToUniversalTime(),
-        certificate.HasPrivateKey);
+        certificate.HasPrivateKey,
+        certificate.Issuer);
 
     private static string NormalizeThumbprint(string thumbprint)
     {
