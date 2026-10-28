@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Project
-Windows tool (C# / .NET 8) that issues and renews Let's Encrypt certificates for IIS.
+Windows tool (C# / .NET 10 LTS) that issues and renews Let's Encrypt certificates for IIS.
 Full requirements are in PROJECT_SPEC.md. Read it before starting any task.
 
 ## Rules

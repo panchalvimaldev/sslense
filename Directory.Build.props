@@ -3,5 +3,16 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Single product version for every app and the MSI. Increase it for each release so MSI upgrades apply. -->
+    <Version>0.9.0</Version>
+
+    <!--
+      Publisher shown in file properties, Add/Remove Programs, and the MSI. Placeholder until the
+      registered name is decided; it must then match the name on the code-signing certificate.
+    -->
+    <Company>ProAcSys</Company>
+    <Product>SSLense</Product>
+    <Copyright>Copyright © 2026 $(Company)</Copyright>
+    <SSLenseIcon>$(MSBuildThisFileDirectory)assets\branding\sslense.ico</SSLenseIcon>
   </PropertyGroup>
 </Project>

@@ -1,0 +1,23 @@
+<Project Sdk="WixToolset.Sdk/7.0.0">
+  <!--
+    Built by installer\build.ps1, which publishes the apps first and passes PublishDir.
+    WiX v7 requires accepting its OSMF EULA (see OSMFEULA.txt in the WixToolset.Sdk package);
+    build.ps1 passes the acceptance only when its -AcceptWixEula switch is given.
+  -->
+  <PropertyGroup>
+    <OutputName>SSLense-$(Version)-x64</OutputName>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <Manufacturer Condition=" '$(Manufacturer)' == '' ">$(Company)</Manufacturer>
+    <DefineConstants>ProductVersion=$(Version);Manufacturer=$(Manufacturer);PublishDir=$(PublishDir);IconFile=$(SSLenseIcon)</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Util.wixext" Version="7.0.0" />
+  </ItemGroup>
+
+  <Target Name="RequirePublishDir" BeforeTargets="CoreCompile">
+    <Error
+      Condition=" '$(PublishDir)' == '' Or !Exists('$(PublishDir)service\SSLense.Service.exe') "
+      Text="PublishDir must point to the output of installer\build.ps1. Run .\installer\build.ps1 instead of building this project directly." />
+  </Target>
+</Project>

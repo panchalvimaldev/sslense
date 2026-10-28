@@ -47,7 +47,7 @@ internal sealed class WindowsCertificateStore : ICertificateStore
 
         try
         {
-            using var certificate = new X509Certificate2(
+            using var certificate = X509CertificateLoader.LoadPkcs12(
                 pfxBytes,
                 password,
                 X509KeyStorageFlags.MachineKeySet |

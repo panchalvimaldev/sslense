@@ -4,6 +4,7 @@
         xmlns:vm="clr-namespace:SSLense.Gui.ViewModels"
         xmlns:views="clr-namespace:SSLense.Gui.Views"
         Title="SSLense — IIS Certificate Manager" Height="780" Width="1240"
+        Icon="Assets/sslense.ico"
         MinHeight="640" MinWidth="1020"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource CanvasBrush}"
@@ -41,10 +42,9 @@
                 </Grid.RowDefinitions>
                 <StackPanel Margin="24,26,20,24">
                     <StackPanel Orientation="Horizontal">
-                        <Border Width="38" Height="38" CornerRadius="9" Background="{StaticResource BrandBrush}">
-                            <TextBlock Text="S" Foreground="White" FontSize="21" FontWeight="Bold"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
+                        <Image Source="Assets/sslense-icon.png" Width="40" Height="40"
+                               RenderOptions.BitmapScalingMode="HighQuality"
+                               AutomationProperties.Name="SSLense logo" />
                         <StackPanel Margin="11,0,0,0" VerticalAlignment="Center">
                             <TextBlock Text="SSLense" Foreground="White" FontSize="20" FontWeight="SemiBold" />
                             <TextBlock Text="Certificate manager" Foreground="#94A3B8" FontSize="11" />

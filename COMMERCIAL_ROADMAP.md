@@ -423,7 +423,7 @@ Exit gate: controlled production issuance and renewal can run without risking an
 
 ### Commercial Phase B — Distributable beta
 
-Status: **In progress.** Installer technology: WiX Toolset v7 (MSI), chosen October 28, 2026; its EULA must be accepted explicitly in the build, and its maintenance fee applies once revenue passes the threshold in its terms. ProgramData ACL hardening (item 3, directory part) was implemented on October 28, 2026; certificate private-key ACLs for application-pool identities remain open.
+Status: **In progress.** Installer technology: WiX Toolset v7 (MSI), chosen October 28, 2026; its EULA must be accepted explicitly in the build, and its maintenance fee applies once revenue passes the threshold in its terms. ProgramData ACL hardening (item 3, directory part) was implemented on October 28, 2026; certificate private-key ACLs for application-pool identities remain open. An unsigned MSI (item 1) is defined in `installer\`: self-contained x64 apps, service with failure actions and an optional `START_SERVICE=0`, Start menu shortcut, CLI on `PATH`, data-directory ACLs, major upgrades with downgrade blocking, and data preserved on uninstall. Remaining for item 1: Authenticode signing, an installer UI with the SSLense license agreement, and install/upgrade/uninstall verification on the supported Windows Server matrix.
 
 1. Signed installer
 2. Signed update mechanism

@@ -47,6 +47,6 @@ public sealed class TlsBindingProbeTests
         using var ephemeral = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddHours(1));
 
         // SChannel cannot use an ephemeral key, so round-trip through PFX into a temporary user key.
-        return new X509Certificate2(ephemeral.Export(X509ContentType.Pfx), (string?)null, X509KeyStorageFlags.UserKeySet);
+        return X509CertificateLoader.LoadPkcs12(ephemeral.Export(X509ContentType.Pfx), null, X509KeyStorageFlags.UserKeySet);
     }
 }

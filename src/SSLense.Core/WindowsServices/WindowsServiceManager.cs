@@ -55,9 +55,10 @@ internal sealed class WindowsServiceManager(IFileSystem fileSystem) : IWindowsSe
             ["description", ServiceName, "Renews SSLense-managed IIS certificates using Let's Encrypt."],
             cancellationToken).ConfigureAwait(false);
 
-        // Restart after 1, 5, and 15 minutes if the service exits unexpectedly; reset the count daily.
+        // Restart one minute after each of the first three unexpected exits; reset the count daily.
+        // Matches the MSI (util:ServiceConfig supports a single delay).
         await RunRequiredScAsync(
-            ["failure", ServiceName, "reset=", "86400", "actions=", "restart/60000/restart/300000/restart/900000"],
+            ["failure", ServiceName, "reset=", "86400", "actions=", "restart/60000/restart/60000/restart/60000"],
             cancellationToken).ConfigureAwait(false);
 
         var start = await RunScAsync(["start", ServiceName], cancellationToken).ConfigureAwait(false);

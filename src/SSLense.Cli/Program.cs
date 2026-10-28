@@ -53,8 +53,13 @@ try
             return 1;
         }
 
+        // Permission commands only touch file ACLs; the installer runs secure-data and must not trigger
+        // certificate recovery as a side effect.
+        var touchesCertificates = parseResult.CommandResult.Command.Name is not ("check-permissions" or "secure-data");
         var recovery = host.Services.GetRequiredService<ICertificateRecoveryService>();
-        foreach (var result in await recovery.RecoverAsync().ConfigureAwait(false))
+        foreach (var result in touchesCertificates
+                     ? await recovery.RecoverAsync().ConfigureAwait(false)
+                     : [])
         {
             if (result.Succeeded)
             {
@@ -179,6 +184,12 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         "Verify that only Administrators and SYSTEM can access the SSLense data directory.");
     checkPermissionsCommand.SetAction(_ => CheckPermissions());
     rootCommand.Subcommands.Add(checkPermissionsCommand);
+
+    var secureDataCommand = new Command(
+        "secure-data",
+        "Restrict the SSLense data directory to Administrators and SYSTEM. Run by the installer.");
+    secureDataCommand.SetAction(_ => SecureData());
+    rootCommand.Subcommands.Add(secureDataCommand);
 
     var preflightSiteOption = new Option<string>("--site") { Required = true, Description = "IIS site name." };
     var preflightHostsOption = new Option<string>("--hosts") { Required = true, Description = "Comma-separated host names." };
@@ -505,6 +516,31 @@ static async Task<int> RenewAsync(
     catch (Exception exception)
     {
         Log.Error(exception, "Certificate renewal command failed");
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
+static int SecureData()
+{
+    try
+    {
+        var problems = DataDirectorySecurity.Secure();
+        foreach (var problem in problems)
+        {
+            Console.WriteLine($"Problem: {problem}");
+        }
+
+        if (problems.Count == 0)
+        {
+            Console.WriteLine($"'{AppPaths.DataDirectory}' is restricted to Administrators and SYSTEM.");
+        }
+
+        return problems.Count == 0 ? 0 : 1;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to secure the data directory");
         Console.Error.WriteLine($"Error: {exception.Message}");
         return 1;
     }

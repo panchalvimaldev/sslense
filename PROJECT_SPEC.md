@@ -6,7 +6,7 @@ Paste this whole file into your VS Code AI agent (Claude Code, Copilot Agent, et
 
 ## 1. Goal
 
-Build a Windows tool in **C# / .NET 8** that automatically obtains, installs, and renews free **Let's Encrypt** SSL certificates for websites hosted on **IIS**. It is a simpler alternative to win-acme / Certify The Web.
+Build a Windows tool in **C# / .NET 10 (LTS)** that automatically obtains, installs, and renews free **Let's Encrypt** SSL certificates for websites hosted on **IIS**. It is a simpler alternative to win-acme / Certify The Web.
 
 Target user: an administrator of a Windows dedicated server with full admin rights, hosting one or more IIS sites (ASP.NET MVC / .NET Core).
 
@@ -14,13 +14,13 @@ The tool ships with **both a GUI (WPF desktop app) and a CLI**. Both are thin fr
 
 ## 2. Tech stack
 
-- .NET 8, C#, nullable reference types enabled
-- ACME client library: **Certes** (NuGet). Before using it, check that it is compatible with .NET 8 and still works against Let's Encrypt. If not, implement RFC 8555 directly using `HttpClient` + JWS (ES256), behind the same interfaces below.
+- .NET 10 (LTS; migrated from .NET 8, whose support ends November 10, 2026), C#, nullable reference types enabled
+- ACME client library: **Certes** (NuGet). Before using it, check that it is compatible with .NET 10 and still works against Let's Encrypt. If not, implement RFC 8555 directly using `HttpClient` + JWS (ES256), behind the same interfaces below.
 - IIS management: `Microsoft.Web.Administration`
 - Certificate store: `System.Security.Cryptography.X509Certificates`
 - Logging: Serilog (file + console)
 - CLI: `System.CommandLine`
-- GUI: **WPF** on .NET 8 (`net8.0-windows`), MVVM pattern with `CommunityToolkit.Mvvm`. Keep styling simple and clean (default Windows look is fine).
+- GUI: **WPF** on .NET 10 (`net10.0-windows`), MVVM pattern with `CommunityToolkit.Mvvm`. Keep styling simple and clean (default Windows look is fine).
 - Config/state: JSON files under `%ProgramData%\SSLense\`
 - Tests: xUnit + Moq
 - Windows Service hosting for renewal: `Microsoft.Extensions.Hosting.WindowsServices`

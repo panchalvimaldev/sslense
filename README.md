@@ -1,6 +1,6 @@
 # SSLense
 
-SSLense is a .NET 8 Windows tool for issuing and automatically renewing Let's Encrypt certificates for IIS. The CLI and Windows Service use the same `SSLense.Core` services and the same state under `C:\ProgramData\SSLense`.
+SSLense is a .NET 10 (LTS) Windows tool for issuing and automatically renewing Let's Encrypt certificates for IIS. The CLI and Windows Service use the same `SSLense.Core` services and the same state under `C:\ProgramData\SSLense`.
 
 The post-MVP productization plan is documented in [COMMERCIAL_ROADMAP.md](COMMERCIAL_ROADMAP.md).
 
@@ -10,7 +10,7 @@ The post-MVP productization plan is documented in [COMMERCIAL_ROADMAP.md](COMMER
 
 - Windows Server or Windows with IIS installed
 - IIS Management Scripts and Tools
-- .NET 8 Runtime when using a framework-dependent publish
+- Nothing extra when installed from the MSI (the apps are self-contained); the .NET 10 SDK to build from source
 - Administrator access
 - An IIS HTTP binding on port 80 for every requested host
 - Public HTTP access to `/.well-known/acme-challenge/` for HTTP-01 validation
@@ -25,6 +25,40 @@ From an Administrator PowerShell terminal in the repository:
 dotnet build .\SSLense.sln
 dotnet test .\SSLense.sln
 ```
+
+## Building the installer
+
+`installer\build.ps1` publishes the GUI, CLI, and service as self-contained x64 apps (the server needs no .NET installation) and builds `artifacts\installer\SSLense-<version>-x64.msi`. The version comes from `Directory.Build.props`; increase it for every release so upgrades apply.
+
+The installer uses WiX Toolset v7, which requires accepting its [Open Source Maintenance Fee EULA](https://wixtoolset.org/osmf/). Read the EULA (`OSMFEULA.txt` in the `WixToolset.Sdk` package), then either pass `-AcceptWixEula` on each build or accept it once for your Windows account:
+
+```powershell
+dotnet build .\installer\SSLense.Installer -t:AcceptEula -p:EulaId=wix7
+.\installer\build.ps1
+```
+
+The installer project is not part of `SSLense.sln`, so `dotnet build` and `dotnet test` never need WiX.
+
+Release settings live in one place each:
+
+- **Version, publisher, and product name:** `Directory.Build.props` (`Version`, `Company`, `Product`). These feed the program files' properties, Add/Remove Programs, and the MSI. The publisher must match the name on the code-signing certificate.
+- **Branding:** `assets\branding` holds the icon (`sslense.ico`, 16–256 px) used by the executables, the GUI window and sidebar, the Start menu shortcut, and Add/Remove Programs, plus the SVG sources and the horizontal logo.
+- **Bundled .NET runtime:** `build.ps1 -RuntimeVersion` (default `10.0.14`). Raise it to the latest .NET 10 servicing release before each SSLense release so customers receive runtime security fixes.
+
+## Installing with the MSI
+
+```powershell
+msiexec /i SSLense-0.9.0-x64.msi                      # interactive
+msiexec /i SSLense-0.9.0-x64.msi /qn                  # silent
+msiexec /i SSLense-0.9.0-x64.msi /qn START_SERVICE=0  # silent, service installed but not started
+msiexec /x SSLense-0.9.0-x64.msi /qn                  # silent uninstall
+```
+
+The MSI installs to `C:\Program Files\SSLense` (`gui`, `cli`, and `service` folders), registers and starts the `SSLense` renewal service as LocalSystem with restart-on-failure actions, adds a Start menu shortcut and an Add/Remove Programs entry, adds the CLI folder to the system `PATH`, and restricts `C:\ProgramData\SSLense`. Upgrades stop the service, replace the files, and start it again. A failed installation or upgrade is rolled back by Windows Installer.
+
+Uninstalling removes the program and the service but **keeps** `C:\ProgramData\SSLense` (certificates, accounts, and settings) and leaves existing IIS bindings and certificates in place, so sites keep working. Delete that folder manually to remove all SSLense data.
+
+If you previously registered the service with `install-service` during development, run `uninstall-service` before installing the MSI; Windows Installer cannot take over an existing service registration.
 
 ## CLI usage
 
@@ -133,7 +167,7 @@ Failed renewals are retried from a saved schedule, so retries survive service re
 | 3 or more | every 6 hours (hourly once the certificate is within 2 days of expiry) |
 | Let's Encrypt rate limit | after 24 hours, because retrying sooner only extends the limit |
 
-The service sends a failure notification on the third consecutive failure and about once a day after that, and immediately for a rate limit. Manual renewals from the GUI or CLI ignore the backoff, run immediately, and always notify on failure. `status` shows the failure count and the next automatic attempt. Existing IIS bindings remain in place when issuance fails. The service is registered to restart automatically after 1, 5, and 15 minutes if it exits unexpectedly.
+The service sends a failure notification on the third consecutive failure and about once a day after that, and immediately for a rate limit. Manual renewals from the GUI or CLI ignore the backoff, run immediately, and always notify on failure. `status` shows the failure count and the next automatic attempt. Existing IIS bindings remain in place when issuance fails. The service is registered to restart one minute after each of its first three unexpected exits in a day.
 
 Expiry is monitored separately from renewal, so an alert is still sent if renewal itself is broken. Each level is sent once per certificate; the thresholds scale with the certificate lifetime:
 
