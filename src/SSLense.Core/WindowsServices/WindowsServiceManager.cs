@@ -52,7 +52,12 @@ internal sealed class WindowsServiceManager(IFileSystem fileSystem) : IWindowsSe
             [verb, ServiceName, "binPath=", $"\"{fullPath}\"", "start=", "auto", "DisplayName=", "SSLense Renewal Service"],
             cancellationToken).ConfigureAwait(false);
         await RunRequiredScAsync(
-            ["description", ServiceName, "Renews managed IIS certificates using Let's Encrypt staging."],
+            ["description", ServiceName, "Renews SSLense-managed IIS certificates using Let's Encrypt."],
+            cancellationToken).ConfigureAwait(false);
+
+        // Restart after 1, 5, and 15 minutes if the service exits unexpectedly; reset the count daily.
+        await RunRequiredScAsync(
+            ["failure", ServiceName, "reset=", "86400", "actions=", "restart/60000/restart/300000/restart/900000"],
             cancellationToken).ConfigureAwait(false);
 
         var start = await RunScAsync(["start", ServiceName], cancellationToken).ConfigureAwait(false);

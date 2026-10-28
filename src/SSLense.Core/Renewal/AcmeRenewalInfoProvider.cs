@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Formats.Asn1;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
@@ -10,6 +11,14 @@ namespace SSLense.Core.Renewal;
 
 internal sealed class AcmeRenewalInfoProvider(HttpClient httpClient) : IRenewalInfoProvider
 {
+    // RFC 9773 asks clients to honor Retry-After; without one, re-check a few times a day.
+    private static readonly TimeSpan DefaultRetryAfter = TimeSpan.FromHours(6);
+    private static readonly TimeSpan MinimumRetryAfter = TimeSpan.FromHours(1);
+    private static readonly TimeSpan MaximumRetryAfter = TimeSpan.FromDays(1);
+
+    private readonly ConcurrentDictionary<string, (RenewalWindow Window, DateTimeOffset RefreshAt)> _cache =
+        new(StringComparer.OrdinalIgnoreCase);
+
     public async Task<RenewalWindow?> GetWindowAsync(
         ManagedCertificate certificate,
         CancellationToken cancellationToken = default)
@@ -17,6 +26,11 @@ internal sealed class AcmeRenewalInfoProvider(HttpClient httpClient) : IRenewalI
         if (certificate.NotAfter <= DateTimeOffset.UtcNow || !OperatingSystem.IsWindows())
         {
             return null;
+        }
+
+        if (_cache.TryGetValue(certificate.Thumbprint, out var cached) && DateTimeOffset.UtcNow < cached.RefreshAt)
+        {
+            return cached.Window;
         }
 
         try
@@ -78,7 +92,9 @@ internal sealed class AcmeRenewalInfoProvider(HttpClient httpClient) : IRenewalI
             var explanationUrl = root.TryGetProperty("explanationURL", out var explanation)
                 ? explanation.GetString()
                 : null;
-            return new RenewalWindow(start, end, explanationUrl);
+            var renewalWindow = new RenewalWindow(start, end, explanationUrl);
+            _cache[certificate.Thumbprint] = (renewalWindow, DateTimeOffset.UtcNow + GetRetryAfter(response));
+            return renewalWindow;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -100,6 +116,19 @@ internal sealed class AcmeRenewalInfoProvider(HttpClient httpClient) : IRenewalI
         {
             return null;
         }
+    }
+
+    internal static TimeSpan GetRetryAfter(HttpResponseMessage response)
+    {
+        var retryAfter = response.Headers.RetryAfter switch
+        {
+            { Delta: { } delta } => delta,
+            { Date: { } date } => date - DateTimeOffset.UtcNow,
+            _ => DefaultRetryAfter
+        };
+        return retryAfter < MinimumRetryAfter ? MinimumRetryAfter
+            : retryAfter > MaximumRetryAfter ? MaximumRetryAfter
+            : retryAfter;
     }
 
     internal static string CreateCertificateId(X509Certificate2 certificate)

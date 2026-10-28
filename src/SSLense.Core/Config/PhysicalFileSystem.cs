@@ -100,6 +100,33 @@ internal sealed class PhysicalFileSystem : IFileSystem
         }
     }
 
+    public IAsyncDisposable? TryAcquireExclusiveFileLock(string path)
+    {
+        var directory = Path.GetDirectoryName(path)
+            ?? throw new ArgumentException("The lock path must include a directory.", nameof(path));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            return new AsyncFileLock(new FileStream(
+                path,
+                FileMode.OpenOrCreate,
+                FileAccess.ReadWrite,
+                FileShare.None,
+                1,
+                FileOptions.Asynchronous));
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            throw new InvalidOperationException(
+                $"Access to SSLense state at '{path}' was denied. Run SSLense as Administrator.",
+                exception);
+        }
+    }
+
     public void DeleteFile(string path) => File.Delete(path);
 
     public void DeleteDirectoryIfEmpty(string path)

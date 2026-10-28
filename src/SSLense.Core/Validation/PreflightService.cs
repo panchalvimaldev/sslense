@@ -1,4 +1,3 @@
-using System.Security.Principal;
 using SSLense.Core.Config;
 using SSLense.Core.Iis;
 
@@ -23,8 +22,7 @@ internal sealed class PreflightService(IIisService iisService, IFileSystem fileS
         }
 
         var results = new List<PreflightCheck>();
-        var isAdministrator = OperatingSystem.IsWindows() && new WindowsPrincipal(WindowsIdentity.GetCurrent())
-            .IsInRole(WindowsBuiltInRole.Administrator);
+        var isAdministrator = WindowsElevation.IsAdministrator();
         results.Add(new PreflightCheck(
             "Administrator",
             isAdministrator,

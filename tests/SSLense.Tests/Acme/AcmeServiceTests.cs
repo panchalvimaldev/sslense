@@ -197,6 +197,88 @@ public sealed class AcmeServiceTests
         protocol.VerifyNoOtherCalls();
     }
 
+    [Theory]
+    [InlineData("CN=(STAGING) Pseudo Plum E5, O=(STAGING) Let's Encrypt, C=US", AcmeEnvironment.Production, true)]
+    [InlineData("CN=E5, O=Let's Encrypt, C=US", AcmeEnvironment.Staging, true)]
+    [InlineData("CN=E5, O=Let's Encrypt, C=US", AcmeEnvironment.Production, false)]
+    public async Task IssueAsync_ProductionRequest_DoesNotTreatStagingCertificateAsCoverage(
+        string issuer,
+        AcmeEnvironment managedEnvironment,
+        bool expectOrder)
+    {
+        var certificateStore = new Mock<ICertificateStore>(MockBehavior.Strict);
+        certificateStore.Setup(value => value.FindByThumbprintAsync("AABBCC", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new InstalledCertificate(
+                "AABBCC",
+                DateTimeOffset.UtcNow.AddDays(-1),
+                DateTimeOffset.UtcNow.AddDays(60),
+                true,
+                issuer));
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new ManagedCertificate(
+                "My Site", ["example.com"], "admin@example.com", "AABBCC",
+                DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(60),
+                Environment: managedEnvironment)]);
+        var site = new IisSite(
+            1,
+            "My Site",
+            "Started",
+            "C:\\inetpub\\site",
+            [
+                new IisBinding("http", "*", 80, "example.com", null, null, false),
+                new IisBinding("https", "*", 443, "example.com", "AABBCC", "My", true)
+            ]);
+        var protocol = new Mock<IAcmeProtocolClient>(MockBehavior.Strict);
+        protocol.Setup(value => value.CreateOrderAsync(
+                "admin@example.com",
+                It.IsAny<IReadOnlyList<string>>(),
+                AcmeEnvironment.Production,
+                It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("order requested"));
+        var service = new AcmeService(
+            MockIis(site).Object,
+            protocol.Object,
+            Mock.Of<IChallengeHandler>(),
+            Mock.Of<IChallengeProbe>(),
+            Mock.Of<ICertificateArtifactStore>(),
+            certificateStore.Object,
+            managed.Object);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.IssueAsync(
+            new AcmeIssueRequest(
+                "My Site", ["example.com"], "admin@example.com",
+                Environment: AcmeEnvironment.Production)));
+
+        if (expectOrder)
+        {
+            Assert.Equal("order requested", exception.Message);
+        }
+        else
+        {
+            Assert.Contains("--force", exception.Message, StringComparison.Ordinal);
+            protocol.VerifyNoOtherCalls();
+        }
+    }
+
+    [Theory]
+    [InlineData("urn:ietf:params:acme:error:rateLimited", true)]
+    [InlineData("urn:ietf:params:acme:error:unauthorized", false)]
+    public void IsRateLimited_RecognizesOnlyTheRateLimitProblemType(string problemType, bool expected)
+    {
+        var exception = new Certes.AcmeRequestException(
+            "request failed",
+            new Certes.Acme.AcmeError { Type = problemType, Detail = "too many certificates" });
+
+        Assert.Equal(expected, CertesAcmeProtocolClient.IsRateLimited(exception));
+        if (expected)
+        {
+            var mapped = CertesAcmeProtocolClient.ToRateLimitedException(exception, AcmeEnvironment.Staging);
+            Assert.Contains("too many certificates", mapped.Message, StringComparison.Ordinal);
+            Assert.Contains("will not retry", mapped.Message, StringComparison.Ordinal);
+        }
+    }
+
     [Fact]
     public async Task IssueAsync_ExpectedCertificateChanged_StopsBeforeIisOrAcme()
     {

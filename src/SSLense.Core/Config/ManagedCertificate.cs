@@ -11,4 +11,17 @@ public sealed record ManagedCertificate(
     DateTimeOffset? LastRenewalAttempt = null,
     bool? LastRenewalSucceeded = null,
     string? LastRenewalMessage = null,
-    Acme.AcmeEnvironment Environment = Acme.AcmeEnvironment.Staging);
+    Acme.AcmeEnvironment Environment = Acme.AcmeEnvironment.Staging,
+    int ConsecutiveFailures = 0,
+    DateTimeOffset? NextRetryAt = null,
+    ExpiryWarningLevel ExpiryWarningSent = ExpiryWarningLevel.None,
+    Guid Id = default);
+
+/// <summary>Expiry notification levels, each sent at most once per certificate.</summary>
+public enum ExpiryWarningLevel
+{
+    None = 0,
+    Warning = 1,
+    Critical = 2,
+    Expired = 3
+}

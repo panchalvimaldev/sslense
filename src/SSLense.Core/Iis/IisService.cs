@@ -2,8 +2,11 @@ using Microsoft.Web.Administration;
 
 namespace SSLense.Core.Iis;
 
-internal sealed class IisService : IIisService
+internal sealed class IisService(ITlsBindingProbe tlsProbe) : IIisService
 {
+    private static readonly TimeSpan LiveVerificationTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan LiveVerificationInterval = TimeSpan.FromMilliseconds(500);
+
     public Task<IReadOnlyList<IisSite>> GetSitesAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -36,7 +39,7 @@ internal sealed class IisService : IIisService
         }
     }
 
-    public Task ConfigureHttpsBindingsAsync(
+    public async Task ConfigureHttpsBindingsAsync(
         string siteName,
         IReadOnlyList<string> hosts,
         string certificateThumbprint,
@@ -56,11 +59,14 @@ internal sealed class IisService : IIisService
 
         var certificateHash = Convert.FromHexString(NormalizeThumbprint(certificateThumbprint));
         var changes = new List<BindingChange>();
+        var probeTargets = new List<(string IpAddress, string Host)>();
+        var siteStarted = false;
         try
         {
             using (var serverManager = new ServerManager())
             {
                 var site = FindSite(serverManager, siteName);
+                siteStarted = IsStarted(site);
                 foreach (var host in hosts)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -84,8 +90,12 @@ internal sealed class IisService : IIisService
                             binding.SslFlags));
                         binding.CertificateHash = certificateHash;
                         binding.CertificateStoreName = certificateStoreName;
-                        binding.SslFlags = SslFlags.Sni;
+
+                        // Keep unrelated flags such as DisableHTTP2; SSLense binds from the store, not the CCS.
+                        binding.SslFlags = (binding.SslFlags | SslFlags.Sni) & ~SslFlags.CentralCertStore;
                     }
+
+                    probeTargets.Add((ParseBindingInformation(binding.BindingInformation).IpAddress, host));
                 }
 
                 serverManager.CommitChanges();
@@ -108,7 +118,15 @@ internal sealed class IisService : IIisService
                 }
             }
 
-            return Task.CompletedTask;
+            // A stopped site has no HTTP.sys listener, so there is nothing live to verify yet.
+            if (siteStarted)
+            {
+                foreach (var (ipAddress, host) in probeTargets)
+                {
+                    await VerifyServedCertificateAsync(ipAddress, host, certificateThumbprint, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
         }
         catch (Exception exception)
         {
@@ -192,6 +210,62 @@ internal sealed class IisService : IIisService
             throw new InvalidOperationException(
                 "IIS bindings could not be removed. Run SSLense as Administrator.",
                 exception);
+        }
+    }
+
+    private async Task VerifyServedCertificateAsync(
+        string bindingIpAddress,
+        string host,
+        string expectedThumbprint,
+        CancellationToken cancellationToken)
+    {
+        // A wildcard binding also listens on loopback, so the check never leaves this machine.
+        var ipAddress = bindingIpAddress is "*" or "" ? "127.0.0.1" : bindingIpAddress.Trim('[', ']');
+        var expected = NormalizeThumbprint(expectedThumbprint);
+        var deadline = DateTimeOffset.UtcNow + LiveVerificationTimeout;
+        string observed;
+        while (true)
+        {
+            try
+            {
+                observed = NormalizeThumbprint(await tlsProbe
+                    .GetServedThumbprintAsync(ipAddress, host, 443, cancellationToken)
+                    .ConfigureAwait(false));
+                if (string.Equals(observed, expected, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                observed = $"certificate {observed}";
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException ||
+                                              !cancellationToken.IsCancellationRequested)
+            {
+                observed = $"error: {exception.Message}";
+            }
+
+            // HTTP.sys applies configuration changes asynchronously after CommitChanges.
+            if (DateTimeOffset.UtcNow >= deadline)
+            {
+                throw new InvalidOperationException(
+                    $"HTTPS verification failed for '{host}': {ipAddress}:443 did not serve certificate " +
+                    $"{expected} within {LiveVerificationTimeout.TotalSeconds:0} seconds (last result: {observed}).");
+            }
+
+            await Task.Delay(LiveVerificationInterval, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static bool IsStarted(Site site)
+    {
+        try
+        {
+            return site.State == ObjectState.Started;
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            // State is unavailable when the Windows Process Activation Service is stopped.
+            return false;
         }
     }
 

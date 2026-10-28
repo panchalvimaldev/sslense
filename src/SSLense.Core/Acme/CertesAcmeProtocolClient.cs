@@ -25,6 +25,35 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
         AcmeEnvironment environment,
         CancellationToken cancellationToken)
     {
+        try
+        {
+            return await CreateOrderCoreAsync(email, hosts, environment, cancellationToken).ConfigureAwait(false);
+        }
+        catch (AcmeRequestException exception) when (IsRateLimited(exception))
+        {
+            throw ToRateLimitedException(exception, environment);
+        }
+    }
+
+    internal static bool IsRateLimited(AcmeRequestException exception) =>
+        string.Equals(exception.Error?.Type, AcmeRateLimitedException.ProblemType, StringComparison.OrdinalIgnoreCase);
+
+    internal static AcmeRateLimitedException ToRateLimitedException(
+        AcmeRequestException exception,
+        AcmeEnvironment environment) =>
+        new(
+            $"The Let's Encrypt {environment.DisplayName()} service rate limit was reached: " +
+            $"{exception.Error?.Detail ?? exception.Message} " +
+            "SSLense will not retry until the next scheduled check. " +
+            "See https://letsencrypt.org/docs/rate-limits/ for limits and reset times.",
+            exception);
+
+    private async Task<IAcmeOrderSession> CreateOrderCoreAsync(
+        string email,
+        IReadOnlyList<string> hosts,
+        AcmeEnvironment environment,
+        CancellationToken cancellationToken)
+    {
         var directory = environment.DirectoryUri();
         var savedKey = await _accountStore.LoadKeyAsync(environment, cancellationToken).ConfigureAwait(false);
         AcmeContext context;
@@ -63,7 +92,7 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
                 challenge));
         }
 
-        return new CertesOrderSession(order, challenges);
+        return new CertesOrderSession(order, challenges, environment);
     }
 
     private sealed record CertesChallenge(
@@ -75,17 +104,34 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
     {
         private readonly IOrderContext _order;
         private readonly IReadOnlyList<CertesChallenge> _challenges;
+        private readonly AcmeEnvironment _environment;
 
-        public CertesOrderSession(IOrderContext order, IReadOnlyList<CertesChallenge> challenges)
+        public CertesOrderSession(
+            IOrderContext order,
+            IReadOnlyList<CertesChallenge> challenges,
+            AcmeEnvironment environment)
         {
             _order = order;
             _challenges = challenges;
+            _environment = environment;
             Challenges = challenges.Select(item => item.Model).ToArray();
         }
 
         public IReadOnlyList<AcmeHttpChallenge> Challenges { get; }
 
         public async Task ValidateAsync(AcmeHttpChallenge challenge, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await ValidateCoreAsync(challenge, cancellationToken).ConfigureAwait(false);
+            }
+            catch (AcmeRequestException exception) when (IsRateLimited(exception))
+            {
+                throw ToRateLimitedException(exception, _environment);
+            }
+        }
+
+        private async Task ValidateCoreAsync(AcmeHttpChallenge challenge, CancellationToken cancellationToken)
         {
             var item = _challenges.Single(candidate => candidate.Model == challenge);
             await item.Context.Validate().WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -125,6 +171,21 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
         }
 
         public async Task<CertificateBundle> FinalizeAsync(
+            string commonName,
+            string pfxPassword,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                return await FinalizeCoreAsync(commonName, pfxPassword, cancellationToken).ConfigureAwait(false);
+            }
+            catch (AcmeRequestException exception) when (IsRateLimited(exception))
+            {
+                throw ToRateLimitedException(exception, _environment);
+            }
+        }
+
+        private async Task<CertificateBundle> FinalizeCoreAsync(
             string commonName,
             string pfxPassword,
             CancellationToken cancellationToken)

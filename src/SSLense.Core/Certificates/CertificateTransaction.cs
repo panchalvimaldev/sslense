@@ -15,4 +15,5 @@ public sealed record CertificateTransaction(
     ManagedCertificate Certificate,
     string? PreviousThumbprint,
     CertificateTransactionStage Stage,
-    DateTimeOffset StartedAt);
+    DateTimeOffset StartedAt,
+    int SchemaVersion = StateSchema.Transactions);

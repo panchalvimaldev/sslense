@@ -2,7 +2,6 @@ using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
 using SSLense.Core.Iis;
-using System.Diagnostics;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
@@ -12,18 +11,27 @@ namespace SSLense.Core.Renewal;
 
 internal sealed class RenewalService : IRenewalService
 {
+    // Failure 1 and 2 retry quickly; later failures settle into a steady cadence that stays well
+    // inside Let's Encrypt's failed-validation limits.
     private static readonly TimeSpan[] RetryDelays =
     [
         TimeSpan.FromHours(1),
-        TimeSpan.FromHours(2)
+        TimeSpan.FromHours(2),
+        TimeSpan.FromHours(6)
     ];
+
+    private static readonly TimeSpan RateLimitedRetryDelay = TimeSpan.FromHours(24);
+    private static readonly TimeSpan UrgentWindow = TimeSpan.FromDays(2);
+    private static readonly TimeSpan UrgentRetryDelay = TimeSpan.FromHours(1);
+
+    /// <summary>Scheduled runs notify on this failure and then about once a day while failures continue.</summary>
+    private const int NotifyAfterFailures = 3;
 
     private readonly IManagedCertificateStore _managedStore;
     private readonly IConfigStore _configStore;
     private readonly IAcmeService _acmeService;
     private readonly IIisService _iisService;
     private readonly ICertificateStore _certificateStore;
-    private readonly IRenewalDelay _delay;
     private readonly INotifier _notifier;
     private readonly IRenewalInfoProvider _renewalInfoProvider;
 
@@ -33,7 +41,6 @@ internal sealed class RenewalService : IRenewalService
         IAcmeService acmeService,
         IIisService iisService,
         ICertificateStore certificateStore,
-        IRenewalDelay delay,
         INotifier notifier,
         IRenewalInfoProvider? renewalInfoProvider = null)
     {
@@ -42,7 +49,6 @@ internal sealed class RenewalService : IRenewalService
         _acmeService = acmeService;
         _iisService = iisService;
         _certificateStore = certificateStore;
-        _delay = delay;
         _notifier = notifier;
         _renewalInfoProvider = renewalInfoProvider ?? new NoOpRenewalInfoProvider();
     }
@@ -64,7 +70,9 @@ internal sealed class RenewalService : IRenewalService
                 value.LastRenewalAttempt,
                 value.LastRenewalSucceeded,
                 value.LastRenewalMessage,
-                value.Environment))
+                value.Environment,
+                value.ConsecutiveFailures,
+                value.NextRetryAt))
             .ToArray();
     }
 
@@ -99,18 +107,19 @@ internal sealed class RenewalService : IRenewalService
         foreach (var certificate in selected)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (certificate.NotAfter <= DateTimeOffset.UtcNow.AddDays(14))
+
+            // Only the service honors the saved backoff; an administrator renewing by hand means "now".
+            if (request.Scheduled && !request.Force &&
+                certificate.NextRetryAt is { } retryAt && DateTimeOffset.UtcNow < retryAt)
             {
-                await TryNotifyAsync(
-                        new NotificationMessage(
-                            NotificationKind.ExpiryWarning,
-                            $"SSLense certificate expires soon: {certificate.SiteName}",
-                            $"The {certificate.Environment.DisplayName()} certificate for {certificate.SiteName} " +
-                            $"({string.Join(", ", certificate.Hosts)}) " +
-                            $"expires at {certificate.NotAfter:O}."),
-                        progress,
-                        cancellationToken)
-                    .ConfigureAwait(false);
+                results.Add(new RenewalResult(
+                    certificate.SiteName,
+                    false,
+                    false,
+                    $"Waiting: attempt {certificate.ConsecutiveFailures + 1} is scheduled for " +
+                    $"{retryAt:yyyy-MM-dd HH:mm} UTC after {certificate.ConsecutiveFailures} failure(s).",
+                    certificate.Thumbprint));
+                continue;
             }
 
             var renewalAt = request.Force
@@ -129,7 +138,7 @@ internal sealed class RenewalService : IRenewalService
                 continue;
             }
 
-            results.Add(await RenewOneAsync(certificate, request, progress, cancellationToken)
+            results.Add(await RenewOneAsync(certificate, request.Scheduled, progress, cancellationToken)
                 .ConfigureAwait(false));
         }
 
@@ -138,108 +147,131 @@ internal sealed class RenewalService : IRenewalService
 
     private async Task<RenewalResult> RenewOneAsync(
         ManagedCertificate certificate,
-        RenewalRequest request,
+        bool scheduled,
         IProgress<ProgressEvent>? progress,
         CancellationToken cancellationToken)
     {
-        var attempts = request.RetryFailures ? 3 : 1;
-        for (var attempt = 1; attempt <= attempts; attempt++)
+        try
         {
-            try
-            {
-                progress?.Report(new ProgressEvent(
-                    "renewal",
-                    $"Renewing {certificate.SiteName} (attempt {attempt} of {attempts})."));
-                var issued = await _acmeService.IssueAsync(
-                        new AcmeIssueRequest(
-                            certificate.SiteName,
-                            certificate.Hosts,
-                            certificate.Email,
-                            certificate.OutputDirectory,
-                            true,
-                            certificate.Environment,
-                            certificate.Thumbprint),
-                        progress,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                var newThumbprint = issued.CertificateThumbprint
-                    ?? throw new InvalidOperationException("The renewed certificate has no thumbprint.");
-
-                var cleanupMessage = await RemoveOldCertificateIfUnusedAsync(
-                        certificate.Thumbprint,
-                        newThumbprint,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                await TryNotifyAsync(
-                        new NotificationMessage(
-                            NotificationKind.RenewalSuccess,
-                            $"SSLense renewal succeeded: {certificate.SiteName}",
-                            $"The {certificate.Environment.DisplayName()} certificate for {certificate.SiteName} " +
-                            $"({string.Join(", ", certificate.Hosts)}) " +
-                            $"was renewed successfully. New thumbprint: {newThumbprint}."),
-                        progress,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-                return new RenewalResult(
-                    certificate.SiteName,
-                    true,
-                    true,
-                    cleanupMessage ?? "Renewed and rebound successfully.",
-                    certificate.Thumbprint,
-                    newThumbprint);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (CertificateStateChangedException exception)
-            {
-                return new RenewalResult(
-                    certificate.SiteName,
-                    false,
-                    true,
-                    $"Skipped: {exception.Message}",
-                    certificate.Thumbprint);
-            }
-            catch (Exception exception)
-            {
-                await _managedStore.RecordRenewalFailureAsync(
+            progress?.Report(new ProgressEvent(
+                "renewal",
+                $"Renewing {certificate.SiteName} (attempt {certificate.ConsecutiveFailures + 1})."));
+            var issued = await _acmeService.IssueAsync(
+                    new AcmeIssueRequest(
                         certificate.SiteName,
-                        DateTimeOffset.UtcNow,
-                        exception.Message,
-                        CancellationToken.None)
-                    .ConfigureAwait(false);
-
-                if (attempt == attempts)
-                {
-                    await TryNotifyAsync(
-                            new NotificationMessage(
-                                NotificationKind.RenewalFailure,
-                                $"SSLense renewal failed: {certificate.SiteName}",
-                                $"The {certificate.Environment.DisplayName()} certificate renewal for {certificate.SiteName} " +
-                                $"({string.Join(", ", certificate.Hosts)}) failed after {attempts} attempt(s). " +
-                                $"The existing IIS binding was retained. Error: {exception.Message}"),
-                            progress,
-                            CancellationToken.None)
-                        .ConfigureAwait(false);
-                    return new RenewalResult(
-                        certificate.SiteName,
+                        certificate.Hosts,
+                        certificate.Email,
+                        certificate.OutputDirectory,
                         true,
-                        false,
-                        exception.Message,
-                        certificate.Thumbprint);
-                }
+                        certificate.Environment,
+                        certificate.Thumbprint),
+                    progress,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            var newThumbprint = issued.CertificateThumbprint
+                ?? throw new InvalidOperationException("The renewed certificate has no thumbprint.");
 
-                var retryDelay = RetryDelays[attempt - 1];
-                progress?.Report(new ProgressEvent(
-                    "retry",
-                    $"Renewal failed for {certificate.SiteName}; retrying in {retryDelay.TotalHours:0} hour(s)."));
-                await _delay.WaitAsync(retryDelay, cancellationToken).ConfigureAwait(false);
-            }
+            var cleanupMessage = await RemoveOldCertificateIfUnusedAsync(
+                    certificate.Thumbprint,
+                    newThumbprint,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            await TryNotifyAsync(
+                    new NotificationMessage(
+                        NotificationKind.RenewalSuccess,
+                        $"SSLense renewal succeeded: {certificate.SiteName}",
+                        $"The {certificate.Environment.DisplayName()} certificate for {certificate.SiteName} " +
+                        $"({string.Join(", ", certificate.Hosts)}) " +
+                        $"was renewed successfully. New thumbprint: {newThumbprint}."),
+                    progress,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return new RenewalResult(
+                certificate.SiteName,
+                true,
+                true,
+                cleanupMessage ?? "Renewed and rebound successfully.",
+                certificate.Thumbprint,
+                newThumbprint);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (CertificateStateChangedException exception)
+        {
+            return new RenewalResult(
+                certificate.SiteName,
+                false,
+                true,
+                $"Skipped: {exception.Message}",
+                certificate.Thumbprint);
+        }
+        catch (Exception exception)
+        {
+            return await RecordFailureAsync(certificate, exception, scheduled, progress).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<RenewalResult> RecordFailureAsync(
+        ManagedCertificate certificate,
+        Exception exception,
+        bool scheduled,
+        IProgress<ProgressEvent>? progress)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var rateLimited = exception is AcmeRateLimitedException;
+        var failures = certificate.ConsecutiveFailures + 1;
+        var nextRetryAt = now + GetRetryDelay(failures, rateLimited, certificate.NotAfter - now);
+        var updated = await _managedStore.RecordRenewalFailureAsync(
+                certificate.SiteName,
+                now,
+                exception.Message,
+                nextRetryAt,
+                CancellationToken.None)
+            .ConfigureAwait(false);
+        failures = updated?.ConsecutiveFailures ?? failures;
+
+        var message = $"{exception.Message} Next automatic attempt: {nextRetryAt:yyyy-MM-dd HH:mm} UTC.";
+        progress?.Report(new ProgressEvent("retry", $"Renewal failed for {certificate.SiteName}. {message}"));
+        if (ShouldNotifyFailure(failures, scheduled, rateLimited))
+        {
+            await TryNotifyAsync(
+                    new NotificationMessage(
+                        NotificationKind.RenewalFailure,
+                        $"SSLense renewal failed: {certificate.SiteName}",
+                        $"The {certificate.Environment.DisplayName()} certificate renewal for {certificate.SiteName} " +
+                        $"({string.Join(", ", certificate.Hosts)}) has failed {failures} consecutive time(s). " +
+                        $"The existing IIS binding was retained. The certificate expires at {certificate.NotAfter:O}. " +
+                        $"Error: {message}"),
+                    progress,
+                    CancellationToken.None)
+                .ConfigureAwait(false);
         }
 
-        throw new UnreachableException();
+        return new RenewalResult(
+            certificate.SiteName,
+            true,
+            false,
+            message,
+            certificate.Thumbprint);
     }
+
+    internal static TimeSpan GetRetryDelay(int consecutiveFailures, bool rateLimited, TimeSpan remainingLifetime)
+    {
+        var delay = rateLimited
+            ? RateLimitedRetryDelay
+            : RetryDelays[Math.Clamp(consecutiveFailures, 1, RetryDelays.Length) - 1];
+
+        // Close to expiry, keep trying hourly; a rate limit still waits, because retrying only extends it.
+        return !rateLimited && remainingLifetime < UrgentWindow && delay > UrgentRetryDelay
+            ? UrgentRetryDelay
+            : delay;
+    }
+
+    internal static bool ShouldNotifyFailure(int consecutiveFailures, bool scheduled, bool rateLimited) =>
+        !scheduled || rateLimited || consecutiveFailures == NotifyAfterFailures ||
+        (consecutiveFailures > NotifyAfterFailures && (consecutiveFailures - NotifyAfterFailures) % 4 == 0);
 
     private async Task TryNotifyAsync(
         NotificationMessage message,

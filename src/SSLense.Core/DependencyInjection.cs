@@ -31,11 +31,12 @@ public static class DependencyInjection
         services.AddTransient<ICertificateRecoveryService, CertificateRecoveryService>();
         services.AddTransient<IAcmeProtocolClient, CertesAcmeProtocolClient>();
         services.AddTransient<IAcmeService, AcmeService>();
+        services.AddSingleton<ITlsBindingProbe, TlsBindingProbe>();
         services.AddTransient<IIisService, IisService>();
         services.AddTransient<IRenewalService, RenewalService>();
+        services.AddTransient<IExpiryMonitor, ExpiryMonitor>();
         services.AddSingleton<HttpClient>();
         services.AddSingleton<IRenewalInfoProvider, AcmeRenewalInfoProvider>();
-        services.AddSingleton<IRenewalDelay, RenewalDelay>();
         services.AddTransient<IWindowsServiceManager, WindowsServiceManager>();
         services.AddSingleton<IEmailSender, SmtpEmailSender>();
         services.AddSingleton<IWebhookSender, WebhookSender>();

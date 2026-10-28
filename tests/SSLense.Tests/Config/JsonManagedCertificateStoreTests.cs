@@ -46,6 +46,117 @@ public sealed class JsonManagedCertificateStoreTests
             LockPath, It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
+    [Fact]
+    public async Task GetAllAsync_LegacyArrayFile_ReadsWithStableIdsAndDoesNotRewrite()
+    {
+        var fileSystem = new InMemoryFileSystem();
+        fileSystem.Files[StatePath] = LegacyJson;
+        var store = new JsonManagedCertificateStore(fileSystem, StatePath, LockPath);
+
+        var first = Assert.Single(await store.GetAllAsync());
+        var second = Assert.Single(await store.GetAllAsync());
+
+        Assert.Equal("My Site", first.SiteName);
+        Assert.NotEqual(Guid.Empty, first.Id);
+        Assert.Equal(first.Id, second.Id);
+        Assert.Equal(LegacyJson, fileSystem.Files[StatePath]);
+        Assert.False(fileSystem.FileExists($"{StatePath}.v0.bak"));
+    }
+
+    [Fact]
+    public async Task UpdateAsync_LegacyArrayFile_BacksUpThenWritesVersionedDocument()
+    {
+        var fileSystem = new InMemoryFileSystem();
+        fileSystem.Files[StatePath] = LegacyJson;
+        var store = new JsonManagedCertificateStore(fileSystem, StatePath, LockPath);
+        var migratedId = Assert.Single(await store.GetAllAsync()).Id;
+
+        await store.RecordRenewalFailureAsync(
+            "My Site", DateTimeOffset.UtcNow, "failed", DateTimeOffset.UtcNow.AddHours(1));
+
+        Assert.Equal(LegacyJson, fileSystem.Files[$"{StatePath}.v0.bak"]);
+        Assert.Contains("\"schemaVersion\": 1", fileSystem.Files[StatePath], StringComparison.Ordinal);
+        Assert.Equal(migratedId, Assert.Single(await store.GetAllAsync()).Id);
+    }
+
+    [Fact]
+    public async Task GetAllAsync_NewerSchema_FailsWithoutChangingTheFile()
+    {
+        var fileSystem = new InMemoryFileSystem();
+        const string newer = """{ "schemaVersion": 99, "certificates": [] }""";
+        fileSystem.Files[StatePath] = newer;
+        var store = new JsonManagedCertificateStore(fileSystem, StatePath, LockPath);
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(() => store.GetAllAsync());
+        await Assert.ThrowsAsync<InvalidDataException>(() => store.UpsertAsync(CreateCertificate()));
+
+        Assert.Contains("schema version 99", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(newer, fileSystem.Files[StatePath]);
+    }
+
+    [Fact]
+    public async Task UpsertAsync_RecordWithoutId_KeepsTheSitesExistingId()
+    {
+        var store = new JsonManagedCertificateStore(new InMemoryFileSystem(), StatePath, LockPath);
+        await store.UpsertAsync(CreateCertificate());
+        var originalId = Assert.Single(await store.GetAllAsync()).Id;
+
+        await store.UpsertAsync(CreateCertificate() with { Thumbprint = "NEW" });
+
+        var renewed = Assert.Single(await store.GetAllAsync());
+        Assert.Equal("NEW", renewed.Thumbprint);
+        Assert.Equal(originalId, renewed.Id);
+    }
+
+    [Fact]
+    public async Task RecordRenewalFailureAsync_IncrementsFailuresAndPersistsNextRetry()
+    {
+        var store = new JsonManagedCertificateStore(new InMemoryFileSystem(), StatePath, LockPath);
+        await store.UpsertAsync(CreateCertificate());
+        var retryAt = new DateTimeOffset(2026, 10, 29, 12, 0, 0, TimeSpan.Zero);
+
+        await store.RecordRenewalFailureAsync("My Site", DateTimeOffset.UtcNow, "first", retryAt.AddHours(-1));
+        var updated = await store.RecordRenewalFailureAsync("my site", DateTimeOffset.UtcNow, "second", retryAt);
+
+        var saved = Assert.Single(await store.GetAllAsync());
+        Assert.Equal(2, updated!.ConsecutiveFailures);
+        Assert.Equal(2, saved.ConsecutiveFailures);
+        Assert.Equal(retryAt, saved.NextRetryAt);
+        Assert.Equal("second", saved.LastRenewalMessage);
+        Assert.Null(await store.RecordRenewalFailureAsync("Other", DateTimeOffset.UtcNow, "x", retryAt));
+    }
+
+    [Fact]
+    public async Task RecordExpiryWarningAsync_IgnoresReplacedCertificatesAndLowerLevels()
+    {
+        var store = new JsonManagedCertificateStore(new InMemoryFileSystem(), StatePath, LockPath);
+        await store.UpsertAsync(CreateCertificate());
+
+        await store.RecordExpiryWarningAsync("My Site", "AABBCC", ExpiryWarningLevel.Critical);
+        await store.RecordExpiryWarningAsync("My Site", "AABBCC", ExpiryWarningLevel.Warning);
+        await store.RecordExpiryWarningAsync("My Site", "REPLACED", ExpiryWarningLevel.Expired);
+
+        Assert.Equal(ExpiryWarningLevel.Critical, Assert.Single(await store.GetAllAsync()).ExpiryWarningSent);
+    }
+
+    private const string LegacyJson = """
+        [
+          {
+            "siteName": "My Site",
+            "hosts": [ "example.com" ],
+            "email": "admin@example.com",
+            "thumbprint": "AABBCC",
+            "notBefore": "2026-09-01T00:00:00+00:00",
+            "notAfter": "2026-11-30T00:00:00+00:00",
+            "environment": 0
+          }
+        ]
+        """;
+
+    private static ManagedCertificate CreateCertificate() => new(
+        "My Site", ["example.com"], "admin@example.com", "AABBCC",
+        DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(90));
+
     private sealed class NoOpLock : IAsyncDisposable
     {
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

@@ -91,7 +91,8 @@ internal sealed class AcmeService : IAcmeService
 
         if (!request.Force)
         {
-            await ThrowIfAlreadyCoveredAsync(site, hosts, cancellationToken).ConfigureAwait(false);
+            await ThrowIfAlreadyCoveredAsync(site, hosts, request.Environment, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         progress?.Report(new ProgressEvent(
@@ -289,6 +290,7 @@ internal sealed class AcmeService : IAcmeService
     private async Task ThrowIfAlreadyCoveredAsync(
         IisSite site,
         IReadOnlyList<string> hosts,
+        AcmeEnvironment requestedEnvironment,
         CancellationToken cancellationToken)
     {
         var httpsBindings = hosts
@@ -318,11 +320,39 @@ internal sealed class AcmeService : IAcmeService
         if (certificate is not null && certificate.HasPrivateKey &&
             certificate.NotBefore <= now && certificate.NotAfter > now)
         {
+            // A staging certificate is untrusted, so it never satisfies a production request.
+            if (requestedEnvironment == AcmeEnvironment.Production &&
+                await IsStagingCertificateAsync(site.Name, certificate, cancellationToken).ConfigureAwait(false))
+            {
+                return;
+            }
+
             throw new InvalidOperationException(
                 $"IIS site '{site.Name}' already has a valid certificate for the requested hosts " +
                 $"(thumbprint {certificate.Thumbprint}, expires {certificate.NotAfter:yyyy-MM-dd}). " +
                 "Use --force to replace it.");
         }
+    }
+
+    private async Task<bool> IsStagingCertificateAsync(
+        string siteName,
+        InstalledCertificate certificate,
+        CancellationToken cancellationToken)
+    {
+        // Let's Encrypt marks every staging issuer name with "(STAGING)".
+        if (certificate.Issuer?.Contains("(STAGING)", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return true;
+        }
+
+        var records = await _managedCertificateStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        return records.Any(record =>
+            string.Equals(record.SiteName, siteName, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(
+                NormalizeThumbprint(record.Thumbprint),
+                NormalizeThumbprint(certificate.Thumbprint),
+                StringComparison.Ordinal) &&
+            record.Environment == AcmeEnvironment.Staging);
     }
 
     private static void ValidateRequest(AcmeIssueRequest request)

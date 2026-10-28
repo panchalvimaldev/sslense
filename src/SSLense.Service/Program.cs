@@ -3,6 +3,9 @@ using SSLense.Core;
 using SSLense.Core.Config;
 using SSLense.Service;
 
+// Secure ProgramData before the logger creates the logs folder inside it.
+var securityWarnings = DataDirectorySecurity.SecureAtStartup();
+
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
     .WriteTo.File(
@@ -11,6 +14,11 @@ Log.Logger = new LoggerConfiguration()
         retainedFileCountLimit: 30,
         shared: true)
     .CreateLogger();
+
+foreach (var warning in securityWarnings)
+{
+    Log.Warning("{SecurityWarning}", warning);
+}
 
 try
 {
@@ -24,6 +32,7 @@ try
 catch (Exception exception)
 {
     Log.Fatal(exception, "SSLense Renewal Service terminated unexpectedly");
+    Environment.ExitCode = 1;
 }
 finally
 {

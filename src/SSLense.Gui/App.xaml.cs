@@ -18,6 +18,9 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // Secure ProgramData before the logger creates the logs folder inside it.
+        var securityWarnings = DataDirectorySecurity.SecureAtStartup();
+
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Information()
             .WriteTo.File(
@@ -26,6 +29,10 @@ public partial class App : Application
                 retainedFileCountLimit: 30,
                 shared: true)
             .CreateLogger();
+        foreach (var warning in securityWarnings)
+        {
+            Log.Warning("{SecurityWarning}", warning);
+        }
 
         try
         {
@@ -44,9 +51,23 @@ public partial class App : Application
             await _host.StartAsync().ConfigureAwait(true);
 
             var recovery = _host.Services.GetRequiredService<ICertificateRecoveryService>();
-            foreach (var message in await recovery.RecoverAsync().ConfigureAwait(true))
+            try
             {
-                Log.Information("{RecoveryMessage}", message);
+                foreach (var result in await recovery.RecoverAsync().ConfigureAwait(true))
+                {
+                    if (result.Succeeded)
+                    {
+                        Log.Information("{RecoveryMessage}", result.Message);
+                    }
+                    else
+                    {
+                        Log.Warning("{RecoveryMessage}", result.Message);
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                Log.Error(exception, "Certificate operation recovery failed");
             }
 
             var window = _host.Services.GetRequiredService<MainWindow>();

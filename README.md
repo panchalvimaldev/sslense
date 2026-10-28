@@ -44,7 +44,9 @@ dotnet run --project .\src\SSLense.Cli -- issue `
   --staging
 ```
 
-Use `--force` to replace an existing valid staging certificate. The command imports the certificate into `LocalMachine\My`, creates or updates SNI bindings, verifies the bindings, and saves the managed-certificate record.
+Use `--force` to replace an existing valid staging certificate. The command imports the certificate into `LocalMachine\My`, creates or updates SNI bindings, connects to each started site over HTTPS to confirm the new certificate is actually served, and saves the managed-certificate record. If the served certificate does not match within 15 seconds, the previous bindings are restored and the new certificate is removed. Existing SSL flags on a binding, such as disabled HTTP/2, are preserved.
+
+Every CLI command except `--help` requires an elevated (Administrator) terminal.
 
 After staging succeeds, production issuance requires both production flags:
 
@@ -120,7 +122,28 @@ dotnet run --project .\src\SSLense.Cli -- install-service `
   --service-path ".\publish\service\SSLense.Service.exe"
 ```
 
-The `SSLense` service runs a renewal check immediately after startup and every 24 hours. A failed renewal is attempted three times with one-hour and two-hour delays. Existing IIS bindings remain in place when issuance fails.
+The `SSLense` service checks immediately after startup and then every hour. Each check is cheap: certificates that are not due are skipped, and ACME Renewal Information is cached for the period the CA requests (6 hours by default).
+
+Failed renewals are retried from a saved schedule, so retries survive service restarts and reboots:
+
+| Consecutive failures | Next automatic attempt |
+|---|---|
+| 1 | after 1 hour |
+| 2 | after 2 hours |
+| 3 or more | every 6 hours (hourly once the certificate is within 2 days of expiry) |
+| Let's Encrypt rate limit | after 24 hours, because retrying sooner only extends the limit |
+
+The service sends a failure notification on the third consecutive failure and about once a day after that, and immediately for a rate limit. Manual renewals from the GUI or CLI ignore the backoff, run immediately, and always notify on failure. `status` shows the failure count and the next automatic attempt. Existing IIS bindings remain in place when issuance fails. The service is registered to restart automatically after 1, 5, and 15 minutes if it exits unexpectedly.
+
+Expiry is monitored separately from renewal, so an alert is still sent if renewal itself is broken. Each level is sent once per certificate; the thresholds scale with the certificate lifetime:
+
+| Level | 90-day certificate | 45-day certificate | 6-day certificate |
+|---|---|---|---|
+| Expires soon (lifetime ÷ 6, at most 14 days) | 14 days left | 7.5 days left | 1 day left |
+| Expires very soon (lifetime ÷ 18, at most 3 days) | 3 days left | 2.5 days left | 8 hours left |
+| Expired | at expiry | at expiry | at expiry |
+
+On startup the service, GUI, and CLI complete or abandon interrupted certificate operations. A problem with one operation is logged as a warning and never prevents startup.
 
 Check or remove the service:
 
@@ -182,7 +205,27 @@ SSLense stores files under `C:\ProgramData\SSLense`:
 - `transactions\`: durable certificate-operation journals, normally removed automatically after commit or recovery
 - `logs\sslense-YYYYMMDD.log`: rolling logs retained for 30 days
 
-Private keys, PFX passwords, SMTP passwords, webhook URLs, and the ACME account key must never appear in logs. Restrict access to the ProgramData directory to administrators and the service account.
+`config.json`, `managed-certificates.json`, and transaction journals carry a `schemaVersion`. Before SSLense first rewrites a file from an older schema, it saves the original as `<file>.v<old version>.bak` (for example `managed-certificates.json.v0.bak`). A file written by a newer SSLense version is never modified: SSLense stops with a message to install the newer version, so a downgrade cannot corrupt state.
+
+Private keys, PFX passwords, SMTP passwords, webhook URLs, and the ACME account key must never appear in logs.
+
+### Data directory permissions
+
+DPAPI `LocalMachine` protection lets any account on the machine decrypt a protected value it can read, so folder permissions are what actually protect SSLense's secrets. Every time the service, GUI, or an elevated CLI starts, SSLense:
+
+- restricts `C:\ProgramData\SSLense` to **Administrators** and **SYSTEM** (the service account), removing the default ProgramData access for Users;
+- makes Administrators the owner of the folder and everything in it, because a previous owner could otherwise change the permissions back;
+- removes any extra permissions on files inside, so everything inherits the restricted rules.
+
+SSLense never creates links in this folder. If it finds a symbolic link, junction, or file with more than one hard link, it **changes nothing** and logs a warning naming the item, because Windows would otherwise apply the permission change through the link to a location outside the folder. Remove the item and start SSLense again.
+
+Check the current state at any time (read-only; exits with code 1 if there is a problem):
+
+```powershell
+dotnet run --project .\src\SSLense.Cli -- check-permissions
+```
+
+The service runs as LocalSystem. Running it under a different account would also require granting that account access to this folder.
 
 ## Troubleshooting
 

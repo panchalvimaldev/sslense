@@ -29,7 +29,18 @@ Phases 1–8 and Commercial Phase A provide:
 - Non-exportable certificate keys with no retained PFX artifacts
 - Durable certificate-operation journals and startup recovery
 
-The Commercial Phase A implementation is complete. A real production issuance remains an explicit operator acceptance test and is never run during development. Signed distribution, ProgramData ACL hardening, the supported-platform test matrix, diagnostics, security review, and commercial operations remain unfinished.
+The Commercial Phase A implementation is complete, with the follow-ups listed below. A real production issuance remains an explicit operator acceptance test and is never run during development.
+
+Phase A hardening (October 28, 2026) added: non-fatal, per-transaction startup recovery that skips operations still owned by a live process; restart-on-failure service actions; live HTTPS verification of the served certificate after every binding change, with automatic rollback; preservation of existing IIS SSL flags; rate-limit detection without retries; independent retry rounds so one failing site does not delay others; staging certificates no longer satisfying production requests; and a startup elevation check in the CLI.
+
+State and scheduling hardening (October 28, 2026) added: versioned schemas for configuration, managed-certificate state, and transaction journals, with backup before migration and safe refusal of newer schemas; a stable ID on every managed certificate; a persisted retry schedule and failure count with hourly service checks and escalating failure notifications; ARI response caching that honors `Retry-After`; and independent, once-per-level, lifetime-relative expiry monitoring.
+
+Remaining Phase A follow-ups:
+
+- Send the ARI `replaces` field on renewal orders (P0.2); Certes does not expose it.
+- Journal challenge files so an interrupted validation cleans them up on recovery (P0.4).
+- Configurable maintenance windows (P0.2).
+- Key locks, journals, and CLI/GUI selection by certificate ID instead of site name, enabling several certificates per site (needed by Phase C). Every record already has a stable ID, so no further data migration is required. Signed distribution, ProgramData ACL hardening, the supported-platform test matrix, diagnostics, security review, and commercial operations remain unfinished.
 
 ## 3. External lifecycle requirements
 
@@ -411,6 +422,8 @@ Status: **Implemented on October 28, 2026.** Automated validation uses staging a
 Exit gate: controlled production issuance and renewal can run without risking an existing working IIS binding.
 
 ### Commercial Phase B — Distributable beta
+
+Status: **In progress.** Installer technology: WiX Toolset v7 (MSI), chosen October 28, 2026; its EULA must be accepted explicitly in the build, and its maintenance fee applies once revenue passes the threshold in its terms. ProgramData ACL hardening (item 3, directory part) was implemented on October 28, 2026; certificate private-key ACLs for application-pool identities remain open.
 
 1. Signed installer
 2. Signed update mechanism

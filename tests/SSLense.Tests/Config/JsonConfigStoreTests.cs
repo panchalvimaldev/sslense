@@ -10,6 +10,36 @@ public sealed class JsonConfigStoreTests
     private const string LockPath = ConfigPath + ".lock";
 
     [Fact]
+    public async Task SaveAsync_UnversionedFile_BacksUpAndStampsCurrentVersion()
+    {
+        const string legacy = """{ "defaultEmail": "old@example.com", "renewalThresholdDays": 30 }""";
+        var fileSystem = new InMemoryFileSystem();
+        fileSystem.Files[ConfigPath] = legacy;
+        var store = new JsonConfigStore(fileSystem, ConfigPath);
+
+        var loaded = await store.LoadAsync();
+        await store.SaveAsync(loaded with { DefaultEmail = "new@example.com" });
+
+        Assert.Equal(0, loaded.SchemaVersion);
+        Assert.Equal(legacy, fileSystem.Files[$"{ConfigPath}.v0.bak"]);
+        Assert.Equal(StateSchema.Config, (await store.LoadAsync()).SchemaVersion);
+    }
+
+    [Fact]
+    public async Task LoadAndSave_NewerSchema_FailWithoutChangingTheFile()
+    {
+        const string newer = """{ "schemaVersion": 99, "defaultEmail": "admin@example.com" }""";
+        var fileSystem = new InMemoryFileSystem();
+        fileSystem.Files[ConfigPath] = newer;
+        var store = new JsonConfigStore(fileSystem, ConfigPath);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => store.LoadAsync());
+        await Assert.ThrowsAsync<InvalidDataException>(() => store.SaveAsync(new AppConfig()));
+
+        Assert.Equal(newer, fileSystem.Files[ConfigPath]);
+    }
+
+    [Fact]
     public async Task LoadAsync_WhenFileDoesNotExist_ReturnsSafeDefaults()
     {
         var fileSystem = new Mock<IFileSystem>(MockBehavior.Strict);
@@ -52,7 +82,7 @@ public sealed class JsonConfigStoreTests
         await store.SaveAsync(expected);
         var actual = await store.LoadAsync();
 
-        Assert.Equal(expected, actual);
+        Assert.Equal(expected with { SchemaVersion = StateSchema.Config }, actual);
         Assert.Contains("\"useStaging\": true", persistedJson, StringComparison.Ordinal);
         fileSystem.VerifyAll();
     }

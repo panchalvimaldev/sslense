@@ -10,40 +10,73 @@ internal sealed class CertificateRecoveryService(
     IManagedCertificateStore managedStore,
     IIisService iisService) : ICertificateRecoveryService
 {
-    public async Task<IReadOnlyList<string>> RecoverAsync(
+    public async Task<IReadOnlyList<CertificateRecoveryResult>> RecoverAsync(
         CancellationToken cancellationToken = default)
     {
-        var recovered = new List<string>();
-        var pending = await journal.GetPendingAsync(cancellationToken).ConfigureAwait(false);
+        var results = new List<CertificateRecoveryResult>();
+        IReadOnlyList<CertificateTransaction> pending;
+        try
+        {
+            pending = await journal.GetPendingAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            results.Add(new CertificateRecoveryResult(
+                false,
+                $"Interrupted certificate operations could not be read: {exception.Message}"));
+            return results;
+        }
+
         foreach (var snapshot in pending)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await using var siteLock = await operationLock
-                .AcquireAsync(snapshot.Certificate.SiteName, cancellationToken)
-                .ConfigureAwait(false);
-            var transaction = await journal.GetAsync(snapshot.Id, cancellationToken).ConfigureAwait(false);
-            if (transaction is null)
+            var siteName = snapshot.Certificate.SiteName;
+
+            // A held lock means a live GUI, CLI, or service process still owns this transaction.
+            await using var siteLock = operationLock.TryAcquire(siteName);
+            if (siteLock is null)
             {
                 continue;
             }
 
-            await RecoverOneAsync(transaction, cancellationToken).ConfigureAwait(false);
-            recovered.Add(
-                $"Recovered certificate transaction {transaction.Id:N} for " +
-                $"'{transaction.Certificate.SiteName}'.");
+            try
+            {
+                var transaction = await journal.GetAsync(snapshot.Id, cancellationToken).ConfigureAwait(false);
+                if (transaction is null)
+                {
+                    continue;
+                }
+
+                // Leave the entry untouched so the newer version that wrote it can finish it.
+                StateSchema.EnsureSupported(
+                    transaction.SchemaVersion,
+                    StateSchema.Transactions,
+                    $"certificate transaction {transaction.Id:N}");
+                results.Add(await RecoverOneAsync(transaction, cancellationToken).ConfigureAwait(false));
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                results.Add(new CertificateRecoveryResult(
+                    false,
+                    $"Could not recover certificate transaction {snapshot.Id:N} for '{siteName}': " +
+                    $"{exception.Message} It will be retried on the next start."));
+            }
         }
 
-        return recovered;
+        return results;
     }
 
-    private async Task RecoverOneAsync(
+    private async Task<CertificateRecoveryResult> RecoverOneAsync(
         CertificateTransaction transaction,
         CancellationToken cancellationToken)
     {
+        var recovered = new CertificateRecoveryResult(
+            true,
+            $"Recovered certificate transaction {transaction.Id:N} for '{transaction.Certificate.SiteName}'.");
         if (transaction.Stage == CertificateTransactionStage.StateSaved)
         {
             await journal.CompleteAsync(transaction.Id, cancellationToken).ConfigureAwait(false);
-            return;
+            return recovered;
         }
 
         var certificate = transaction.Certificate;
@@ -53,17 +86,24 @@ internal sealed class CertificateRecoveryService(
         if (installed is null)
         {
             await journal.CompleteAsync(transaction.Id, cancellationToken).ConfigureAwait(false);
-            return;
+            return recovered;
         }
 
         var sites = await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
         var site = sites.SingleOrDefault(value => string.Equals(
             value.Name,
             certificate.SiteName,
-            StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException(
-                $"Cannot recover certificate transaction '{transaction.Id:N}' because IIS site " +
-                $"'{certificate.SiteName}' no longer exists.");
+            StringComparison.OrdinalIgnoreCase));
+        if (site is null)
+        {
+            // Nothing can be bound any more; retrying on every start would never succeed.
+            await journal.CompleteAsync(transaction.Id, CancellationToken.None).ConfigureAwait(false);
+            return new CertificateRecoveryResult(
+                false,
+                $"Abandoned certificate transaction {transaction.Id:N} because IIS site " +
+                $"'{certificate.SiteName}' no longer exists. Certificate {certificate.Thumbprint} " +
+                "was left in LocalMachine\\My for manual review.");
+        }
         var allBindingsActive = certificate.Hosts.All(host => site.Bindings.Any(binding =>
             string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase) &&
             binding.Port == 443 &&
@@ -95,6 +135,7 @@ internal sealed class CertificateRecoveryService(
                 CancellationToken.None)
             .ConfigureAwait(false);
         await journal.CompleteAsync(transaction.Id, CancellationToken.None).ConfigureAwait(false);
+        return recovered;
     }
 
     private static string NormalizeThumbprint(string? thumbprint) =>

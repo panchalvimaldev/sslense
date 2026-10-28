@@ -10,4 +10,6 @@ public sealed record ManagedCertificateStatus(
     DateTimeOffset? LastRenewalAttempt,
     bool? LastRenewalSucceeded,
     string? LastRenewalMessage,
-    Acme.AcmeEnvironment Environment = Acme.AcmeEnvironment.Staging);
+    Acme.AcmeEnvironment Environment = Acme.AcmeEnvironment.Staging,
+    int ConsecutiveFailures = 0,
+    DateTimeOffset? NextRetryAt = null);

@@ -13,6 +13,9 @@ using Microsoft.Extensions.Hosting;
 using Serilog;
 using System.CommandLine;
 
+// Secure ProgramData before the logger creates the logs folder inside it. Does nothing when not elevated.
+var securityWarnings = DataDirectorySecurity.SecureAtStartup();
+
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
     .WriteTo.Console()
@@ -23,6 +26,11 @@ Log.Logger = new LoggerConfiguration()
         shared: true)
     .CreateLogger();
 
+foreach (var warning in securityWarnings)
+{
+    Log.Warning("{SecurityWarning}", warning);
+}
+
 try
 {
     var builder = Host.CreateApplicationBuilder(args);
@@ -30,13 +38,36 @@ try
     builder.Services.AddSSLenseCore();
 
     using var host = builder.Build();
-    var recovery = host.Services.GetRequiredService<ICertificateRecoveryService>();
-    foreach (var message in await recovery.RecoverAsync().ConfigureAwait(false))
-    {
-        Log.Information("{RecoveryMessage}", message);
-    }
     var rootCommand = CreateRootCommand(host.Services);
-    return rootCommand.Parse(args).Invoke();
+    var parseResult = rootCommand.Parse(args);
+
+    // Help, version, and parse errors need neither elevation nor state recovery.
+    var runsCommand = parseResult.Errors.Count == 0 &&
+        parseResult.CommandResult.Command != rootCommand &&
+        parseResult.Action is not System.CommandLine.Help.HelpAction;
+    if (runsCommand)
+    {
+        if (!WindowsElevation.IsAdministrator())
+        {
+            Console.Error.WriteLine($"Error: {WindowsElevation.RequiredMessage}");
+            return 1;
+        }
+
+        var recovery = host.Services.GetRequiredService<ICertificateRecoveryService>();
+        foreach (var result in await recovery.RecoverAsync().ConfigureAwait(false))
+        {
+            if (result.Succeeded)
+            {
+                Log.Information("{RecoveryMessage}", result.Message);
+            }
+            else
+            {
+                Log.Warning("{RecoveryMessage}", result.Message);
+            }
+        }
+    }
+
+    return parseResult.Invoke();
 }
 catch (Exception exception)
 {
@@ -142,6 +173,12 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     statusCommand.SetAction((_, cancellationToken) =>
         StatusAsync(services.GetRequiredService<IRenewalService>(), cancellationToken));
     rootCommand.Subcommands.Add(statusCommand);
+
+    var checkPermissionsCommand = new Command(
+        "check-permissions",
+        "Verify that only Administrators and SYSTEM can access the SSLense data directory.");
+    checkPermissionsCommand.SetAction(_ => CheckPermissions());
+    rootCommand.Subcommands.Add(checkPermissionsCommand);
 
     var preflightSiteOption = new Option<string>("--site") { Required = true, Description = "IIS site name." };
     var preflightHostsOption = new Option<string>("--hosts") { Required = true, Description = "Comma-separated host names." };
@@ -473,6 +510,35 @@ static async Task<int> RenewAsync(
     }
 }
 
+static int CheckPermissions()
+{
+    try
+    {
+        var problems = DataDirectorySecurity.Verify();
+        if (problems.Count == 0)
+        {
+            Console.WriteLine($"'{AppPaths.DataDirectory}' is restricted to Administrators and SYSTEM.");
+            return 0;
+        }
+
+        foreach (var problem in problems)
+        {
+            Console.WriteLine($"Problem: {problem}");
+        }
+
+        Console.WriteLine(
+            "Starting SSLense elevated reapplies the restricted permissions; " +
+            "links and multi-link files must be removed manually.");
+        return 1;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to verify data directory permissions");
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
 static async Task<int> StatusAsync(
     IRenewalService renewalService,
     CancellationToken cancellationToken)
@@ -504,6 +570,15 @@ static async Task<int> StatusAsync(
             if (status.LastRenewalAttempt is not null)
             {
                 Console.WriteLine($"  Last attempt: {status.LastRenewalAttempt:yyyy-MM-dd HH:mm:ss} UTC");
+            }
+
+            if (status.ConsecutiveFailures > 0)
+            {
+                Console.WriteLine($"  Consecutive failures: {status.ConsecutiveFailures}");
+                if (status.NextRetryAt is not null)
+                {
+                    Console.WriteLine($"  Next automatic attempt: {status.NextRetryAt:yyyy-MM-dd HH:mm:ss} UTC");
+                }
             }
         }
 

@@ -24,6 +24,8 @@ public interface IFileSystem
         string path,
         CancellationToken cancellationToken);
 
+    IAsyncDisposable? TryAcquireExclusiveFileLock(string path);
+
     void DeleteFile(string path);
 
     void DeleteDirectoryIfEmpty(string path);

@@ -52,6 +52,7 @@ public sealed class JsonConfigStore : IConfigStore
                 .ConfigureAwait(false);
             var config = JsonSerializer.Deserialize<AppConfig>(json, SerializerOptions)
                 ?? throw new InvalidDataException($"Configuration file '{_configPath}' is empty.");
+            StateSchema.EnsureSupported(config.SchemaVersion, StateSchema.Config, _configPath);
             return config.Notifications is null
                 ? config with { Notifications = new NotificationConfig() }
                 : config;
@@ -78,13 +79,44 @@ public sealed class JsonConfigStore : IConfigStore
             await using var fileLock = await _fileSystem
                 .AcquireExclusiveFileLockAsync(_lockPath, cancellationToken)
                 .ConfigureAwait(false);
-            var json = JsonSerializer.Serialize(config, SerializerOptions);
+            var existingVersion = await ReadExistingVersionAsync(cancellationToken).ConfigureAwait(false);
+            if (existingVersion is { } version)
+            {
+                StateSchema.EnsureSupported(version, StateSchema.Config, _configPath);
+                if (version < StateSchema.Config)
+                {
+                    await StateSchema.BackupBeforeMigrationAsync(_fileSystem, _configPath, version, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+
+            var json = JsonSerializer.Serialize(config with { SchemaVersion = StateSchema.Config }, SerializerOptions);
             await _fileSystem.WriteAllTextAtomicAsync(_configPath, json, cancellationToken)
                 .ConfigureAwait(false);
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException(
+                $"Configuration file '{_configPath}' contains invalid JSON and was not overwritten.",
+                exception);
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    private async Task<int?> ReadExistingVersionAsync(CancellationToken cancellationToken)
+    {
+        if (!_fileSystem.FileExists(_configPath))
+        {
+            return null;
+        }
+
+        using var document = JsonDocument.Parse(
+            await _fileSystem.ReadAllTextAsync(_configPath, cancellationToken).ConfigureAwait(false));
+        return document.RootElement.TryGetProperty("schemaVersion", out var value) && value.TryGetInt32(out var version)
+            ? version
+            : 0;
     }
 }

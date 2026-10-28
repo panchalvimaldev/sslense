@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace SSLense.Core.Config;
@@ -31,7 +33,7 @@ public sealed class JsonManagedCertificateStore : IManagedCertificateStore
         await using var fileLock = await _fileSystem
             .AcquireExclusiveFileLockAsync(_lockPath, cancellationToken)
             .ConfigureAwait(false);
-        return await ReadUnsafeAsync(cancellationToken).ConfigureAwait(false);
+        return (await ReadUnsafeAsync(cancellationToken).ConfigureAwait(false)).Records;
     }
 
     public async Task UpsertAsync(
@@ -39,71 +41,150 @@ public sealed class JsonManagedCertificateStore : IManagedCertificateStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(certificate);
-        await using var fileLock = await _fileSystem
-            .AcquireExclusiveFileLockAsync(_lockPath, cancellationToken)
+        await UpdateAsync(
+                records =>
+                {
+                    var existing = records.FindIndex(value => IsSite(value, certificate.SiteName));
+                    var id = certificate.Id != Guid.Empty
+                        ? certificate.Id
+                        : existing >= 0 ? records[existing].Id : Guid.NewGuid();
+                    if (existing >= 0)
+                    {
+                        records.RemoveAt(existing);
+                    }
+
+                    records.Add(certificate with { Id = id });
+                    return true;
+                },
+                cancellationToken)
             .ConfigureAwait(false);
-        var records = (await ReadUnsafeAsync(cancellationToken).ConfigureAwait(false)).ToList();
-        records.RemoveAll(value => string.Equals(
-            value.SiteName,
-            certificate.SiteName,
-            StringComparison.OrdinalIgnoreCase));
-        records.Add(certificate);
-        await WriteUnsafeAsync(records, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task RecordRenewalFailureAsync(
+    public async Task<ManagedCertificate?> RecordRenewalFailureAsync(
         string siteName,
         DateTimeOffset attemptedAt,
         string message,
+        DateTimeOffset nextRetryAt,
         CancellationToken cancellationToken = default)
     {
-        await using var fileLock = await _fileSystem
-            .AcquireExclusiveFileLockAsync(_lockPath, cancellationToken)
-            .ConfigureAwait(false);
-        var records = (await ReadUnsafeAsync(cancellationToken).ConfigureAwait(false)).ToList();
-        var index = records.FindIndex(value => string.Equals(
-            value.SiteName,
-            siteName,
-            StringComparison.OrdinalIgnoreCase));
-        if (index < 0)
-        {
-            return;
-        }
+        ManagedCertificate? updated = null;
+        await UpdateAsync(
+                records =>
+                {
+                    var index = records.FindIndex(value => IsSite(value, siteName));
+                    if (index < 0)
+                    {
+                        return false;
+                    }
 
-        records[index] = records[index] with
-        {
-            LastRenewalAttempt = attemptedAt,
-            LastRenewalSucceeded = false,
-            LastRenewalMessage = message
-        };
-        await WriteUnsafeAsync(records, cancellationToken).ConfigureAwait(false);
+                    updated = records[index] = records[index] with
+                    {
+                        LastRenewalAttempt = attemptedAt,
+                        LastRenewalSucceeded = false,
+                        LastRenewalMessage = message,
+                        ConsecutiveFailures = records[index].ConsecutiveFailures + 1,
+                        NextRetryAt = nextRetryAt
+                    };
+                    return true;
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+        return updated;
     }
+
+    public Task RecordExpiryWarningAsync(
+        string siteName,
+        string thumbprint,
+        ExpiryWarningLevel level,
+        CancellationToken cancellationToken = default) =>
+        UpdateAsync(
+            records =>
+            {
+                var index = records.FindIndex(value => IsSite(value, siteName));
+                if (index < 0 ||
+                    !string.Equals(records[index].Thumbprint, thumbprint, StringComparison.OrdinalIgnoreCase) ||
+                    records[index].ExpiryWarningSent >= level)
+                {
+                    return false;
+                }
+
+                records[index] = records[index] with { ExpiryWarningSent = level };
+                return true;
+            },
+            cancellationToken);
 
     public async Task RemoveAsync(string siteName, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(siteName);
+        await UpdateAsync(
+                records =>
+                {
+                    records.RemoveAll(value => IsSite(value, siteName));
+                    return true;
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    internal static Guid CreateMigratedId(string siteName)
+    {
+        // Deterministic, so a legacy file read repeatedly before its first rewrite yields the same IDs.
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes($"sslense-v0:{siteName.Trim().ToUpperInvariant()}"));
+        return new Guid(hash.AsSpan(0, 16));
+    }
+
+    private async Task UpdateAsync(Func<List<ManagedCertificate>, bool> mutate, CancellationToken cancellationToken)
+    {
         await using var fileLock = await _fileSystem
             .AcquireExclusiveFileLockAsync(_lockPath, cancellationToken)
             .ConfigureAwait(false);
-        var records = (await ReadUnsafeAsync(cancellationToken).ConfigureAwait(false)).ToList();
-        records.RemoveAll(value => string.Equals(value.SiteName, siteName, StringComparison.OrdinalIgnoreCase));
-        await WriteUnsafeAsync(records, cancellationToken).ConfigureAwait(false);
+        var (records, version) = await ReadUnsafeAsync(cancellationToken).ConfigureAwait(false);
+        var list = records.ToList();
+        if (!mutate(list))
+        {
+            return;
+        }
+
+        if (version < StateSchema.ManagedCertificates)
+        {
+            await StateSchema.BackupBeforeMigrationAsync(_fileSystem, _statePath, version, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        await _fileSystem.WriteAllTextAtomicAsync(
+                _statePath,
+                JsonSerializer.Serialize(new StateDocument(StateSchema.ManagedCertificates, list), SerializerOptions),
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
-    private async Task<IReadOnlyList<ManagedCertificate>> ReadUnsafeAsync(
+    private async Task<(IReadOnlyList<ManagedCertificate> Records, int Version)> ReadUnsafeAsync(
         CancellationToken cancellationToken)
     {
         if (!_fileSystem.FileExists(_statePath))
         {
-            return [];
+            return ([], StateSchema.ManagedCertificates);
         }
 
+        var json = await _fileSystem.ReadAllTextAsync(_statePath, cancellationToken).ConfigureAwait(false);
+        int version;
+        List<ManagedCertificate>? records;
         try
         {
-            var json = await _fileSystem.ReadAllTextAsync(_statePath, cancellationToken)
-                .ConfigureAwait(false);
-            return JsonSerializer.Deserialize<List<ManagedCertificate>>(json, SerializerOptions)
-                ?? throw new InvalidDataException($"Managed certificate state '{_statePath}' is empty.");
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                version = 0;
+                records = document.RootElement.Deserialize<List<ManagedCertificate>>(SerializerOptions);
+            }
+            else
+            {
+                var state = document.RootElement.Deserialize<StateDocument>(SerializerOptions)
+                    ?? throw new InvalidDataException($"Managed certificate state '{_statePath}' is empty.");
+                version = state.SchemaVersion;
+                StateSchema.EnsureSupported(version, StateSchema.ManagedCertificates, _statePath);
+                records = state.Certificates;
+            }
         }
         catch (JsonException exception)
         {
@@ -111,13 +192,23 @@ public sealed class JsonManagedCertificateStore : IManagedCertificateStore
                 $"Managed certificate state '{_statePath}' contains invalid JSON.",
                 exception);
         }
+
+        if (records is null)
+        {
+            throw new InvalidDataException($"Managed certificate state '{_statePath}' is empty.");
+        }
+
+        return (
+            records
+                .Select(record => record.Id == Guid.Empty
+                    ? record with { Id = CreateMigratedId(record.SiteName) }
+                    : record)
+                .ToArray(),
+            version);
     }
 
-    private Task WriteUnsafeAsync(
-        IReadOnlyList<ManagedCertificate> records,
-        CancellationToken cancellationToken) =>
-        _fileSystem.WriteAllTextAtomicAsync(
-            _statePath,
-            JsonSerializer.Serialize(records, SerializerOptions),
-            cancellationToken);
+    private static bool IsSite(ManagedCertificate record, string siteName) =>
+        string.Equals(record.SiteName, siteName, StringComparison.OrdinalIgnoreCase);
+
+    private sealed record StateDocument(int SchemaVersion, List<ManagedCertificate>? Certificates);
 }

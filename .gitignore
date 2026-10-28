@@ -31,7 +31,7 @@ packages/
 
 # Runtime and local configuration
 *.log
-logs/
+/logs/
 .env
 .env.*
 !.env.example
