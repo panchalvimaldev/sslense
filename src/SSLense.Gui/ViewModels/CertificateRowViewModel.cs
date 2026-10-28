@@ -1,3 +1,4 @@
+using SSLense.Core.Acme;
 using SSLense.Core.Renewal;
 
 namespace SSLense.Gui.ViewModels;
@@ -11,6 +12,7 @@ public sealed class CertificateRowViewModel
         Expiry = status.NotAfter;
         DaysRemaining = status.DaysRemaining;
         Thumbprint = status.Thumbprint;
+        Environment = status.Environment == AcmeEnvironment.Production ? "Production" : "Staging";
 
         if (status.LastRenewalSucceeded == false)
         {
@@ -43,6 +45,8 @@ public sealed class CertificateRowViewModel
     public int DaysRemaining { get; }
 
     public string Thumbprint { get; }
+
+    public string Environment { get; }
 
     public string Status { get; }
 

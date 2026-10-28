@@ -1,4 +1,6 @@
 using Moq;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
@@ -24,7 +26,7 @@ public sealed class AcmeServiceTests
                 "example.com",
                 It.Is<string>(password => password.Length > 20),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new CertificateBundle("certificate", [1, 2, 3]));
+            .ReturnsAsync(CreateBundle());
         var protocol = new Mock<IAcmeProtocolClient>(MockBehavior.Strict);
         protocol.Setup(value => value.CreateOrderAsync(
                 "admin@example.com",
@@ -195,6 +197,44 @@ public sealed class AcmeServiceTests
         protocol.VerifyNoOtherCalls();
     }
 
+    [Fact]
+    public async Task IssueAsync_ExpectedCertificateChanged_StopsBeforeIisOrAcme()
+    {
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new ManagedCertificate(
+                "My Site", ["example.com"], "admin@example.com", "NEW",
+                DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(45))]);
+        var scope = new Mock<IAsyncDisposable>(MockBehavior.Strict);
+        scope.Setup(value => value.DisposeAsync()).Returns(ValueTask.CompletedTask);
+        var operationLock = new Mock<ICertificateOperationLock>(MockBehavior.Strict);
+        operationLock.Setup(value => value.AcquireAsync("My Site", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(scope.Object);
+        var iis = new Mock<IIisService>(MockBehavior.Strict);
+        var protocol = new Mock<IAcmeProtocolClient>(MockBehavior.Strict);
+        var service = new AcmeService(
+            iis.Object,
+            protocol.Object,
+            Mock.Of<IChallengeHandler>(),
+            Mock.Of<IChallengeProbe>(),
+            Mock.Of<ICertificateArtifactStore>(),
+            Mock.Of<ICertificateStore>(),
+            managed.Object,
+            operationLock.Object);
+
+        var exception = await Assert.ThrowsAsync<CertificateStateChangedException>(() => service.IssueAsync(
+            new AcmeIssueRequest(
+                "My Site", ["example.com"], "admin@example.com",
+                Force: true, ExpectedCurrentThumbprint: "OLD")));
+
+        Assert.Contains("changed", exception.Message, StringComparison.OrdinalIgnoreCase);
+        iis.VerifyNoOtherCalls();
+        protocol.VerifyNoOtherCalls();
+        managed.VerifyAll();
+        operationLock.VerifyAll();
+        scope.VerifyAll();
+    }
+
     [Theory]
     [InlineData(true, true)]
     [InlineData(false, false)]
@@ -222,7 +262,7 @@ public sealed class AcmeServiceTests
                 "example.com",
                 It.IsAny<string>(),
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new CertificateBundle("certificate", [1, 2, 3]));
+            .ReturnsAsync(CreateBundle());
         var protocol = new Mock<IAcmeProtocolClient>(MockBehavior.Strict);
         protocol.Setup(value => value.CreateOrderAsync(
                 It.IsAny<string>(),
@@ -294,6 +334,20 @@ public sealed class AcmeServiceTests
         "Started",
         "C:\\inetpub\\site",
         [new IisBinding("http", "*", 80, host, null, null, false)]);
+
+    private static CertificateBundle CreateBundle()
+    {
+        using var key = RSA.Create(2048);
+        var request = new CertificateRequest(
+            "CN=example.com",
+            key,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+        using var certificate = request.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            DateTimeOffset.UtcNow.AddDays(1));
+        return new CertificateBundle(certificate.ExportCertificatePem(), [1, 2, 3]);
+    }
 
     private sealed class TrackingCleanup : IAsyncDisposable
     {

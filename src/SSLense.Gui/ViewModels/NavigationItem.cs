@@ -1,3 +1,3 @@
 namespace SSLense.Gui.ViewModels;
 
-public sealed record NavigationItem(string Title, object ViewModel);
+public sealed record NavigationItem(string Title, string Icon, object ViewModel);

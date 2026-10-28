@@ -96,7 +96,7 @@ public partial class SettingsViewModel : ObservableObject
     private Task SaveGeneralAsync(CancellationToken token) => RunAsync(async ct =>
     {
         await _settingsService.SaveGeneralAsync(DefaultEmail, RenewalThresholdDays, ct).ConfigureAwait(true);
-        ResultMessage = "General settings saved. Staging remains enforced.";
+        ResultMessage = "General settings saved. Staging remains the default for new issuance.";
     }, token);
 
     private Task SaveNotificationsAsync(CancellationToken token) => RunAsync(async ct =>

@@ -31,7 +31,8 @@ internal sealed class CertificateManagementService(
             installed?.NotBefore ?? record.NotBefore,
             installed?.NotAfter ?? record.NotAfter,
             boundSites,
-            logs.Lines);
+            logs.Lines,
+            record.Environment);
     }
 
     public async Task RemoveAsync(string siteName, CancellationToken cancellationToken = default)

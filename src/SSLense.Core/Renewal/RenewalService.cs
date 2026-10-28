@@ -3,6 +3,9 @@ using SSLense.Core.Certificates;
 using SSLense.Core.Config;
 using SSLense.Core.Iis;
 using System.Diagnostics;
+using System.Buffers.Binary;
+using System.Security.Cryptography;
+using System.Text;
 using SSLense.Core.Notifications;
 
 namespace SSLense.Core.Renewal;
@@ -22,6 +25,7 @@ internal sealed class RenewalService : IRenewalService
     private readonly ICertificateStore _certificateStore;
     private readonly IRenewalDelay _delay;
     private readonly INotifier _notifier;
+    private readonly IRenewalInfoProvider _renewalInfoProvider;
 
     public RenewalService(
         IManagedCertificateStore managedStore,
@@ -30,7 +34,8 @@ internal sealed class RenewalService : IRenewalService
         IIisService iisService,
         ICertificateStore certificateStore,
         IRenewalDelay delay,
-        INotifier notifier)
+        INotifier notifier,
+        IRenewalInfoProvider? renewalInfoProvider = null)
     {
         _managedStore = managedStore;
         _configStore = configStore;
@@ -39,6 +44,7 @@ internal sealed class RenewalService : IRenewalService
         _certificateStore = certificateStore;
         _delay = delay;
         _notifier = notifier;
+        _renewalInfoProvider = renewalInfoProvider ?? new NoOpRenewalInfoProvider();
     }
 
     public async Task<IReadOnlyList<ManagedCertificateStatus>> GetStatusAsync(
@@ -57,7 +63,8 @@ internal sealed class RenewalService : IRenewalService
                 value.Thumbprint,
                 value.LastRenewalAttempt,
                 value.LastRenewalSucceeded,
-                value.LastRenewalMessage))
+                value.LastRenewalMessage,
+                value.Environment))
             .ToArray();
     }
 
@@ -88,7 +95,6 @@ internal sealed class RenewalService : IRenewalService
             throw new InvalidDataException("RenewalThresholdDays cannot be negative.");
         }
 
-        var dueAt = DateTimeOffset.UtcNow.AddDays(config.RenewalThresholdDays);
         var results = new List<RenewalResult>();
         foreach (var certificate in selected)
         {
@@ -99,20 +105,26 @@ internal sealed class RenewalService : IRenewalService
                         new NotificationMessage(
                             NotificationKind.ExpiryWarning,
                             $"SSLense certificate expires soon: {certificate.SiteName}",
-                            $"The staging certificate for {certificate.SiteName} ({string.Join(", ", certificate.Hosts)}) " +
+                            $"The {certificate.Environment.DisplayName()} certificate for {certificate.SiteName} " +
+                            $"({string.Join(", ", certificate.Hosts)}) " +
                             $"expires at {certificate.NotAfter:O}."),
                         progress,
                         cancellationToken)
                     .ConfigureAwait(false);
             }
 
-            if (!request.Force && certificate.NotAfter > dueAt)
+            var renewalAt = request.Force
+                ? DateTimeOffset.MinValue
+                : await GetRenewalTimeAsync(certificate, config, progress, cancellationToken)
+                    .ConfigureAwait(false);
+            if (!request.Force && DateTimeOffset.UtcNow < renewalAt)
             {
                 results.Add(new RenewalResult(
                     certificate.SiteName,
                     false,
                     true,
-                    $"Skipped: certificate is not due until {certificate.NotAfter:yyyy-MM-dd}.",
+                    $"Skipped: renewal is scheduled for {renewalAt:yyyy-MM-dd HH:mm} UTC " +
+                    $"(certificate expires {certificate.NotAfter:yyyy-MM-dd}).",
                     certificate.Thumbprint));
                 continue;
             }
@@ -144,7 +156,9 @@ internal sealed class RenewalService : IRenewalService
                             certificate.Hosts,
                             certificate.Email,
                             certificate.OutputDirectory,
-                            true),
+                            true,
+                            certificate.Environment,
+                            certificate.Thumbprint),
                         progress,
                         cancellationToken)
                     .ConfigureAwait(false);
@@ -160,7 +174,8 @@ internal sealed class RenewalService : IRenewalService
                         new NotificationMessage(
                             NotificationKind.RenewalSuccess,
                             $"SSLense renewal succeeded: {certificate.SiteName}",
-                            $"The staging certificate for {certificate.SiteName} ({string.Join(", ", certificate.Hosts)}) " +
+                            $"The {certificate.Environment.DisplayName()} certificate for {certificate.SiteName} " +
+                            $"({string.Join(", ", certificate.Hosts)}) " +
                             $"was renewed successfully. New thumbprint: {newThumbprint}."),
                         progress,
                         cancellationToken)
@@ -177,6 +192,15 @@ internal sealed class RenewalService : IRenewalService
             {
                 throw;
             }
+            catch (CertificateStateChangedException exception)
+            {
+                return new RenewalResult(
+                    certificate.SiteName,
+                    false,
+                    true,
+                    $"Skipped: {exception.Message}",
+                    certificate.Thumbprint);
+            }
             catch (Exception exception)
             {
                 await _managedStore.RecordRenewalFailureAsync(
@@ -192,7 +216,7 @@ internal sealed class RenewalService : IRenewalService
                             new NotificationMessage(
                                 NotificationKind.RenewalFailure,
                                 $"SSLense renewal failed: {certificate.SiteName}",
-                                $"The staging certificate renewal for {certificate.SiteName} " +
+                                $"The {certificate.Environment.DisplayName()} certificate renewal for {certificate.SiteName} " +
                                 $"({string.Join(", ", certificate.Hosts)}) failed after {attempts} attempt(s). " +
                                 $"The existing IIS binding was retained. Error: {exception.Message}"),
                             progress,
@@ -232,6 +256,49 @@ internal sealed class RenewalService : IRenewalService
                 "notification",
                 $"Notification could not be sent: {exception.Message}"));
         }
+    }
+
+    private async Task<DateTimeOffset> GetRenewalTimeAsync(
+        ManagedCertificate certificate,
+        AppConfig config,
+        IProgress<ProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        var window = await _renewalInfoProvider
+            .GetWindowAsync(certificate, cancellationToken)
+            .ConfigureAwait(false);
+        if (window is not null)
+        {
+            var selected = SelectTimeInWindow(window, certificate.Thumbprint);
+            progress?.Report(new ProgressEvent(
+                "schedule",
+                $"ACME ARI scheduled {certificate.SiteName} for {selected:yyyy-MM-dd HH:mm} UTC."));
+            return selected;
+        }
+
+        var lifetime = certificate.NotAfter - certificate.NotBefore;
+        var relativeLeadDays = Math.Max(1, lifetime.TotalDays / 3d);
+        var configuredLeadDays = Math.Max(1, config.RenewalThresholdDays);
+        var leadDays = Math.Min(configuredLeadDays, relativeLeadDays);
+        var fallback = certificate.NotAfter.AddDays(-leadDays);
+        progress?.Report(new ProgressEvent(
+            "schedule",
+            $"ARI is unavailable for {certificate.SiteName}; using the lifetime-relative fallback " +
+            $"of {fallback:yyyy-MM-dd HH:mm} UTC."));
+        return fallback;
+    }
+
+    internal static DateTimeOffset SelectTimeInWindow(RenewalWindow window, string seed)
+    {
+        if (window.End <= window.Start)
+        {
+            throw new ArgumentException("The renewal window end must be after its start.", nameof(window));
+        }
+
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(seed));
+        var sample = BinaryPrimitives.ReadUInt64BigEndian(hash);
+        var fraction = sample / (double)ulong.MaxValue;
+        return window.Start + TimeSpan.FromTicks((long)((window.End - window.Start).Ticks * fraction));
     }
 
     private async Task<string?> RemoveOldCertificateIfUnusedAsync(

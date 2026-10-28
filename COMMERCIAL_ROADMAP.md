@@ -15,17 +15,21 @@ The commercial product must retain these principles:
 
 ## 2. Current status
 
-Phases 1–7 provide:
+Phases 1–8 and Commercial Phase A provide:
 
 - IIS site and binding discovery
-- Let's Encrypt staging issuance using HTTP-01
+- Separated Let's Encrypt staging and guarded production issuance using HTTP-01
 - Windows certificate-store installation and SNI binding management
 - Managed certificate state and automatic renewal service
 - SMTP and webhook notifications
-- WPF Dashboard, Logs, Issue Certificate, Certificate Details, and Settings screens
+- Professional WPF Dashboard, Logs, Issue Certificate, Certificate Details, and Settings screens
 - CLI equivalents for shared Core operations
+- ARI-aware renewal scheduling with a lifetime-relative fallback
+- Cross-process per-site concurrency control
+- Non-exportable certificate keys with no retained PFX artifacts
+- Durable certificate-operation journals and startup recovery
 
-The current application is suitable for staging evaluation. It is not yet a production-ready commercial release because production ACME, hardened key storage, signed distribution, upgrade recovery, fleet management, and commercial operations remain unfinished.
+The Commercial Phase A implementation is complete. A real production issuance remains an explicit operator acceptance test and is never run during development. Signed distribution, ProgramData ACL hardening, the supported-platform test matrix, diagnostics, security review, and commercial operations remain unfinished.
 
 ## 3. External lifecycle requirements
 
@@ -395,6 +399,8 @@ Final pricing, limits, and packaging should be validated through customer interv
 ## 11. Recommended implementation sequence
 
 ### Commercial Phase A — Production safety
+
+Status: **Implemented on October 28, 2026.** Automated validation uses staging and mocks only; the controlled production smoke test requires explicit operator authorization.
 
 1. Production/staging separation
 2. ARI and lifetime-relative renewal scheduling

@@ -5,9 +5,6 @@ namespace SSLense.Core.Acme;
 
 internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
 {
-    private static readonly Uri StagingDirectory = new(
-        "https://acme-staging-v02.api.letsencrypt.org/directory");
-
     private readonly IAcmeAccountStore _accountStore;
 
     public CertesAcmeProtocolClient(IAcmeAccountStore accountStore)
@@ -18,22 +15,31 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
     public async Task<IAcmeOrderSession> CreateOrderAsync(
         string email,
         IReadOnlyList<string> hosts,
+        CancellationToken cancellationToken) =>
+        await CreateOrderAsync(email, hosts, AcmeEnvironment.Staging, cancellationToken)
+            .ConfigureAwait(false);
+
+    public async Task<IAcmeOrderSession> CreateOrderAsync(
+        string email,
+        IReadOnlyList<string> hosts,
+        AcmeEnvironment environment,
         CancellationToken cancellationToken)
     {
-        var savedKey = await _accountStore.LoadKeyAsync(cancellationToken).ConfigureAwait(false);
+        var directory = environment.DirectoryUri();
+        var savedKey = await _accountStore.LoadKeyAsync(environment, cancellationToken).ConfigureAwait(false);
         AcmeContext context;
         if (savedKey is null)
         {
-            context = new AcmeContext(StagingDirectory);
+            context = new AcmeContext(directory);
             await context.NewAccount(email, true)
                 .WaitAsync(cancellationToken)
                 .ConfigureAwait(false);
-            await _accountStore.SaveKeyAsync(context.AccountKey.ToPem(), cancellationToken)
+            await _accountStore.SaveKeyAsync(environment, context.AccountKey.ToPem(), cancellationToken)
                 .ConfigureAwait(false);
         }
         else
         {
-            context = new AcmeContext(StagingDirectory, KeyFactory.FromPem(savedKey));
+            context = new AcmeContext(directory, KeyFactory.FromPem(savedKey));
             await context.Account().WaitAsync(cancellationToken).ConfigureAwait(false);
         }
 

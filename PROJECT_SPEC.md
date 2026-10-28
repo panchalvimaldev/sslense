@@ -134,7 +134,9 @@ GUI rules:
 
 **Phase 7: GUI part 2.** Issue Certificate wizard with pre-flight checks and live progress, Certificate details screen, Settings screen (notifications, service control).
 
-**Phase 8 (optional, later):** DNS-01 challenge with Cloudflare API (wildcard support), HTTP to HTTPS redirect helper (URL Rewrite rule), installer (MSI or Inno Setup) that bundles GUI, CLI, and service.
+**Phase 8: Professional GUI modernization.** Shared WPF design system, professional application shell and navigation, dashboard health summary, status badges, visual issuance stepper, improved information hierarchy, consistent form controls and operation feedback, empty states, and accessible color-independent status presentation. Preserve the existing Core services and ViewModels; do not add business logic to the GUI.
+
+**Phase 9 (optional, later):** DNS-01 challenge with Cloudflare API (wildcard support), HTTP to HTTPS redirect helper (URL Rewrite rule), installer (MSI or Inno Setup) that bundles GUI, CLI, and service.
 
 ## 7. Acceptance criteria for the MVP
 

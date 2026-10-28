@@ -6,10 +6,17 @@ namespace SSLense.Core.Certificates;
 internal sealed class CertificateArtifactStore : ICertificateArtifactStore
 {
     private readonly IFileSystem _fileSystem;
+    private readonly string _defaultDirectory;
 
     public CertificateArtifactStore(IFileSystem fileSystem)
+        : this(fileSystem, AppPaths.CertificateDirectory)
+    {
+    }
+
+    internal CertificateArtifactStore(IFileSystem fileSystem, string defaultDirectory)
     {
         _fileSystem = fileSystem;
+        _defaultDirectory = defaultDirectory;
     }
 
     public async Task<AcmeIssueResult> SaveAsync(
@@ -21,19 +28,16 @@ internal sealed class CertificateArtifactStore : ICertificateArtifactStore
     {
         var directory = outputDirectory is null
             ? Path.Combine(
-                AppPaths.CertificateDirectory,
+                _defaultDirectory,
                 SanitizeFileName(siteName),
                 DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmssfff"))
             : Path.GetFullPath(outputDirectory);
 
         _fileSystem.CreateDirectory(directory);
         var pemPath = Path.Combine(directory, "certificate.pem");
-        var pfxPath = Path.Combine(directory, "certificate.pfx");
         await _fileSystem.WriteAllTextAsync(pemPath, bundle.CertificatePem, cancellationToken)
             .ConfigureAwait(false);
-        await _fileSystem.WriteAllBytesAsync(pfxPath, bundle.PfxBytes, cancellationToken)
-            .ConfigureAwait(false);
-        return new AcmeIssueResult(pemPath, pfxPath, hosts);
+        return new AcmeIssueResult(pemPath, null, hosts);
     }
 
     private static string SanitizeFileName(string value)

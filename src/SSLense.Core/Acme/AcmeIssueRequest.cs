@@ -5,4 +5,6 @@ public sealed record AcmeIssueRequest(
     IReadOnlyList<string> Hosts,
     string Email,
     string? OutputDirectory = null,
-    bool Force = false);
+    bool Force = false,
+    AcmeEnvironment Environment = AcmeEnvironment.Staging,
+    string? ExpectedCurrentThumbprint = null);

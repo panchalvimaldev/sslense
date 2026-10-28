@@ -3,40 +3,40 @@
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
  <ScrollViewer VerticalScrollBarVisibility="Auto">
   <StackPanel>
-   <TextBlock Text="Settings" FontSize="28" FontWeight="SemiBold"/><TextBlock Text="Renewal, notification, and Windows Service settings" Foreground="#5E6B76" Margin="0,4,0,18"/>
-   <TextBlock Text="{Binding ErrorMessage}" Foreground="#B42318" FontWeight="SemiBold" TextWrapping="Wrap"/>
-   <TextBlock Text="{Binding ResultMessage}" Foreground="#247A3D" FontWeight="SemiBold" TextWrapping="Wrap"/>
+   <TextBlock Text="Settings" Style="{StaticResource PageTitle}"/><TextBlock Text="Configure renewal behavior, notifications, and the background service." Style="{StaticResource PageSubtitle}" Margin="0,4,0,18"/>
+   <Border Margin="0,0,0,10"><Border.Style><Style TargetType="Border" BasedOn="{StaticResource ErrorBanner}"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding ErrorMessage}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger><DataTrigger Binding="{Binding ErrorMessage}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></Border.Style><TextBlock Text="{Binding ErrorMessage}" Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold" TextWrapping="Wrap"/></Border>
+   <TextBlock Text="{Binding ResultMessage}" Foreground="{StaticResource SuccessBrush}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,6"/>
 
-   <GroupBox Header="General" Padding="14" Margin="0,10,0,12"><StackPanel>
-    <TextBlock Text="Default ACME email"/><TextBox Text="{Binding DefaultEmail}" Padding="6" Margin="0,4,0,10"/>
-    <TextBlock Text="Renewal threshold (days)"/><TextBox Text="{Binding RenewalThresholdDays}" Padding="6" Margin="0,4,0,10" Width="100" HorizontalAlignment="Left"/>
-    <StackPanel Orientation="Horizontal"><RadioButton Content="Staging (default and enforced)" IsChecked="True" Margin="0,0,20,0"/><RadioButton Content="Production (disabled)" IsEnabled="False"/></StackPanel>
-    <Button Content="Save General Settings" Command="{Binding SaveGeneralCommand}" Padding="14,7" HorizontalAlignment="Left" Margin="0,12,0,0"/>
+   <GroupBox Header="General" Margin="0,10,0,14"><StackPanel>
+    <TextBlock Text="DEFAULT ACME EMAIL" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding DefaultEmail}" Margin="0,0,0,14"/>
+    <TextBlock Text="RENEWAL THRESHOLD (DAYS)" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding RenewalThresholdDays}" Margin="0,0,0,14" Width="120" HorizontalAlignment="Left"/>
+    <TextBlock Text="Staging is the safe default. Production must be selected and explicitly acknowledged for each new issuance." Style="{StaticResource CaptionText}" TextWrapping="Wrap"/>
+    <Button Content="Save general settings" Command="{Binding SaveGeneralCommand}" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" Margin="0,16,0,0"/>
    </StackPanel></GroupBox>
 
-   <GroupBox Header="Notifications" Padding="14" Margin="0,0,0,12"><StackPanel>
-    <TextBlock Text="{Binding NotificationStatus}" FontWeight="SemiBold" Margin="0,0,0,10"/>
+   <GroupBox Header="Notifications" Margin="0,0,0,14"><StackPanel>
+    <Border Style="{StaticResource InfoBanner}" Margin="0,0,0,16"><TextBlock Text="{Binding NotificationStatus}" FontWeight="SemiBold"/></Border>
     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
      <StackPanel Margin="0,0,14,0">
-      <TextBlock Text="SMTP host"/><TextBox Text="{Binding SmtpHost}" Padding="5"/><TextBlock Text="Port" Margin="0,7,0,0"/><TextBox Text="{Binding SmtpPort}" Padding="5"/>
-      <CheckBox Content="Use TLS" IsChecked="{Binding SmtpTls}" Margin="0,7"/><TextBlock Text="Username"/><TextBox Text="{Binding SmtpUsername}" Padding="5"/>
-      <TextBlock Text="Password (enter to replace)" Margin="0,7,0,0"/><PasswordBox PasswordChanged="OnSmtpPasswordChanged" Padding="5"/>
+      <TextBlock Text="SMTP HOST" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding SmtpHost}"/><TextBlock Text="PORT" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/><TextBox Text="{Binding SmtpPort}"/>
+      <CheckBox Content="Use TLS" IsChecked="{Binding SmtpTls}" Margin="0,12"/><TextBlock Text="USERNAME" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding SmtpUsername}"/>
+      <TextBlock Text="PASSWORD (ENTER TO REPLACE)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/><PasswordBox PasswordChanged="OnSmtpPasswordChanged"/>
      </StackPanel>
      <StackPanel Grid.Column="1">
-      <TextBlock Text="From"/><TextBox Text="{Binding SmtpFrom}" Padding="5"/><TextBlock Text="To" Margin="0,7,0,0"/><TextBox Text="{Binding SmtpTo}" Padding="5"/>
-      <TextBlock Text="Webhook URL (enter to replace)" Margin="0,7,0,0"/><PasswordBox PasswordChanged="OnWebhookChanged" Padding="5"/>
+      <TextBlock Text="FROM ADDRESS" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding SmtpFrom}"/><TextBlock Text="TO ADDRESS" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/><TextBox Text="{Binding SmtpTo}"/>
+      <TextBlock Text="WEBHOOK URL (ENTER TO REPLACE)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/><PasswordBox PasswordChanged="OnWebhookChanged"/>
       <CheckBox Content="Notify on successful renewal" IsChecked="{Binding NotifyOnSuccess}" Margin="0,10,0,0"/>
      </StackPanel>
     </Grid>
     <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-     <Button Content="Save Notifications" Command="{Binding SaveNotificationsCommand}" Padding="14,7" Margin="0,0,8,0"/><Button Content="Send Test" Command="{Binding TestNotificationCommand}" Padding="14,7" Margin="0,0,8,0"/><Button Content="Clear" Command="{Binding ClearNotificationsCommand}" Padding="14,7"/>
+     <Button Content="Save notifications" Command="{Binding SaveNotificationsCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"/><Button Content="Send test" Command="{Binding TestNotificationCommand}" Margin="0,0,8,0"/><Button Content="Clear settings" Command="{Binding ClearNotificationsCommand}" Style="{StaticResource DangerButton}"/>
     </StackPanel>
    </StackPanel></GroupBox>
 
-   <GroupBox Header="Windows Service" Padding="14"><StackPanel>
-    <TextBlock Text="{Binding ServiceStatus, StringFormat=Status: {0}}" FontWeight="SemiBold"/>
-    <TextBlock Text="Service executable" Margin="0,8,0,0"/><TextBox Text="{Binding ServicePath}" Padding="6"/>
-    <WrapPanel Margin="0,12,0,0"><Button Content="Install" Command="{Binding InstallServiceCommand}" Padding="14,7" Margin="0,0,8,0"/><Button Content="Start" Command="{Binding StartServiceCommand}" Padding="14,7" Margin="0,0,8,0"/><Button Content="Stop" Command="{Binding StopServiceCommand}" Padding="14,7" Margin="0,0,8,0"/><Button Content="Uninstall" Command="{Binding UninstallServiceCommand}" Padding="14,7" Margin="0,0,8,0"/><Button Content="Refresh" Command="{Binding RefreshServiceCommand}" Padding="14,7"/></WrapPanel>
+   <GroupBox Header="Windows Service"><StackPanel>
+    <Border Style="{StaticResource InfoBanner}" Margin="0,0,0,14"><TextBlock Text="{Binding ServiceStatus, StringFormat=Service status: {0}}" FontWeight="SemiBold"/></Border>
+    <TextBlock Text="SERVICE EXECUTABLE" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding ServicePath}"/>
+    <WrapPanel Margin="0,16,0,0"><Button Content="Install" Command="{Binding InstallServiceCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"/><Button Content="Start" Command="{Binding StartServiceCommand}" Margin="0,0,8,0"/><Button Content="Stop" Command="{Binding StopServiceCommand}" Margin="0,0,8,0"/><Button Content="Uninstall" Command="{Binding UninstallServiceCommand}" Style="{StaticResource DangerButton}" Margin="0,0,8,0"/><Button Content="Refresh status" Command="{Binding RefreshServiceCommand}"/></WrapPanel>
    </StackPanel></GroupBox>
   </StackPanel>
  </ScrollViewer>

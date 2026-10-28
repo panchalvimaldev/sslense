@@ -38,4 +38,38 @@ public sealed class AcmeAccountStoreTests
         Assert.Equal(Convert.ToBase64String(new byte[] { 10, 20, 30 }), savedValue);
         Assert.DoesNotContain("PRIVATE KEY", savedValue, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task ProductionAndStaging_UseSeparateAccountKeyFiles()
+    {
+        const string productionKey = "production-private-key";
+        string? savedValue = null;
+        var productionPath = AppPaths.GetAccountKeyFile(AcmeEnvironment.Production);
+        var stagingPath = AppPaths.GetAccountKeyFile(AcmeEnvironment.Staging);
+        var fileSystem = new Mock<IFileSystem>(MockBehavior.Strict);
+        fileSystem.Setup(value => value.WriteAllTextAtomicAsync(
+                productionPath, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, CancellationToken>((_, contents, _) => savedValue = contents)
+            .Returns(Task.CompletedTask);
+        fileSystem.Setup(value => value.FileExists(productionPath)).Returns(true);
+        fileSystem.Setup(value => value.ReadAllTextAsync(productionPath, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => savedValue!);
+        fileSystem.Setup(value => value.FileExists(stagingPath)).Returns(false);
+        var protector = new Mock<ISecretProtector>(MockBehavior.Strict);
+        protector.Setup(value => value.Protect(It.IsAny<byte[]>())).Returns([1, 2, 3]);
+        protector.Setup(value => value.Unprotect(It.IsAny<byte[]>()))
+            .Returns(Encoding.UTF8.GetBytes(productionKey));
+        var store = new AcmeAccountStore(fileSystem.Object, protector.Object);
+
+        await store.SaveKeyAsync(AcmeEnvironment.Production, productionKey, CancellationToken.None);
+        var loadedProduction = await store.LoadKeyAsync(
+            AcmeEnvironment.Production, CancellationToken.None);
+        var loadedStaging = await store.LoadKeyAsync(
+            AcmeEnvironment.Staging, CancellationToken.None);
+
+        Assert.Equal(productionKey, loadedProduction);
+        Assert.Null(loadedStaging);
+        Assert.NotEqual(productionPath, stagingPath);
+        fileSystem.VerifyAll();
+    }
 }

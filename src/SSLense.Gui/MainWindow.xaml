@@ -3,9 +3,11 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:SSLense.Gui.ViewModels"
         xmlns:views="clr-namespace:SSLense.Gui.Views"
-        Title="SSLense" Height="700" Width="1120"
-        MinHeight="560" MinWidth="900"
-        WindowStartupLocation="CenterScreen">
+        Title="SSLense — IIS Certificate Manager" Height="780" Width="1240"
+        MinHeight="640" MinWidth="1020"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource CanvasBrush}"
+        FontFamily="Segoe UI" FontSize="13">
     <Window.Resources>
         <DataTemplate DataType="{x:Type vm:DashboardViewModel}">
             <views:DashboardView />
@@ -23,42 +25,62 @@
             <views:SettingsView />
         </DataTemplate>
     </Window.Resources>
-    <Grid Background="#F3F5F7">
+    <Grid Background="{StaticResource CanvasBrush}">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="210" />
+            <ColumnDefinition Width="244" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <Border Background="#18212B">
-            <DockPanel>
-                <StackPanel DockPanel.Dock="Top" Margin="22,24,22,20">
-                    <TextBlock Text="SSLense" Foreground="White" FontSize="26" FontWeight="SemiBold" />
-                    <TextBlock Text="IIS certificate manager" Foreground="#AFC0D0" Margin="0,4,0,0" />
-                    <Border Background="#374B5E" CornerRadius="3" Margin="0,14,0,0" Padding="8,4">
-                        <TextBlock Text="STAGING ONLY" Foreground="#FFF2B2" FontWeight="SemiBold" HorizontalAlignment="Center" />
-                    </Border>
+        <Border Background="{StaticResource SidebarBrush}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <StackPanel Margin="24,26,20,24">
+                    <StackPanel Orientation="Horizontal">
+                        <Border Width="38" Height="38" CornerRadius="9" Background="{StaticResource BrandBrush}">
+                            <TextBlock Text="S" Foreground="White" FontSize="21" FontWeight="Bold"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <StackPanel Margin="11,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="SSLense" Foreground="White" FontSize="20" FontWeight="SemiBold" />
+                            <TextBlock Text="Certificate manager" Foreground="#94A3B8" FontSize="11" />
+                        </StackPanel>
+                    </StackPanel>
                 </StackPanel>
-                <ListBox ItemsSource="{Binding Pages}"
+                <Border Grid.Row="1" Margin="16,0,16,18" Padding="11,8" CornerRadius="7"
+                        Background="#18243A" BorderBrush="#334155" BorderThickness="1">
+                    <DockPanel>
+                        <Ellipse DockPanel.Dock="Left" Width="7" Height="7" Fill="#FBBF24" Margin="0,0,8,0" />
+                        <TextBlock Text="STAGING DEFAULT • PRODUCTION GUARDED" Foreground="#FDE68A" FontSize="10" FontWeight="SemiBold" />
+                    </DockPanel>
+                </Border>
+                <ListBox Grid.Row="2" ItemsSource="{Binding Pages}"
                          SelectedItem="{Binding SelectedPage}"
                          Background="Transparent" BorderThickness="0"
-                         Foreground="White" Padding="10,0">
+                         Foreground="#CBD5E1" Padding="12,0">
                     <ListBox.ItemContainerStyle>
                         <Style TargetType="ListBoxItem">
-                            <Setter Property="Padding" Value="14,11" />
+                            <Setter Property="Padding" Value="12,10" />
                             <Setter Property="Margin" Value="0,2" />
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Cursor" Value="Hand" />
                             <Setter Property="Template">
                                 <Setter.Value>
                                     <ControlTemplate TargetType="ListBoxItem">
-                                        <Border x:Name="ItemBorder" Background="Transparent" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                        <Border x:Name="ItemBorder" Background="Transparent" CornerRadius="7" Padding="{TemplateBinding Padding}">
                                             <ContentPresenter />
                                         </Border>
                                         <ControlTemplate.Triggers>
-                                            <Trigger Property="IsSelected" Value="True">
-                                                <Setter TargetName="ItemBorder" Property="Background" Value="#2F80ED" />
-                                            </Trigger>
                                             <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="ItemBorder" Property="Background" Value="#31506B" />
+                                                <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource SidebarHoverBrush}" />
+                                            </Trigger>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="ItemBorder" Property="Background" Value="#263A5B" />
+                                                <Setter Property="Foreground" Value="White" />
                                             </Trigger>
                                         </ControlTemplate.Triggers>
                                     </ControlTemplate>
@@ -68,15 +90,39 @@
                     </ListBox.ItemContainerStyle>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <TextBlock Text="{Binding Title}" FontSize="15" />
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding Icon}" FontFamily="Segoe MDL2 Assets" FontSize="16" Width="28"
+                                           Foreground="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=Foreground}" />
+                                <TextBlock Text="{Binding Title}" FontSize="13.5" FontWeight="SemiBold"
+                                           Foreground="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=Foreground}" />
+                            </StackPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
-            </DockPanel>
+                <Border Grid.Row="3" BorderBrush="#263246" BorderThickness="0,1,0,0" Padding="20,16">
+                    <StackPanel>
+                        <TextBlock Text="Protected by SSLense" Foreground="#94A3B8" FontSize="11" />
+                        <TextBlock Text="Administrator mode" Foreground="#64748B" FontSize="10" Margin="0,3,0,0" />
+                    </StackPanel>
+                </Border>
+            </Grid>
         </Border>
 
-        <ContentControl Grid.Column="1"
-                        Content="{Binding SelectedPage.ViewModel}"
-                        Margin="26" />
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Border Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="28,12">
+                <DockPanel>
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                        <Ellipse Width="8" Height="8" Fill="#22C55E" Margin="0,0,8,0" />
+                        <TextBlock Text="System ready" Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock Text="IIS certificate operations" Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" />
+                </DockPanel>
+            </Border>
+            <ContentControl Grid.Row="1" Content="{Binding SelectedPage.ViewModel}" Margin="28,24,28,28" />
+        </Grid>
     </Grid>
 </Window>

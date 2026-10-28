@@ -10,4 +10,5 @@ public sealed record ManagedCertificate(
     string? OutputDirectory = null,
     DateTimeOffset? LastRenewalAttempt = null,
     bool? LastRenewalSucceeded = null,
-    string? LastRenewalMessage = null);
+    string? LastRenewalMessage = null,
+    Acme.AcmeEnvironment Environment = Acme.AcmeEnvironment.Staging);

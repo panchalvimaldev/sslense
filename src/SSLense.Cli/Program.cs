@@ -30,6 +30,11 @@ try
     builder.Services.AddSSLenseCore();
 
     using var host = builder.Build();
+    var recovery = host.Services.GetRequiredService<ICertificateRecoveryService>();
+    foreach (var message in await recovery.RecoverAsync().ConfigureAwait(false))
+    {
+        Log.Information("{RecoveryMessage}", message);
+    }
     var rootCommand = CreateRootCommand(host.Services);
     return rootCommand.Parse(args).Invoke();
 }
@@ -64,26 +69,36 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     };
     var emailOption = new Option<string>("--email")
     {
-        Description = "Email address for the Let's Encrypt staging account.",
+        Description = "Email address for the Let's Encrypt ACME account.",
         Required = true
     };
     var stagingOption = new Option<bool>("--staging")
     {
-        Description = "Use Let's Encrypt staging (always enabled until production is explicitly authorized)."
+        Description = "Use Let's Encrypt staging (the safe default)."
+    };
+    var productionOption = new Option<bool>("--production")
+    {
+        Description = "Use Let's Encrypt production and obtain a publicly trusted certificate."
+    };
+    var acceptProductionRiskOption = new Option<bool>("--accept-production-risk")
+    {
+        Description = "Confirm production issuance, rate-limit impact, and replacement of the live IIS binding."
     };
     var outputOption = new Option<string?>("--output")
     {
-        Description = "Directory for certificate.pem and certificate.pfx."
+        Description = "Directory for the public certificate PEM. Private-key PFX files are not persisted."
     };
     var forceOption = new Option<bool>("--force")
     {
         Description = "Replace an existing valid certificate for the requested hosts."
     };
-    var issueCommand = new Command("issue", "Obtain and install a staging certificate using HTTP-01.");
+    var issueCommand = new Command("issue", "Obtain and install a certificate using HTTP-01.");
     issueCommand.Options.Add(siteOption);
     issueCommand.Options.Add(hostsOption);
     issueCommand.Options.Add(emailOption);
     issueCommand.Options.Add(stagingOption);
+    issueCommand.Options.Add(productionOption);
+    issueCommand.Options.Add(acceptProductionRiskOption);
     issueCommand.Options.Add(outputOption);
     issueCommand.Options.Add(forceOption);
     issueCommand.SetAction((parseResult, cancellationToken) => IssueAsync(
@@ -93,6 +108,9 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         parseResult.GetRequiredValue(emailOption),
         parseResult.GetValue(outputOption),
         parseResult.GetValue(forceOption),
+        parseResult.GetValue(stagingOption),
+        parseResult.GetValue(productionOption),
+        parseResult.GetValue(acceptProductionRiskOption),
         cancellationToken));
     rootCommand.Subcommands.Add(issueCommand);
 
@@ -108,7 +126,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     {
         Description = "Renew selected certificates even when they are not due."
     };
-    var renewCommand = new Command("renew", "Renew staging certificates that are within the configured threshold.");
+    var renewCommand = new Command("renew", "Renew managed certificates that are due according to ARI or the fallback schedule.");
     renewCommand.Options.Add(renewAllOption);
     renewCommand.Options.Add(renewSiteOption);
     renewCommand.Options.Add(renewForceOption);
@@ -120,7 +138,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         cancellationToken));
     rootCommand.Subcommands.Add(renewCommand);
 
-    var statusCommand = new Command("status", "Show managed staging certificates and renewal status.");
+    var statusCommand = new Command("status", "Show managed certificates, environments, and renewal status.");
     statusCommand.SetAction((_, cancellationToken) =>
         StatusAsync(services.GetRequiredService<IRenewalService>(), cancellationToken));
     rootCommand.Subcommands.Add(statusCommand);
@@ -153,7 +171,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
 
     var settingsEmailOption = new Option<string?>("--email") { Description = "Default ACME account email." };
     var settingsDaysOption = new Option<int>("--renewal-days") { Required = true, Description = "Renewal threshold, 1-89 days." };
-    var configureCommand = new Command("configure", "Save general staging and renewal settings.");
+    var configureCommand = new Command("configure", "Save general defaults and renewal settings.");
     configureCommand.Options.Add(settingsEmailOption); configureCommand.Options.Add(settingsDaysOption);
     configureCommand.SetAction((result, token) => ConfigureGeneralAsync(
         services.GetRequiredService<ISettingsService>(), result.GetValue(settingsEmailOption), result.GetRequiredValue(settingsDaysOption), token));
@@ -270,7 +288,7 @@ static async Task<int> RemoveAsync(ICertificateManagementService service, string
 
 static async Task<int> ConfigureGeneralAsync(ISettingsService service, string? email, int days, CancellationToken token)
 {
-    try { await service.SaveGeneralAsync(email, days, token).ConfigureAwait(false); Console.WriteLine("General staging settings saved."); return 0; }
+    try { await service.SaveGeneralAsync(email, days, token).ConfigureAwait(false); Console.WriteLine("General settings saved. Staging remains the issuance default."); return 0; }
     catch (Exception exception) { Log.Error(exception, "Failed to save general settings"); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
 }
 
@@ -471,6 +489,7 @@ static async Task<int> StatusAsync(
         foreach (var status in statuses)
         {
             Console.WriteLine(status.SiteName);
+            Console.WriteLine($"  Environment: {status.Environment.DisplayName()}");
             Console.WriteLine($"  Hosts: {string.Join(", ", status.Hosts)}");
             Console.WriteLine($"  Issued: {status.NotBefore:yyyy-MM-dd HH:mm:ss} UTC");
             Console.WriteLine($"  Expires: {status.NotAfter:yyyy-MM-dd HH:mm:ss} UTC ({status.DaysRemaining} days left)");
@@ -543,30 +562,48 @@ static async Task<int> IssueAsync(
     string email,
     string? outputDirectory,
     bool force,
+    bool staging,
+    bool production,
+    bool acceptProductionRisk,
     CancellationToken cancellationToken)
 {
     try
     {
+        if (staging && production)
+        {
+            throw new ArgumentException("Specify either --staging or --production, not both.");
+        }
+
+        if (production && !acceptProductionRisk)
+        {
+            throw new InvalidOperationException(
+                "Production issuance requires --accept-production-risk. " +
+                "Run against staging first and confirm the IIS site and host names are correct.");
+        }
+
+        var environment = production ? AcmeEnvironment.Production : AcmeEnvironment.Staging;
         var hosts = string.IsNullOrWhiteSpace(hostsValue)
             ? Array.Empty<string>()
             : hostsValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var result = await acmeService.IssueAsync(
-                new AcmeIssueRequest(siteName, hosts, email, outputDirectory, force),
+                new AcmeIssueRequest(siteName, hosts, email, outputDirectory, force, environment),
                 new ConsoleProgress(),
                 cancellationToken)
             .ConfigureAwait(false);
 
-        Console.WriteLine("Staging certificate issued, installed, and bound successfully.");
+        Console.WriteLine($"{environment.DisplayName()} certificate issued, installed, and bound successfully.");
         Console.WriteLine($"Thumbprint: {result.CertificateThumbprint}");
         Console.WriteLine($"Valid from: {result.NotBefore:yyyy-MM-dd HH:mm:ss} UTC");
         Console.WriteLine($"Valid until: {result.NotAfter:yyyy-MM-dd HH:mm:ss} UTC");
         Console.WriteLine($"PEM: {result.CertificatePemPath}");
-        Console.WriteLine($"PFX: {result.PfxPath}");
+        Console.WriteLine(result.PfxPath is null
+            ? "PFX: not persisted (private key is installed as non-exportable)"
+            : $"PFX: {result.PfxPath}");
         return 0;
     }
     catch (Exception exception)
     {
-        Log.Error(exception, "Failed to issue a staging certificate for IIS site {SiteName}", siteName);
+        Log.Error(exception, "Failed to issue a certificate for IIS site {SiteName}", siteName);
         Console.Error.WriteLine($"Error: {exception.Message}");
         return 1;
     }

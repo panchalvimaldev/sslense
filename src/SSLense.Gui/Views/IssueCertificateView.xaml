@@ -3,54 +3,70 @@
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
  <UserControl.Resources><BooleanToVisibilityConverter x:Key="BoolToVisibility" /></UserControl.Resources>
  <Grid>
-  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <StackPanel Margin="0,0,0,18">
-   <TextBlock Text="Issue Certificate" FontSize="28" FontWeight="SemiBold" Foreground="#17212B"/>
-   <TextBlock Text="{Binding StepTitle}" Foreground="#5E6B76" Margin="0,4,0,0"/>
+   <TextBlock Text="Issue a certificate" Style="{StaticResource PageTitle}"/>
+   <TextBlock Text="Configure, validate, and install a Let's Encrypt certificate." Style="{StaticResource PageSubtitle}"/>
   </StackPanel>
-  <Border Grid.Row="1" Background="White" BorderBrush="#D8DEE4" BorderThickness="1" CornerRadius="5" Padding="22">
+
+  <Grid Grid.Row="1" Margin="16,0,16,20">
+   <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+   <StackPanel Orientation="Horizontal"><Border x:Name="StepOneCircle" Width="30" Height="30" CornerRadius="15" Background="{StaticResource BrandBrush}"><TextBlock Text="1" Foreground="White" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border><StackPanel Margin="10,0,0,0"><TextBlock Text="Select site" FontWeight="SemiBold"/><TextBlock Text="IIS binding" Style="{StaticResource CaptionText}"/></StackPanel></StackPanel>
+   <Border Grid.Column="1" Height="1" Background="{StaticResource BorderBrush}" Margin="16,0" VerticalAlignment="Center"/>
+   <StackPanel Grid.Column="2" Orientation="Horizontal"><Border Width="30" Height="30" CornerRadius="15"><Border.Style><Style TargetType="Border"><Setter Property="Background" Value="#E2E8F0"/><Style.Triggers><DataTrigger Binding="{Binding IsStepTwo}" Value="True"><Setter Property="Background" Value="{StaticResource BrandBrush}"/></DataTrigger><DataTrigger Binding="{Binding IsStepThree}" Value="True"><Setter Property="Background" Value="{StaticResource SuccessBrush}"/></DataTrigger></Style.Triggers></Style></Border.Style><TextBlock FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value="2"/><Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/><Style.Triggers><DataTrigger Binding="{Binding IsStepTwo}" Value="True"><Setter Property="Foreground" Value="White"/></DataTrigger><DataTrigger Binding="{Binding IsStepThree}" Value="True"><Setter Property="Text" Value="✓"/><Setter Property="Foreground" Value="White"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock></Border><StackPanel Margin="10,0,0,0"><TextBlock Text="Pre-flight" FontWeight="SemiBold"/><TextBlock Text="Verify readiness" Style="{StaticResource CaptionText}"/></StackPanel></StackPanel>
+   <Border Grid.Column="3" Height="1" Background="{StaticResource BorderBrush}" Margin="16,0" VerticalAlignment="Center"/>
+   <StackPanel Grid.Column="4" Orientation="Horizontal"><Border Width="30" Height="30" CornerRadius="15"><Border.Style><Style TargetType="Border"><Setter Property="Background" Value="#E2E8F0"/><Style.Triggers><DataTrigger Binding="{Binding IsStepThree}" Value="True"><Setter Property="Background" Value="{StaticResource BrandBrush}"/></DataTrigger></Style.Triggers></Style></Border.Style><TextBlock Text="3" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource MutedTextBrush}"/><Style.Triggers><DataTrigger Binding="{Binding IsStepThree}" Value="True"><Setter Property="Foreground" Value="White"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock></Border><StackPanel Margin="10,0,0,0"><TextBlock Text="Issue" FontWeight="SemiBold"/><TextBlock Text="Install certificate" Style="{StaticResource CaptionText}"/></StackPanel></StackPanel>
+  </Grid>
+
+  <Border Grid.Row="2" Style="{StaticResource Card}" Padding="24">
    <Grid>
     <StackPanel Visibility="{Binding IsStepOne, Converter={StaticResource BoolToVisibility}}">
-     <TextBlock Text="Choose an IIS site and host names" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,16"/>
-     <TextBlock Text="IIS site"/><ComboBox ItemsSource="{Binding Sites}" SelectedItem="{Binding SelectedSite}" DisplayMemberPath="Name" Margin="0,5,0,16" Padding="6"/>
-     <TextBlock Text="Host names" FontWeight="SemiBold" Margin="0,0,0,8"/>
+     <TextBlock Text="Choose an IIS site" Style="{StaticResource SectionTitle}"/>
+     <TextBlock Text="Select the website and host names SSLense should secure." Style="{StaticResource PageSubtitle}" Margin="0,4,0,20"/>
+     <TextBlock Text="IIS SITE" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding Sites}" SelectedItem="{Binding SelectedSite}" DisplayMemberPath="Name" Margin="0,0,0,20"/>
+     <TextBlock Text="HOST NAMES" Style="{StaticResource FieldLabel}"/>
+     <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="7" Padding="12,7">
      <ItemsControl ItemsSource="{Binding Hosts}"><ItemsControl.ItemTemplate><DataTemplate>
-      <Grid Margin="0,4"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="220"/></Grid.ColumnDefinitions>
-       <CheckBox Content="{Binding Host}" IsChecked="{Binding IsSelected}"/>
-       <TextBlock Grid.Column="1" Text="{Binding BindingStatus}"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="#247A3D"/><Style.Triggers><DataTrigger Binding="{Binding HasHttpBinding}" Value="False"><Setter Property="Foreground" Value="#B42318"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
+      <Grid Margin="4,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="220"/></Grid.ColumnDefinitions>
+       <CheckBox Content="{Binding Host}" IsChecked="{Binding IsSelected}" FontWeight="SemiBold"/>
+       <TextBlock Grid.Column="1" Text="{Binding BindingStatus}" HorizontalAlignment="Right"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/><Style.Triggers><DataTrigger Binding="{Binding HasHttpBinding}" Value="False"><Setter Property="Foreground" Value="{StaticResource DangerBrush}"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
       </Grid>
-     </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+     </DataTemplate></ItemsControl.ItemTemplate></ItemsControl></Border>
     </StackPanel>
 
     <StackPanel Visibility="{Binding IsStepTwo, Converter={StaticResource BoolToVisibility}}">
-     <TextBlock Text="Account and pre-flight checks" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,16"/>
-     <TextBlock Text="Let's Encrypt account email"/><TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" Margin="0,5,0,12" Padding="7"/>
+     <TextBlock Text="Verify issuance readiness" Style="{StaticResource SectionTitle}"/>
+     <TextBlock Text="SSLense checks access, bindings, and challenge-folder permissions before contacting Let's Encrypt." Style="{StaticResource PageSubtitle}" Margin="0,4,0,20"/>
+     <TextBlock Text="LET'S ENCRYPT ACCOUNT EMAIL" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,16"/>
      <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-      <RadioButton Content="Staging (enabled)" IsChecked="True" Margin="0,0,20,0"/>
-      <RadioButton Content="Production (disabled until explicitly authorized)" IsEnabled="False"/>
+      <RadioButton Content="Staging environment (recommended)" IsChecked="{Binding UseStaging}" Margin="0,0,20,0"/>
+      <RadioButton Content="Production environment" IsChecked="{Binding UseProduction}"/>
      </StackPanel>
-     <Button Content="Run Pre-flight Check" Command="{Binding PreflightCommand}" Padding="14,7" HorizontalAlignment="Left" Margin="0,0,0,12"/>
-     <DataGrid ItemsSource="{Binding PreflightChecks}" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" Height="230">
+     <Border Margin="0,0,0,16"><Border.Style><Style TargetType="Border" BasedOn="{StaticResource ErrorBanner}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding UseProduction}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Border.Style><StackPanel><TextBlock Text="Production certificates are publicly trusted and subject to Let's Encrypt rate limits." Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold"/><CheckBox Content="I confirm the site and host names are correct and authorize replacing the live IIS binding." IsChecked="{Binding ProductionRiskAccepted}" Margin="0,8,0,0"/></StackPanel></Border>
+     <Button Content="Run pre-flight checks" Command="{Binding PreflightCommand}" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" Margin="0,0,0,14"/>
+     <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="7" ClipToBounds="True">
+     <DataGrid ItemsSource="{Binding PreflightChecks}" Height="210">
       <DataGrid.Columns><DataGridTextColumn Header="Check" Binding="{Binding Name}" Width="1.2*"/><DataGridTextColumn Header="Result" Binding="{Binding Result}" Width="70"/><DataGridTextColumn Header="Details" Binding="{Binding Message}" Width="2*"/></DataGrid.Columns>
-     </DataGrid>
-     <TextBlock Text="{Binding ResultMessage}" FontWeight="SemiBold" Margin="0,10,0,0"/>
+     </DataGrid></Border>
+     <TextBlock Text="{Binding ResultMessage}" FontWeight="SemiBold" Foreground="{StaticResource SuccessBrush}" Margin="0,12,0,0"/>
     </StackPanel>
 
     <StackPanel Visibility="{Binding IsStepThree, Converter={StaticResource BoolToVisibility}}">
-     <TextBlock Text="Issuing staging certificate" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,16"/>
-     <ListBox ItemsSource="{Binding ProgressLines}" Height="330" FontFamily="Consolas" FontSize="12"/>
-     <TextBlock Text="{Binding ResultMessage}" FontWeight="SemiBold" Foreground="#247A3D" Margin="0,12,0,0" TextWrapping="Wrap"/>
+     <TextBlock Text="Issuing certificate" Style="{StaticResource SectionTitle}"/>
+     <TextBlock Text="Keep this window open while SSLense validates and installs the certificate." Style="{StaticResource PageSubtitle}" Margin="0,4,0,16"/>
+     <Border CornerRadius="7" ClipToBounds="True"><ListBox ItemsSource="{Binding ProgressLines}" Height="310" Style="{StaticResource ConsoleList}"/></Border>
+     <Border Style="{StaticResource SuccessBanner}" Margin="0,14,0,0"><TextBlock Text="{Binding ResultMessage}" FontWeight="SemiBold" Foreground="{StaticResource SuccessBrush}" TextWrapping="Wrap"/></Border>
     </StackPanel>
    </Grid>
   </Border>
-  <DockPanel Grid.Row="2" Margin="0,14,0,0">
-   <TextBlock Text="{Binding ErrorMessage}" Foreground="#B42318" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center"/>
+  <DockPanel Grid.Row="3" Margin="0,14,0,0">
+   <TextBlock Text="{Binding ErrorMessage}" Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center"/>
    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-    <Button Content="Back" Command="{Binding BackCommand}" Padding="14,7" Margin="6,0"/>
-    <Button Content="Next" Command="{Binding NextCommand}" Padding="14,7" Margin="6,0"/>
-    <Button Content="Issue Staging Certificate" Command="{Binding IssueCommand}" Padding="14,7" Margin="6,0"/>
-    <Button Content="Cancel" Command="{Binding CancelCommand}" Padding="14,7" Margin="6,0"/>
-    <Button Content="Start Over" Command="{Binding StartOverCommand}" Padding="14,7" Margin="6,0"/>
+    <Button Content="Back" Command="{Binding BackCommand}" Margin="0,0,8,0"><Button.Style><Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding IsStepOne}" Value="True"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></Button.Style></Button>
+    <Button Content="Continue" Command="{Binding NextCommand}" Style="{StaticResource PrimaryButton}" Visibility="{Binding IsStepOne, Converter={StaticResource BoolToVisibility}}"/>
+    <Button Content="Issue certificate" Command="{Binding IssueCommand}" Style="{StaticResource PrimaryButton}" Visibility="{Binding IsStepTwo, Converter={StaticResource BoolToVisibility}}"/>
+    <Button Content="Cancel operation" Command="{Binding CancelCommand}" Style="{StaticResource DangerButton}" Margin="8,0,0,0" Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}"/>
+    <Button Content="Start over" Command="{Binding StartOverCommand}" Style="{StaticResource PrimaryButton}" Visibility="{Binding IsStepThree, Converter={StaticResource BoolToVisibility}}"/>
    </StackPanel>
   </DockPanel>
  </Grid>

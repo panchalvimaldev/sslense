@@ -26,10 +26,15 @@ public static class DependencyInjection
         services.AddTransient<IChallengeHandler, Http01Handler>();
         services.AddTransient<ICertificateArtifactStore, CertificateArtifactStore>();
         services.AddTransient<ICertificateStore, WindowsCertificateStore>();
+        services.AddSingleton<ICertificateOperationLock, CertificateOperationLock>();
+        services.AddSingleton<ICertificateTransactionJournal, JsonCertificateTransactionJournal>();
+        services.AddTransient<ICertificateRecoveryService, CertificateRecoveryService>();
         services.AddTransient<IAcmeProtocolClient, CertesAcmeProtocolClient>();
         services.AddTransient<IAcmeService, AcmeService>();
         services.AddTransient<IIisService, IisService>();
         services.AddTransient<IRenewalService, RenewalService>();
+        services.AddSingleton<HttpClient>();
+        services.AddSingleton<IRenewalInfoProvider, AcmeRenewalInfoProvider>();
         services.AddSingleton<IRenewalDelay, RenewalDelay>();
         services.AddTransient<IWindowsServiceManager, WindowsServiceManager>();
         services.AddSingleton<IEmailSender, SmtpEmailSender>();

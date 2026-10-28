@@ -8,4 +8,5 @@ public sealed record CertificateDetails(
     DateTimeOffset NotBefore,
     DateTimeOffset NotAfter,
     IReadOnlyList<string> BoundSites,
-    IReadOnlyList<string> RecentLogLines);
+    IReadOnlyList<string> RecentLogLines,
+    Acme.AcmeEnvironment Environment = Acme.AcmeEnvironment.Staging);

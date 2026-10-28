@@ -32,6 +32,67 @@ public sealed class RenewalServiceTests
     }
 
     [Fact]
+    public async Task RenewAsync_AriWindowOverridesFallbackSchedule()
+    {
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(5))]);
+        var acme = new Mock<IAcmeService>(MockBehavior.Strict);
+        var ari = new Mock<IRenewalInfoProvider>(MockBehavior.Strict);
+        ari.Setup(value => value.GetWindowAsync(
+                It.IsAny<ManagedCertificate>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RenewalWindow(
+                DateTimeOffset.UtcNow.AddDays(2),
+                DateTimeOffset.UtcNow.AddDays(3)));
+        var service = CreateService(managed, MockConfig(), acme, renewalInfoProvider: ari);
+
+        var result = Assert.Single(await service.RenewAsync(new RenewalRequest(All: true)));
+
+        Assert.False(result.Attempted);
+        Assert.Contains("scheduled", result.Message, StringComparison.OrdinalIgnoreCase);
+        acme.VerifyNoOtherCalls();
+        ari.VerifyAll();
+    }
+
+    [Fact]
+    public void SelectTimeInWindow_IsStableAndInsideWindow()
+    {
+        var window = new RenewalWindow(
+            new DateTimeOffset(2026, 10, 28, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 10, 29, 0, 0, 0, TimeSpan.Zero));
+
+        var first = RenewalService.SelectTimeInWindow(window, "AABBCC");
+        var second = RenewalService.SelectTimeInWindow(window, "AABBCC");
+
+        Assert.Equal(first, second);
+        Assert.InRange(first, window.Start, window.End);
+    }
+
+    [Fact]
+    public async Task RenewAsync_StateChangedWhileWaiting_IsSuccessfulSkip()
+    {
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(5))]);
+        var acme = new Mock<IAcmeService>(MockBehavior.Strict);
+        acme.Setup(value => value.IssueAsync(
+                It.IsAny<AcmeIssueRequest>(), null, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new CertificateStateChangedException("another process renewed it"));
+        var service = CreateService(managed, MockConfig(), acme);
+
+        var result = Assert.Single(await service.RenewAsync(new RenewalRequest(All: true)));
+
+        Assert.False(result.Attempted);
+        Assert.True(result.Succeeded);
+        Assert.Contains("Skipped", result.Message, StringComparison.Ordinal);
+        managed.Verify(
+            value => value.RecordRenewalFailureAsync(
+                It.IsAny<string>(), It.IsAny<DateTimeOffset>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never());
+    }
+
+    [Fact]
     public async Task RenewAsync_Due_SwapsBindingBeforeRemovingUnusedOldCertificate()
     {
         var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
@@ -159,7 +220,8 @@ public sealed class RenewalServiceTests
         Mock<IIisService>? iis = null,
         Mock<ICertificateStore>? certificateStore = null,
         Mock<IRenewalDelay>? delay = null,
-        Mock<INotifier>? notifier = null) =>
+        Mock<INotifier>? notifier = null,
+        Mock<IRenewalInfoProvider>? renewalInfoProvider = null) =>
         new(
             managed.Object,
             config.Object,
@@ -167,7 +229,8 @@ public sealed class RenewalServiceTests
             (iis ?? new Mock<IIisService>(MockBehavior.Strict)).Object,
             (certificateStore ?? new Mock<ICertificateStore>(MockBehavior.Strict)).Object,
             (delay ?? new Mock<IRenewalDelay>(MockBehavior.Strict)).Object,
-            (notifier ?? new Mock<INotifier>()).Object);
+            (notifier ?? new Mock<INotifier>()).Object,
+            renewalInfoProvider?.Object);
 
     private static Mock<IConfigStore> MockConfig()
     {

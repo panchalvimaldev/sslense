@@ -51,6 +51,14 @@ public partial class DashboardViewModel : ObservableObject
 
     public ObservableCollection<string> ProgressLines { get; } = [];
 
+    public int TotalCount => Certificates.Count;
+
+    public int HealthyCount => Certificates.Count(value => value.StatusKey == "Green");
+
+    public int AttentionCount => Certificates.Count(value => value.StatusKey == "Amber");
+
+    public int FailedCount => Certificates.Count(value => value.StatusKey == "Red");
+
     public IAsyncRelayCommand RefreshCommand => _refreshCommand;
 
     public IAsyncRelayCommand RenewSelectedCommand => _renewSelectedCommand;
@@ -157,8 +165,12 @@ public partial class DashboardViewModel : ObservableObject
         }
 
         Activity = statuses.Count == 0
-            ? "No managed certificates. Issue one with the CLI or the Phase 7 wizard."
+            ? "No managed certificates yet. Issue your first certificate to begin monitoring."
             : $"Loaded {statuses.Count} managed certificate(s).";
+        OnPropertyChanged(nameof(TotalCount));
+        OnPropertyChanged(nameof(HealthyCount));
+        OnPropertyChanged(nameof(AttentionCount));
+        OnPropertyChanged(nameof(FailedCount));
         _renewAllCommand.NotifyCanExecuteChanged();
     }
 

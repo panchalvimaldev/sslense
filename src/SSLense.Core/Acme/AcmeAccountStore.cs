@@ -15,14 +15,20 @@ internal sealed class AcmeAccountStore : IAcmeAccountStore
         _protector = protector;
     }
 
-    public async Task<string?> LoadKeyAsync(CancellationToken cancellationToken)
+    public Task<string?> LoadKeyAsync(CancellationToken cancellationToken) =>
+        LoadKeyAsync(AcmeEnvironment.Staging, cancellationToken);
+
+    public async Task<string?> LoadKeyAsync(
+        AcmeEnvironment environment,
+        CancellationToken cancellationToken)
     {
-        if (!_fileSystem.FileExists(AppPaths.AccountKeyFile))
+        var path = AppPaths.GetAccountKeyFile(environment);
+        if (!_fileSystem.FileExists(path))
         {
             return null;
         }
 
-        var encoded = await _fileSystem.ReadAllTextAsync(AppPaths.AccountKeyFile, cancellationToken)
+        var encoded = await _fileSystem.ReadAllTextAsync(path, cancellationToken)
             .ConfigureAwait(false);
         try
         {
@@ -43,7 +49,13 @@ internal sealed class AcmeAccountStore : IAcmeAccountStore
         }
     }
 
-    public async Task SaveKeyAsync(string accountKeyPem, CancellationToken cancellationToken)
+    public Task SaveKeyAsync(string accountKeyPem, CancellationToken cancellationToken) =>
+        SaveKeyAsync(AcmeEnvironment.Staging, accountKeyPem, cancellationToken);
+
+    public async Task SaveKeyAsync(
+        AcmeEnvironment environment,
+        string accountKeyPem,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accountKeyPem);
 
@@ -52,7 +64,7 @@ internal sealed class AcmeAccountStore : IAcmeAccountStore
         {
             var encrypted = _protector.Protect(plaintext);
             await _fileSystem.WriteAllTextAtomicAsync(
-                    AppPaths.AccountKeyFile,
+                    AppPaths.GetAccountKeyFile(environment),
                     Convert.ToBase64String(encrypted),
                     cancellationToken)
                 .ConfigureAwait(false);

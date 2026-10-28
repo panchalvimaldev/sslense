@@ -5,76 +5,96 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="170" />
+            <RowDefinition Height="150" />
         </Grid.RowDefinitions>
 
         <DockPanel Margin="0,0,0,18">
             <StackPanel DockPanel.Dock="Left">
-                <TextBlock Text="Dashboard" FontSize="28" FontWeight="SemiBold" Foreground="#17212B" />
-                <TextBlock Text="Managed IIS certificates and staging renewal status" Foreground="#5E6B76" Margin="0,4,0,0" />
+                <TextBlock Text="Certificate overview" Style="{StaticResource PageTitle}" />
+                <TextBlock Text="Monitor certificate health and manage renewals across IIS." Style="{StaticResource PageSubtitle}" />
             </StackPanel>
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="Issue New" Command="{Binding IssueNewCommand}" Padding="14,7" Margin="0,0,8,0" />
-                <Button Content="View Details" Command="{Binding ViewDetailsCommand}" Padding="14,7" Margin="0,0,8,0" />
-                <Button Content="Renew Selected" Command="{Binding RenewSelectedCommand}" Padding="14,7" Margin="0,0,8,0"
-                        ToolTip="Immediately replace the selected staging certificate" />
-                <Button Content="Renew All Due" Command="{Binding RenewAllCommand}" Padding="14,7" Margin="0,0,8,0" />
-                <Button Content="Refresh" Command="{Binding RefreshCommand}" Padding="14,7" />
+                <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="0,0,10,0" />
+                <Button Content="＋  Issue certificate" Command="{Binding IssueNewCommand}" Style="{StaticResource PrimaryButton}" />
             </StackPanel>
         </DockPanel>
 
-        <Border Grid.Row="1" Background="#FFF4CE" BorderBrush="#E0B84A" BorderThickness="1" CornerRadius="4"
-                Padding="10" Margin="0,0,0,12">
+        <Grid Grid.Row="1" Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" /><ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Border Style="{StaticResource Card}" Padding="17" Margin="0,0,10,0">
+                <DockPanel><Border DockPanel.Dock="Right" Width="38" Height="38" CornerRadius="19" Background="{StaticResource BrandSoftBrush}"><TextBlock Text="Σ" Foreground="{StaticResource BrandBrush}" FontSize="17" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border><StackPanel><TextBlock Text="TOTAL" Style="{StaticResource CaptionText}" FontWeight="SemiBold" /><TextBlock Text="{Binding TotalCount}" FontSize="26" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" /></StackPanel></DockPanel>
+            </Border>
+            <Border Grid.Column="1" Style="{StaticResource Card}" Padding="17" Margin="0,0,10,0">
+                <DockPanel><Border DockPanel.Dock="Right" Width="38" Height="38" CornerRadius="19" Background="{StaticResource SuccessSoftBrush}"><TextBlock Text="✓" Foreground="{StaticResource SuccessBrush}" FontSize="17" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border><StackPanel><TextBlock Text="HEALTHY" Style="{StaticResource CaptionText}" FontWeight="SemiBold" /><TextBlock Text="{Binding HealthyCount}" FontSize="26" FontWeight="SemiBold" Foreground="{StaticResource SuccessBrush}" /></StackPanel></DockPanel>
+            </Border>
+            <Border Grid.Column="2" Style="{StaticResource Card}" Padding="17" Margin="0,0,10,0">
+                <DockPanel><Border DockPanel.Dock="Right" Width="38" Height="38" CornerRadius="19" Background="{StaticResource WarningSoftBrush}"><TextBlock Text="!" Foreground="{StaticResource WarningBrush}" FontSize="17" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border><StackPanel><TextBlock Text="RENEW SOON" Style="{StaticResource CaptionText}" FontWeight="SemiBold" /><TextBlock Text="{Binding AttentionCount}" FontSize="26" FontWeight="SemiBold" Foreground="{StaticResource WarningBrush}" /></StackPanel></DockPanel>
+            </Border>
+            <Border Grid.Column="3" Style="{StaticResource Card}" Padding="17">
+                <DockPanel><Border DockPanel.Dock="Right" Width="38" Height="38" CornerRadius="19" Background="{StaticResource DangerSoftBrush}"><TextBlock Text="×" Foreground="{StaticResource DangerBrush}" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border><StackPanel><TextBlock Text="ACTION NEEDED" Style="{StaticResource CaptionText}" FontWeight="SemiBold" /><TextBlock Text="{Binding FailedCount}" FontSize="26" FontWeight="SemiBold" Foreground="{StaticResource DangerBrush}" /></StackPanel></DockPanel>
+            </Border>
+        </Grid>
+
+        <Border Grid.Row="2" Style="{StaticResource InfoBanner}" Margin="0,0,0,14">
             <DockPanel>
-                <Button DockPanel.Dock="Right" Content="Cancel" Command="{Binding CancelCommand}" Padding="12,4" />
+                <Button DockPanel.Dock="Right" Content="Cancel operation" Command="{Binding CancelCommand}" Style="{StaticResource LinkButton}" />
+                <TextBlock DockPanel.Dock="Left" Text="●" Foreground="{StaticResource BrandBrush}" FontSize="10" Margin="0,0,9,0" VerticalAlignment="Center" />
                 <StackPanel>
-                    <TextBlock Text="{Binding Activity}" Foreground="#5D4A00" />
-                    <TextBlock Text="{Binding ErrorMessage}" Foreground="#B42318" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding Activity}" Foreground="{StaticResource TextBrush}" />
+                    <TextBlock Text="{Binding ErrorMessage}" Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold" TextWrapping="Wrap" />
                 </StackPanel>
             </DockPanel>
         </Border>
 
-        <Border Grid.Row="2" Background="White" BorderBrush="#D8DEE4" BorderThickness="1" CornerRadius="5">
-            <DataGrid ItemsSource="{Binding Certificates}"
+        <Border Grid.Row="3" Style="{StaticResource Card}" Padding="0">
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <DockPanel Margin="18,14">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <Button Content="View details" Command="{Binding ViewDetailsCommand}" Margin="0,0,8,0" />
+                        <Button Content="Renew selected" Command="{Binding RenewSelectedCommand}" Margin="0,0,8,0" ToolTip="Immediately replace the selected certificate in its current ACME environment" />
+                        <Button Content="Renew all due" Command="{Binding RenewAllCommand}" />
+                    </StackPanel>
+                    <StackPanel><TextBlock Text="Managed certificates" Style="{StaticResource SectionTitle}" /><TextBlock Text="Select a certificate to manage it." Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
+                </DockPanel>
+            <DataGrid Grid.Row="1" ItemsSource="{Binding Certificates}"
                       SelectedItem="{Binding SelectedCertificate}"
-                      AutoGenerateColumns="False" IsReadOnly="True"
-                      CanUserAddRows="False" HeadersVisibility="Column"
-                      GridLinesVisibility="Horizontal" BorderThickness="0"
-                      RowHeaderWidth="0" SelectionMode="Single">
-                <DataGrid.RowStyle>
-                    <Style TargetType="DataGridRow">
-                        <Setter Property="Background" Value="White" />
-                        <Setter Property="ToolTip" Value="{Binding Thumbprint}" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding StatusKey}" Value="Green">
-                                <Setter Property="Background" Value="#EAF7EE" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding StatusKey}" Value="Amber">
-                                <Setter Property="Background" Value="#FFF4CE" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding StatusKey}" Value="Red">
-                                <Setter Property="Background" Value="#FDECEC" />
-                            </DataTrigger>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter Property="Background" Value="#CFE5FF" />
-                            </Trigger>
-                        </Style.Triggers>
-                    </Style>
-                </DataGrid.RowStyle>
+                      SelectionMode="Single" ToolTip="Select a certificate to view its thumbprint and details">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Site" Binding="{Binding SiteName}" Width="1.2*" />
                     <DataGridTextColumn Header="Host names" Binding="{Binding Hosts}" Width="2.2*" />
-                    <DataGridTextColumn Header="Expiry (UTC)" Binding="{Binding Expiry, StringFormat={}{0:yyyy-MM-dd}}" Width="130" />
+                    <DataGridTextColumn Header="Environment" Binding="{Binding Environment}" Width="105" />
+                    <DataGridTextColumn Header="Expires" Binding="{Binding Expiry, StringFormat={}{0:dd MMM yyyy}}" Width="130" />
                     <DataGridTextColumn Header="Days left" Binding="{Binding DaysRemaining}" Width="90" />
-                    <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="120" />
+                    <DataGridTemplateColumn Header="Status" Width="130">
+                        <DataGridTemplateColumn.CellTemplate><DataTemplate>
+                            <Border x:Name="StatusBadge" Background="{StaticResource SuccessSoftBrush}" CornerRadius="10" Padding="9,3" HorizontalAlignment="Left">
+                                <TextBlock x:Name="StatusText" Text="{Binding Status}" Foreground="{StaticResource SuccessBrush}" FontSize="11" FontWeight="SemiBold" />
+                            </Border>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding StatusKey}" Value="Amber"><Setter TargetName="StatusBadge" Property="Background" Value="{StaticResource WarningSoftBrush}" /><Setter TargetName="StatusText" Property="Foreground" Value="{StaticResource WarningBrush}" /></DataTrigger>
+                                <DataTrigger Binding="{Binding StatusKey}" Value="Red"><Setter TargetName="StatusBadge" Property="Background" Value="{StaticResource DangerSoftBrush}" /><Setter TargetName="StatusText" Property="Foreground" Value="{StaticResource DangerBrush}" /></DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate></DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                 </DataGrid.Columns>
             </DataGrid>
+            <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False">
+                <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding Certificates.Count}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
+                <Border Width="46" Height="46" CornerRadius="23" Background="{StaticResource BrandSoftBrush}"><TextBlock Text="&#xE8D7;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource BrandBrush}" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
+                <TextBlock Text="No certificates managed yet" FontWeight="SemiBold" FontSize="15" HorizontalAlignment="Center" Margin="0,12,0,3" />
+                <TextBlock Text="Issue a certificate to start monitoring this server." Style="{StaticResource CaptionText}" />
+            </StackPanel>
+            </Grid>
         </Border>
 
-        <GroupBox Grid.Row="3" Header="Operation progress" Margin="0,14,0,0" Padding="6">
-            <ListBox ItemsSource="{Binding ProgressLines}" FontFamily="Consolas" FontSize="12"
-                     BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Auto" />
-        </GroupBox>
+        <Border Grid.Row="4" Style="{StaticResource Card}" Padding="0" Margin="0,14,0,0" ClipToBounds="True">
+            <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions><TextBlock Text="Operation activity" FontWeight="SemiBold" Margin="14,10" /><ListBox Grid.Row="1" ItemsSource="{Binding ProgressLines}" Style="{StaticResource ConsoleList}" /></Grid>
+        </Border>
     </Grid>
 </UserControl>

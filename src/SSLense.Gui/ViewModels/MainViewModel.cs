@@ -31,11 +31,11 @@ public partial class MainViewModel : ObservableObject
         _navigation = navigation;
         Pages =
         [
-            new NavigationItem("Dashboard", dashboard),
-            new NavigationItem("Issue Certificate", issue),
-            new NavigationItem("Certificate Details", details),
-            new NavigationItem("Settings", settings),
-            new NavigationItem("Logs", logs)
+            new NavigationItem("Dashboard", "\uE80F", dashboard),
+            new NavigationItem("Issue Certificate", "\uE710", issue),
+            new NavigationItem("Certificate Details", "\uE8D7", details),
+            new NavigationItem("Settings", "\uE713", settings),
+            new NavigationItem("Logs", "\uE9D5", logs)
         ];
         selectedPage = Pages[0];
         _navigation.NavigationRequested += OnNavigationRequested;

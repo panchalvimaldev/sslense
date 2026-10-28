@@ -51,8 +51,7 @@ internal sealed class WindowsCertificateStore : ICertificateStore
                 pfxBytes,
                 password,
                 X509KeyStorageFlags.MachineKeySet |
-                X509KeyStorageFlags.PersistKeySet |
-                X509KeyStorageFlags.Exportable);
+                X509KeyStorageFlags.PersistKeySet);
             if (!certificate.HasPrivateKey)
             {
                 throw new CryptographicException("The issued PFX does not contain a private key.");

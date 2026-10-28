@@ -1,5 +1,6 @@
 using System.Net.Mail;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
 using SSLense.Core.Iis;
@@ -16,6 +17,8 @@ internal sealed class AcmeService : IAcmeService
     private readonly ICertificateArtifactStore _artifactStore;
     private readonly ICertificateStore _certificateStore;
     private readonly IManagedCertificateStore _managedCertificateStore;
+    private readonly ICertificateOperationLock _operationLock;
+    private readonly ICertificateTransactionJournal _transactionJournal;
 
     public AcmeService(
         IIisService iisService,
@@ -24,7 +27,9 @@ internal sealed class AcmeService : IAcmeService
         IChallengeProbe challengeProbe,
         ICertificateArtifactStore artifactStore,
         ICertificateStore certificateStore,
-        IManagedCertificateStore managedCertificateStore)
+        IManagedCertificateStore managedCertificateStore,
+        ICertificateOperationLock? operationLock = null,
+        ICertificateTransactionJournal? transactionJournal = null)
     {
         _iisService = iisService;
         _protocolClient = protocolClient;
@@ -33,6 +38,8 @@ internal sealed class AcmeService : IAcmeService
         _artifactStore = artifactStore;
         _certificateStore = certificateStore;
         _managedCertificateStore = managedCertificateStore;
+        _operationLock = operationLock ?? new NoOpCertificateOperationLock();
+        _transactionJournal = transactionJournal ?? new NoOpCertificateTransactionJournal();
     }
 
     public async Task<AcmeIssueResult> IssueAsync(
@@ -42,6 +49,12 @@ internal sealed class AcmeService : IAcmeService
     {
         ArgumentNullException.ThrowIfNull(request);
         ValidateRequest(request);
+
+        await using var operationLock = await _operationLock
+            .AcquireAsync(request.SiteName, cancellationToken)
+            .ConfigureAwait(false);
+        await EnsureExpectedCertificateAsync(request, cancellationToken).ConfigureAwait(false);
+        var environmentName = request.Environment.DisplayName();
 
         progress?.Report(new ProgressEvent("preflight", "Checking the IIS site and HTTP bindings."));
         var sites = await _iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
@@ -81,17 +94,24 @@ internal sealed class AcmeService : IAcmeService
             await ThrowIfAlreadyCoveredAsync(site, hosts, cancellationToken).ConfigureAwait(false);
         }
 
-        progress?.Report(new ProgressEvent("account", "Loading or creating the staging ACME account."));
+        progress?.Report(new ProgressEvent(
+            "account",
+            $"Loading or creating the {environmentName} ACME account."));
         IAcmeOrderSession order;
         try
         {
-            order = await _protocolClient.CreateOrderAsync(request.Email.Trim(), hosts, cancellationToken)
-                .ConfigureAwait(false);
+            order = request.Environment == AcmeEnvironment.Staging
+                ? await _protocolClient.CreateOrderAsync(request.Email.Trim(), hosts, cancellationToken)
+                    .ConfigureAwait(false)
+                : await _protocolClient.CreateOrderAsync(
+                        request.Email.Trim(), hosts, request.Environment, cancellationToken)
+                    .ConfigureAwait(false);
         }
         catch (HttpRequestException exception)
         {
             throw new InvalidOperationException(
-                "Could not contact the Let's Encrypt staging service. Check outbound HTTPS, DNS, proxy, and TLS settings.",
+                $"Could not contact the Let's Encrypt {environmentName} service. " +
+                "Check outbound HTTPS, DNS, proxy, and TLS settings.",
                 exception);
         }
         if (order.Challenges.Count != hosts.Count)
@@ -115,11 +135,15 @@ internal sealed class AcmeService : IAcmeService
             progress?.Report(new ProgressEvent("self-check", $"Checking HTTP access for {challenge.Host}."));
             await _challengeProbe.VerifyAsync(challenge, cancellationToken).ConfigureAwait(false);
 
-            progress?.Report(new ProgressEvent("validation", $"Requesting staging validation for {challenge.Host}."));
+            progress?.Report(new ProgressEvent(
+                "validation",
+                $"Requesting {environmentName} validation for {challenge.Host}."));
             await order.ValidateAsync(challenge, cancellationToken).ConfigureAwait(false);
         }
 
-        progress?.Report(new ProgressEvent("certificate", "Finalizing and downloading the staging certificate."));
+        progress?.Report(new ProgressEvent(
+            "certificate",
+            $"Finalizing and downloading the {environmentName} certificate."));
         var passwordBytes = RandomNumberGenerator.GetBytes(32);
         CertificateBundle? bundle = null;
         try
@@ -128,17 +152,54 @@ internal sealed class AcmeService : IAcmeService
             bundle = await order.FinalizeAsync(hosts[0], pfxPassword, cancellationToken)
                 .ConfigureAwait(false);
 
-            progress?.Report(new ProgressEvent("save", "Saving staging certificate artifacts."));
+            progress?.Report(new ProgressEvent(
+                "save",
+                request.OutputDirectory is null
+                    ? "Saving the public certificate. The PFX remains transient."
+                    : "Saving the public certificate to the requested output directory. The PFX remains transient."));
             var artifacts = await _artifactStore
                 .SaveAsync(site.Name, hosts, bundle, request.OutputDirectory, cancellationToken)
                 .ConfigureAwait(false);
 
-            progress?.Report(new ProgressEvent("install", "Importing the staging certificate into LocalMachine\\My."));
+            using var publicCertificate = X509Certificate2.CreateFromPem(bundle.CertificatePem);
+            var preparedRecord = new ManagedCertificate(
+                site.Name,
+                hosts,
+                request.Email.Trim(),
+                publicCertificate.Thumbprint,
+                publicCertificate.NotBefore.ToUniversalTime(),
+                publicCertificate.NotAfter.ToUniversalTime(),
+                request.OutputDirectory,
+                DateTimeOffset.UtcNow,
+                true,
+                "Certificate issued and bound successfully.",
+                request.Environment);
+            var transaction = await _transactionJournal.BeginAsync(
+                    preparedRecord,
+                    request.ExpectedCurrentThumbprint,
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+
+            progress?.Report(new ProgressEvent(
+                "install",
+                $"Importing the {environmentName} certificate into LocalMachine\\My with a non-exportable key."));
             var installedCertificate = await _certificateStore.ImportPfxAsync(
                     bundle.PfxBytes,
                     pfxPassword,
                     $"SSLense: {hosts[0]} ({DateTimeOffset.UtcNow:yyyy-MM-dd})",
                     cancellationToken)
+                .ConfigureAwait(false);
+
+            var pendingRecord = preparedRecord with
+            {
+                Thumbprint = installedCertificate.Thumbprint,
+                NotBefore = installedCertificate.NotBefore,
+                NotAfter = installedCertificate.NotAfter
+            };
+            await _transactionJournal.UpdateStageAsync(
+                    transaction.Id,
+                    CertificateTransactionStage.CertificateImported,
+                    CancellationToken.None)
                 .ConfigureAwait(false);
             try
             {
@@ -150,10 +211,17 @@ internal sealed class AcmeService : IAcmeService
                         "My",
                         cancellationToken)
                     .ConfigureAwait(false);
+                await _transactionJournal.UpdateStageAsync(
+                        transaction.Id,
+                        CertificateTransactionStage.BindingsUpdated,
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
             }
             catch (IisBindingException exception) when (exception.PreviousBindingsRestored)
             {
                 await _certificateStore.RemoveAsync(installedCertificate.Thumbprint, CancellationToken.None)
+                    .ConfigureAwait(false);
+                await _transactionJournal.CompleteAsync(transaction.Id, CancellationToken.None)
                     .ConfigureAwait(false);
                 throw;
             }
@@ -165,18 +233,15 @@ internal sealed class AcmeService : IAcmeService
 
             progress?.Report(new ProgressEvent("state", "Saving the managed certificate record."));
             await _managedCertificateStore.UpsertAsync(
-                    new ManagedCertificate(
-                        site.Name,
-                        hosts,
-                        request.Email.Trim(),
-                        installedCertificate.Thumbprint,
-                        installedCertificate.NotBefore,
-                        installedCertificate.NotAfter,
-                        request.OutputDirectory,
-                        DateTimeOffset.UtcNow,
-                        true,
-                        "Certificate issued and bound successfully."),
+                    pendingRecord,
                     CancellationToken.None)
+                .ConfigureAwait(false);
+            await _transactionJournal.UpdateStageAsync(
+                    transaction.Id,
+                    CertificateTransactionStage.StateSaved,
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+            await _transactionJournal.CompleteAsync(transaction.Id, CancellationToken.None)
                 .ConfigureAwait(false);
 
             return artifacts with
@@ -193,6 +258,31 @@ internal sealed class AcmeService : IAcmeService
             {
                 CryptographicOperations.ZeroMemory(bundle.PfxBytes);
             }
+        }
+    }
+
+    private async Task EnsureExpectedCertificateAsync(
+        AcmeIssueRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.ExpectedCurrentThumbprint))
+        {
+            return;
+        }
+
+        var current = (await _managedCertificateStore.GetAllAsync(cancellationToken).ConfigureAwait(false))
+            .SingleOrDefault(value => string.Equals(
+                value.SiteName,
+                request.SiteName,
+                StringComparison.OrdinalIgnoreCase));
+        if (current is null || !string.Equals(
+                NormalizeThumbprint(current.Thumbprint),
+                NormalizeThumbprint(request.ExpectedCurrentThumbprint),
+                StringComparison.Ordinal))
+        {
+            throw new CertificateStateChangedException(
+                $"Certificate state for IIS site '{request.SiteName}' changed while the operation was waiting. " +
+                "Refresh status before trying again.");
         }
     }
 
@@ -277,4 +367,7 @@ internal sealed class AcmeService : IAcmeService
     }
 
     private static string NormalizeHost(string host) => host.Trim().TrimEnd('.').ToLowerInvariant();
+
+    private static string NormalizeThumbprint(string thumbprint) =>
+        string.Concat(thumbprint.Where(Uri.IsHexDigit)).ToUpperInvariant();
 }

@@ -1,16 +1,23 @@
 using SSLense.Core;
+using SSLense.Core.Certificates;
 using SSLense.Core.Renewal;
 
 namespace SSLense.Service;
 
 internal sealed class RenewalWorker(
     IRenewalService renewalService,
+    ICertificateRecoveryService recoveryService,
     ILogger<RenewalWorker> logger) : BackgroundService
 {
     private static readonly TimeSpan DailyInterval = TimeSpan.FromDays(1);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        foreach (var message in await recoveryService.RecoverAsync(stoppingToken).ConfigureAwait(false))
+        {
+            logger.LogInformation("{RecoveryMessage}", message);
+        }
+
         await RunRenewalAsync(stoppingToken).ConfigureAwait(false);
 
         using var timer = new PeriodicTimer(DailyInterval);
@@ -24,7 +31,7 @@ internal sealed class RenewalWorker(
     {
         try
         {
-            logger.LogInformation("Starting scheduled staging certificate renewal check");
+            logger.LogInformation("Starting scheduled certificate renewal check");
             var progress = new Progress<ProgressEvent>(value =>
                 logger.LogInformation("[{Step}] {Message}", value.Step, value.Message));
             var results = await renewalService.RenewAsync(
@@ -56,7 +63,7 @@ internal sealed class RenewalWorker(
         }
         catch (Exception exception)
         {
-            logger.LogError(exception, "Scheduled staging certificate renewal check failed");
+            logger.LogError(exception, "Scheduled certificate renewal check failed");
         }
     }
 }

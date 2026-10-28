@@ -28,6 +28,8 @@ public partial class IssueCertificateViewModel : ObservableObject
     [ObservableProperty] private bool preflightPassed;
     [ObservableProperty] private string? errorMessage;
     [ObservableProperty] private string resultMessage = string.Empty;
+    [ObservableProperty] private bool useProduction;
+    [ObservableProperty] private bool productionRiskAccepted;
 
     public IssueCertificateViewModel(
         IIisService iisService,
@@ -62,6 +64,11 @@ public partial class IssueCertificateViewModel : ObservableObject
     public bool IsStepOne => CurrentStep == 1;
     public bool IsStepTwo => CurrentStep == 2;
     public bool IsStepThree => CurrentStep == 3;
+    public bool UseStaging
+    {
+        get => !UseProduction;
+        set => UseProduction = !value;
+    }
     public string StepTitle => $"Step {CurrentStep} of 3";
 
     public async Task InitializeAsync()
@@ -125,6 +132,17 @@ public partial class IssueCertificateViewModel : ObservableObject
     partial void OnEmailChanged(string value) => NotifyCommands();
     partial void OnPreflightPassedChanged(bool value) => NotifyCommands();
     partial void OnIsBusyChanged(bool value) => NotifyCommands();
+    partial void OnUseProductionChanged(bool value)
+    {
+        OnPropertyChanged(nameof(UseStaging));
+        if (!value)
+        {
+            ProductionRiskAccepted = false;
+        }
+        PreflightPassed = false;
+        NotifyCommands();
+    }
+    partial void OnProductionRiskAcceptedChanged(bool value) => NotifyCommands();
 
     private void OnHostPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -168,11 +186,17 @@ public partial class IssueCertificateViewModel : ObservableObject
         await RunBusyAsync(async token =>
         {
             var result = await _acmeService.IssueAsync(
-                new AcmeIssueRequest(SelectedSite!.Name, SelectedHosts(), Email, Force: false),
+                new AcmeIssueRequest(
+                    SelectedSite!.Name,
+                    SelectedHosts(),
+                    Email,
+                    Force: false,
+                    Environment: UseProduction ? AcmeEnvironment.Production : AcmeEnvironment.Staging),
                 new Progress<ProgressEvent>(value =>
                     ProgressLines.Add($"[{DateTime.Now:HH:mm:ss}] [{value.Step}] {value.Message}")),
                 token).ConfigureAwait(true);
-            ResultMessage = $"Staging certificate installed successfully. Thumbprint: {result.CertificateThumbprint}";
+            var environment = UseProduction ? "Production" : "Staging";
+            ResultMessage = $"{environment} certificate installed successfully. Thumbprint: {result.CertificateThumbprint}";
         }, cancellationToken);
     }
 
@@ -193,9 +217,10 @@ public partial class IssueCertificateViewModel : ObservableObject
     private IReadOnlyList<string> SelectedHosts() => Hosts.Where(value => value.IsSelected).Select(value => value.Host).ToArray();
     private bool CanNext() => !IsBusy && CurrentStep == 1 && SelectedSite is not null && Hosts.Any(value => value.IsSelected);
     private bool CanRunPreflight() => !IsBusy && CurrentStep == 2 && SelectedSite is not null && !string.IsNullOrWhiteSpace(Email);
-    private bool CanIssue() => !IsBusy && CurrentStep == 2 && PreflightPassed;
+    private bool CanIssue() =>
+        !IsBusy && CurrentStep == 2 && PreflightPassed && (!UseProduction || ProductionRiskAccepted);
     private void Cancel() { _preflightCommand.Cancel(); _issueCommand.Cancel(); }
-    private void StartOver() { CurrentStep = 1; PreflightPassed = false; PreflightChecks.Clear(); ProgressLines.Clear(); ErrorMessage = null; ResultMessage = string.Empty; }
+    private void StartOver() { CurrentStep = 1; PreflightPassed = false; ProductionRiskAccepted = false; PreflightChecks.Clear(); ProgressLines.Clear(); ErrorMessage = null; ResultMessage = string.Empty; }
     private void NotifyCommands()
     {
         (NextCommand as RelayCommand)?.NotifyCanExecuteChanged();

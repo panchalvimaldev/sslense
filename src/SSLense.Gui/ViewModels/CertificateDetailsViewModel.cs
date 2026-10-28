@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
+using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Renewal;
 
@@ -27,6 +28,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
     [ObservableProperty] private string expiryDate = string.Empty;
     [ObservableProperty] private string boundSites = string.Empty;
     [ObservableProperty] private string resultMessage = string.Empty;
+    [ObservableProperty] private string environment = string.Empty;
 
     public CertificateDetailsViewModel(
         ICertificateManagementService managementService,
@@ -87,6 +89,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
             IssueDate = detail.NotBefore.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
             ExpiryDate = detail.NotAfter.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
             BoundSites = detail.BoundSites.Count == 0 ? "None" : string.Join(", ", detail.BoundSites);
+            Environment = detail.Environment.DisplayName();
             RecentLogLines.Clear();
             foreach (var line in detail.RecentLogLines) RecentLogLines.Add(line);
         }, cancellationToken);

@@ -4,7 +4,7 @@ SSLense is a .NET 8 Windows tool for issuing and automatically renewing Let's En
 
 The post-MVP productization plan is documented in [COMMERCIAL_ROADMAP.md](COMMERCIAL_ROADMAP.md).
 
-> SSLense currently uses the Let's Encrypt **staging** endpoint only. Staging certificates are for testing and are not trusted by browsers. Production issuance remains disabled until it is explicitly enabled in a later phase.
+> SSLense defaults to Let's Encrypt **staging**. Production issuance is guarded by an explicit environment choice and risk acknowledgement. Development and automated tests never contact the production endpoint.
 
 ## Requirements
 
@@ -46,13 +46,26 @@ dotnet run --project .\src\SSLense.Cli -- issue `
 
 Use `--force` to replace an existing valid staging certificate. The command imports the certificate into `LocalMachine\My`, creates or updates SNI bindings, verifies the bindings, and saves the managed-certificate record.
 
+After staging succeeds, production issuance requires both production flags:
+
+```powershell
+dotnet run --project .\src\SSLense.Cli -- issue `
+  --site "My IIS Site" `
+  --hosts example.com,www.example.com `
+  --email admin@example.com `
+  --production `
+  --accept-production-risk
+```
+
+Staging and production use separate DPAPI-protected ACME accounts. The certificate private key is installed as non-exportable, and SSLense does not retain the transient PFX. `--output` saves only the public certificate PEM.
+
 Show managed certificates:
 
 ```powershell
 dotnet run --project .\src\SSLense.Cli -- status
 ```
 
-Renew certificates within the configured threshold, which defaults to 30 days:
+Renew certificates according to the CA's ACME Renewal Information (ARI) window. If ARI is unavailable, SSLense uses a lifetime-relative schedule capped by the configured threshold:
 
 ```powershell
 dotnet run --project .\src\SSLense.Cli -- renew --all
@@ -126,17 +139,18 @@ dotnet run --project .\src\SSLense.Gui
 
 Windows displays an administrator elevation prompt because the application manifest requests `requireAdministrator`. The GUI provides:
 
-- A Dashboard showing site, host names, expiry, days remaining, and renewal status
-- Green, amber, and red certificate health rows
-- Immediate renewal of the selected staging certificate
+- A professional application shell with consistent navigation, typography, controls, and operation feedback
+- Dashboard summary cards for total, healthy, expiring, and failed certificates
+- A certificate table with readable health badges that do not rely on full-row coloring
+- Immediate renewal of the selected certificate
 - Renewal checks for all due certificates
 - Cancellable operations with live progress
 - A live log viewer with level filtering and access to the log folder
-- A three-step staging issuance wizard with IIS selection, pre-flight checks, live progress, and cancellation
+- A visual three-step issuance wizard with IIS selection, guarded environment choice, pre-flight checks, live progress, and cancellation
 - Certificate details, renewal, confirmed removal, bindings, issuer, validity, and recent logs
 - General, SMTP/webhook, and Windows Service settings
 
-Production remains visibly disabled until it is explicitly authorized. Use **Issue New** on the Dashboard to open the staging wizard. Removing a certificate requires confirmation and removes only matching HTTPS bindings; a certificate still used by another IIS site is retained in the Windows certificate store.
+Staging remains the wizard default. Production requires a separate selection and acknowledgement before the Issue button is enabled. Use **Issue certificate** on the Dashboard to open the wizard. Removing a certificate requires confirmation and removes only matching HTTPS bindings; a certificate still used by another IIS site is retained in the Windows certificate store.
 
 The Phase 7 Core operations also have CLI equivalents:
 
@@ -162,7 +176,10 @@ SSLense stores files under `C:\ProgramData\SSLense`:
 - `config.json`: non-secret settings and DPAPI-protected notification values
 - `managed-certificates.json`: sites, hosts, certificate dates, thumbprints, and renewal results
 - `account-key.staging.dat`: DPAPI-protected staging ACME account key
-- `certificates\`: saved staging PEM/PFX artifacts
+- `account-key.production.dat`: separate DPAPI-protected production ACME account key, created only when production is used
+- `certificates\`: saved public certificate PEM files; transient PFX data is not retained
+- `locks\`: per-site cross-process operation locks shared by the GUI, CLI, and service
+- `transactions\`: durable certificate-operation journals, normally removed automatically after commit or recovery
 - `logs\sslense-YYYYMMDD.log`: rolling logs retained for 30 days
 
 Private keys, PFX passwords, SMTP passwords, webhook URLs, and the ACME account key must never appear in logs. Restrict access to the ProgramData directory to administrators and the service account.

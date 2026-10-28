@@ -10,29 +10,22 @@
 
         <DockPanel Margin="0,0,0,18">
             <StackPanel DockPanel.Dock="Left">
-                <TextBlock Text="Logs" FontSize="28" FontWeight="SemiBold" Foreground="#17212B" />
-                <TextBlock Text="Live view of the current SSLense rolling log" Foreground="#5E6B76" Margin="0,4,0,0" />
+                <TextBlock Text="Activity logs" Style="{StaticResource PageTitle}" />
+                <TextBlock Text="Inspect live application activity and troubleshoot certificate operations." Style="{StaticResource PageSubtitle}" />
             </StackPanel>
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-                <TextBlock Text="Level" VerticalAlignment="Center" Margin="0,0,7,0" />
+                <TextBlock Text="LEVEL" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,8,0" />
                 <ComboBox ItemsSource="{Binding Levels}" SelectedItem="{Binding SelectedLevel}"
-                          Width="125" Padding="5" Margin="0,0,8,0" />
-                <Button Content="Refresh" Command="{Binding RefreshCommand}" Padding="14,7" Margin="0,0,8,0" />
-                <Button Content="Open Log Folder" Command="{Binding OpenFolderCommand}" Padding="14,7" />
+                          Width="125" Margin="0,0,8,0" />
+                <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="0,0,8,0" />
+                <Button Content="Open log folder" Command="{Binding OpenFolderCommand}" Style="{StaticResource PrimaryButton}" />
             </StackPanel>
         </DockPanel>
 
-        <StackPanel Grid.Row="1" Margin="0,0,0,10">
-            <TextBlock Text="{Binding FilePath}" Foreground="#5E6B76" TextTrimming="CharacterEllipsis" />
-            <TextBlock Text="{Binding ErrorMessage}" Foreground="#B42318" FontWeight="SemiBold" TextWrapping="Wrap" />
-        </StackPanel>
+        <Border Grid.Row="1" Style="{StaticResource InfoBanner}" Margin="0,0,0,12"><StackPanel><TextBlock Text="{Binding FilePath}" Foreground="{StaticResource MutedTextBrush}" TextTrimming="CharacterEllipsis" /><TextBlock Text="{Binding ErrorMessage}" Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold" TextWrapping="Wrap" /></StackPanel></Border>
 
-        <Border Grid.Row="2" Background="#111820" BorderBrush="#D8DEE4" BorderThickness="1" CornerRadius="5" Padding="6">
-            <ListBox ItemsSource="{Binding Lines}" Background="Transparent" Foreground="#DDE7F0"
-                     BorderThickness="0" FontFamily="Consolas" FontSize="12"
-                     ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                     VirtualizingPanel.IsVirtualizing="True"
-                     VirtualizingPanel.VirtualizationMode="Recycling" />
+        <Border Grid.Row="2" Style="{StaticResource Card}" Padding="0" ClipToBounds="True">
+            <ListBox ItemsSource="{Binding Lines}" Style="{StaticResource ConsoleList}" />
         </Border>
     </Grid>
 </UserControl>

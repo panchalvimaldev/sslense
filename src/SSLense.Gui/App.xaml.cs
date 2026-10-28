@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 using SSLense.Core;
+using SSLense.Core.Certificates;
 using SSLense.Core.Config;
 using SSLense.Gui.ViewModels;
 
@@ -41,6 +42,12 @@ public partial class App : Application
             builder.Services.AddSingleton<MainWindow>();
             _host = builder.Build();
             await _host.StartAsync().ConfigureAwait(true);
+
+            var recovery = _host.Services.GetRequiredService<ICertificateRecoveryService>();
+            foreach (var message in await recovery.RecoverAsync().ConfigureAwait(true))
+            {
+                Log.Information("{RecoveryMessage}", message);
+            }
 
             var window = _host.Services.GetRequiredService<MainWindow>();
             MainWindow = window;
