@@ -93,9 +93,10 @@ public sealed class DataDirectorySecurityTests : IDisposable
         {
             Directory.Delete(_workspace, recursive: true);
         }
-        catch (UnauthorizedAccessException)
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
         {
-            // Directory.Delete cannot remove mklink /J junctions; rmdir removes the link without following it.
+            // Directory.Delete cannot remove mklink /J junctions; depending on the Windows build it fails with
+            // "access denied" or "the parameter is incorrect". rmdir removes the link without following it.
             RunCmd($"rmdir /s /q \"{_workspace}\"");
         }
     }
