@@ -1,0 +1,52 @@
+name: Release
+
+# Push a tag such as v0.9.0 after setting the same <Version> in Directory.Build.props.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Check tag matches project version
+        shell: pwsh
+        run: |
+          $version = (dotnet msbuild src/SSLense.Core/SSLense.Core.csproj -getProperty:Version).Trim()
+          if ("v$version" -ne $env:GITHUB_REF_NAME) {
+            throw "Tag $env:GITHUB_REF_NAME does not match <Version>$version</Version> in Directory.Build.props."
+          }
+          "SSLENSE_VERSION=$version" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Build and test
+        run: |
+          dotnet build SSLense.sln -c Release -nologo
+          dotnet test SSLense.sln -c Release --no-build -nologo
+
+      # The repository owner accepted the WiX Toolset v7 OSMF EULA on October 28, 2026.
+      # See installer/build.ps1 and https://wixtoolset.org/osmf/.
+      - name: Build MSI
+        shell: pwsh
+        run: ./installer/build.ps1 -AcceptWixEula
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $msi = "artifacts/installer/SSLense-$env:SSLENSE_VERSION-x64.msi"
+          $hash = (Get-FileHash $msi -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path $msi -Leaf)" | Out-File "$msi.sha256" -Encoding ascii
+          gh release create $env:GITHUB_REF_NAME $msi "$msi.sha256" `
+            --title "SSLense $env:SSLENSE_VERSION" `
+            --notes "Unsigned preview build. Windows SmartScreen may warn until releases are code-signed. SHA-256: $hash" `
+            --prerelease

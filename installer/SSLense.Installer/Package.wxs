@@ -39,6 +39,7 @@
       <ComponentGroupRef Id="ServiceFiles" />
       <ComponentRef Id="ServiceStart" />
       <ComponentRef Id="CliOnPath" />
+      <ComponentGroupRef Id="LicenseFiles" />
     </Feature>
 
     <!--
@@ -59,6 +60,22 @@
   </Package>
 
   <Fragment>
+    <!-- Apache-2.0 section 4 requires the license and NOTICE to accompany redistributed binaries. -->
+    <ComponentGroup Id="LicenseFiles" Directory="INSTALLFOLDER">
+      <Component Id="LicenseFile">
+        <File Id="LicenseTxt" Source="$(RepoRoot)LICENSE" Name="LICENSE.txt" KeyPath="yes" />
+      </Component>
+      <Component Id="NoticeFile">
+        <File Id="NoticeTxt" Source="$(RepoRoot)NOTICE" Name="NOTICE.txt" KeyPath="yes" />
+      </Component>
+      <Component Id="ThirdPartyNoticesFile">
+        <File Id="ThirdPartyNoticesMd" Source="$(RepoRoot)THIRD-PARTY-NOTICES.md" KeyPath="yes" />
+      </Component>
+      <Component Id="TrademarksFile">
+        <File Id="TrademarksMd" Source="$(RepoRoot)TRADEMARKS.md" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
     <ComponentGroup Id="GuiFiles" Directory="GuiFolder">
       <Files Include="$(PublishDir)gui\**">
         <Exclude Files="$(PublishDir)gui\SSLense.Gui.exe" />

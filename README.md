@@ -1,8 +1,8 @@
 # SSLense
 
-SSLense is a .NET 10 (LTS) Windows tool for issuing and automatically renewing Let's Encrypt certificates for IIS. The CLI and Windows Service use the same `SSLense.Core` services and the same state under `C:\ProgramData\SSLense`.
+SSLense is a free, open-source .NET 10 (LTS) Windows tool for issuing and automatically renewing Let's Encrypt certificates for IIS. The CLI and Windows Service use the same `SSLense.Core` services and the same state under `C:\ProgramData\SSLense`.
 
-The post-MVP productization plan is documented in [COMMERCIAL_ROADMAP.md](COMMERCIAL_ROADMAP.md).
+Planned work is in [ROADMAP.md](ROADMAP.md). SSLense is licensed under the [Apache License 2.0](LICENSE).
 
 > SSLense defaults to Let's Encrypt **staging**. Production issuance is guarded by an explicit environment choice and risk acknowledgement. Development and automated tests never contact the production endpoint.
 
@@ -272,3 +272,13 @@ The service runs as LocalSystem. Running it under a different account would also
 - **Webhook test fails:** verify that the receiving endpoint accepts an HTTP POST containing `kind`, `subject`, `body`, and `occurredAtUtc` JSON fields.
 
 Review the current daily log in `C:\ProgramData\SSLense\logs` for the full exception and remediation context. Sensitive values are excluded.
+
+## Contributing, security, and support
+
+- **Contributing:** see [CONTRIBUTING.md](CONTRIBUTING.md). Commits are signed off under the Developer Certificate of Origin.
+- **Security issues:** report them privately as described in [SECURITY.md](SECURITY.md), never in a public issue.
+- **Bugs and questions:** open a GitHub issue. Redact host names, keys, passwords, and webhook URLs from any logs you attach.
+
+## License
+
+SSLense is licensed under the [Apache License 2.0](LICENSE); see [NOTICE](NOTICE). Third-party components and their licenses are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). The SSLense name and logo are covered by [TRADEMARKS.md](TRADEMARKS.md), not by the code license.

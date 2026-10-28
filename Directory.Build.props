@@ -12,7 +12,8 @@
     -->
     <Company>ProAcSys</Company>
     <Product>SSLense</Product>
-    <Copyright>Copyright © 2026 $(Company)</Copyright>
-    <SSLenseIcon>$(MSBuildThisFileDirectory)assets\branding\sslense.ico</SSLenseIcon>
+    <Copyright>Copyright © 2026 The SSLense Authors. Licensed under the Apache License 2.0.</Copyright>
+    <SSLenseRepoRoot>$(MSBuildThisFileDirectory)</SSLenseRepoRoot>
+    <SSLenseIcon>$(SSLenseRepoRoot)assets\branding\sslense.ico</SSLenseIcon>
   </PropertyGroup>
 </Project>

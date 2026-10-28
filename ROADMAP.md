@@ -1,483 +1,104 @@
-# SSLense Commercial Development Roadmap
+# SSLense Roadmap
 
-## 1. Product vision
+SSLense is free and open source under the [Apache License 2.0](LICENSE). This roadmap describes how it gets to a dependable 1.0 release and what comes after. It replaces the earlier commercial roadmap; commercial plans are on hold and may be revisited later.
 
-SSLense should become the simplest secure certificate lifecycle manager built specifically for Windows and IIS.
-
-The commercial product must retain these principles:
+## 1. Principles
 
 - Certificate renewal is safe, automatic, observable, and recoverable.
-- The local agent continues working if any future cloud management service is unavailable.
+- A failed operation never leaves a site without its previous working binding.
 - Private keys and credentials are never logged or transmitted unexpectedly.
-- GUI, CLI, service, PowerShell, and API surfaces call the same Core operations.
-- Potentially destructive actions require explicit confirmation and produce audit records.
-- Staging remains the default in development and test environments.
+- GUI, CLI, and service call the same Core operations.
+- Destructive actions require explicit confirmation.
+- Let's Encrypt staging is the default; production requires an explicit choice.
 
 ## 2. Current status
 
-Phases 1–8 and Commercial Phase A provide:
+Complete:
 
-- IIS site and binding discovery
-- Separated Let's Encrypt staging and guarded production issuance using HTTP-01
-- Windows certificate-store installation and SNI binding management
-- Managed certificate state and automatic renewal service
-- SMTP and webhook notifications
-- Professional WPF Dashboard, Logs, Issue Certificate, Certificate Details, and Settings screens
-- CLI equivalents for shared Core operations
-- ARI-aware renewal scheduling with a lifetime-relative fallback
-- Cross-process per-site concurrency control
-- Non-exportable certificate keys with no retained PFX artifacts
-- Durable certificate-operation journals and startup recovery
+- IIS site and binding discovery; HTTP-01 issuance against separated Let's Encrypt staging and guarded production
+- Certificate-store installation with non-exportable keys and no retained PFX files; SNI binding management with live HTTPS verification and automatic rollback
+- Automatic renewal service: ARI-aware scheduling with a lifetime-relative fallback, a persisted retry schedule, hourly checks, rate-limit handling, and escalating failure notifications
+- Independent, lifetime-relative expiry monitoring; SMTP and webhook notifications
+- Cross-process per-site locking, durable operation journals, and non-fatal startup recovery
+- Versioned state schemas with backup before migration and safe refusal of newer schemas
+- `C:\ProgramData\SSLense` restricted to Administrators and SYSTEM, with link-safe hardening
+- WPF GUI (Dashboard, Logs, Issue Certificate, Certificate Details, Settings) and matching CLI
+- .NET 10 (LTS); self-contained WiX v7 MSI with service registration, upgrades, and silent install
+- Branding (icon and logo) across the apps, shortcut, and Add/Remove Programs
 
-The Commercial Phase A implementation is complete, with the follow-ups listed below. A real production issuance remains an explicit operator acceptance test and is never run during development.
+A real production issuance remains a manual acceptance test and is never run during development.
 
-Phase A hardening (October 28, 2026) added: non-fatal, per-transaction startup recovery that skips operations still owned by a live process; restart-on-failure service actions; live HTTPS verification of the served certificate after every binding change, with automatic rollback; preservation of existing IIS SSL flags; rate-limit detection without retries; independent retry rounds so one failing site does not delay others; staging certificates no longer satisfying production requests; and a startup elevation check in the CLI.
+## 3. Certificate lifetime requirements
 
-State and scheduling hardening (October 28, 2026) added: versioned schemas for configuration, managed-certificate state, and transaction journals, with backup before migration and safe refusal of newer schemas; a stable ID on every managed certificate; a persisted retry schedule and failure count with hourly service checks and escalating failure notifications; ARI response caching that honors `Retry-After`; and independent, once-per-level, lifetime-relative expiry monitoring.
+Scheduling must not assume 90-day certificates.
 
-Remaining Phase A follow-ups:
-
-- Send the ARI `replaces` field on renewal orders (P0.2); Certes does not expose it.
-- Journal challenge files so an interrupted validation cleans them up on recovery (P0.4).
-- Configurable maintenance windows (P0.2).
-- Key locks, journals, and CLI/GUI selection by certificate ID instead of site name, enabling several certificates per site (needed by Phase C). Every record already has a stable ID, so no further data migration is required. Signed distribution, ProgramData ACL hardening, the supported-platform test matrix, diagnostics, security review, and commercial operations remain unfinished.
-
-## 3. External lifecycle requirements
-
-Certificate scheduling must not assume that certificates always have 90-day lifetimes.
-
-- Let's Encrypt moved its staging default to 64-day certificates on October 14, 2026.
-- Let's Encrypt plans to move production defaults to 64 days on February 10, 2027.
-- Default certificate lifetimes are expected to continue decreasing toward 45 days.
-- SSLense should implement ACME Renewal Information (ARI, RFC 9773) and use lifetime-relative scheduling as a fallback.
+- Let's Encrypt moved its staging default to 64-day certificates on October 14, 2026, and plans the same for production on February 10, 2027.
+- Default lifetimes are expected to keep decreasing toward 45 days.
+- SSLense uses ACME Renewal Information (ARI, RFC 9773) and falls back to lifetime-relative scheduling.
 
 References:
 
 - [Let's Encrypt: 64-Day Certificate Lifetimes Coming February 2027](https://letsencrypt.org/2026/10/07/64-day-certs)
 - [Let's Encrypt: Decreasing Certificate Lifetimes to 45 Days](https://letsencrypt.org/2025/12/02/from-90-to-45)
 - [Let's Encrypt: ACME Renewal Information Published as RFC 9773](https://letsencrypt.org/2025/09/16/ari-rfc)
-- [CA/Browser Forum Server Certificate Baseline Requirements](https://cabforum.org/working-groups/server/baseline-requirements/requirements/)
-
-## 4. Commercial release gates
-
-SSLense must satisfy every P0 requirement before accepting paying production customers.
-
-### P0.1 Production ACME
-
-- Add an explicit Production environment; never infer it from missing flags.
-- Store staging and production accounts, orders, configuration, and state separately.
-- Require a strong first-use confirmation in the GUI and CLI.
-- Display the active ACME environment on every issuance, renewal, and certificate screen.
-- Support Let's Encrypt subscriber agreement changes and account contact updates.
-- Add rate-limit-aware errors and retry scheduling.
-- Prevent staging certificates from being mistaken for production certificates.
-- Add a production dry-run that performs pre-flight validation without creating an order.
-- Keep production disabled in automated tests unless a dedicated, explicitly authorized environment is used.
-
-Acceptance criteria:
-
-- It is impossible to contact production accidentally through default settings.
-- Staging and production account keys never overwrite one another.
-- Production issuance can be enabled only through an explicit user action.
-- Integration tests prove environment separation.
-
-### P0.2 Renewal scheduling and ARI
-
-- Implement ACME Renewal Information using RFC 9773.
-- Prefer the CA-provided renewal window when available.
-- Use approximately two-thirds of the certificate lifetime as the fallback renewal point.
-- Add randomized jitter to avoid fleet-wide renewal spikes.
-- Persist the next planned attempt and retry schedule.
-- Resume missed work after reboot, sleep, service downtime, or upgrade.
-- Add independent expiry monitoring so scheduling failures still generate alerts.
-- Support configurable maintenance windows without risking expiration.
-- Prevent simultaneous renewal of the same certificate by GUI, CLI, and service.
-
-Acceptance criteria:
-
-- Renewal works correctly for 90-, 64-, 45-, and 6-day certificates.
-- Restarting the machine during a scheduled renewal does not lose the job.
-- Two SSLense processes cannot issue for the same managed certificate concurrently.
-
-### P0.3 Private-key and secret security
-
-- Generate private keys directly in the Windows machine key store where supported.
-- Make certificate private keys non-exportable by default.
-- Stop writing PFX files by default after successful installation.
-- Require an explicit export operation when a PFX is genuinely needed.
-- Protect exported PFX files with user-supplied passwords and restricted ACLs.
-- Apply explicit administrator and service-account ACLs to `%ProgramData%\SSLense`.
-- Review DPAPI `LocalMachine` usage and file ACLs together; DPAPI alone is not the authorization boundary.
-- Support Windows Credential Manager or another protected secret provider where appropriate.
-- Scrub passwords, account keys, private keys, webhook URLs, tokens, query strings, and authorization headers from logs and diagnostics.
-- Zero sensitive byte buffers when practical.
-- Define certificate private-key permissions for application-pool identities.
-- Add compromised-account and compromised-private-key recovery procedures.
-
-Acceptance criteria:
-
-- Standard issuance leaves no recoverable plaintext PFX or password on disk.
-- A non-administrator account cannot read SSLense secrets or private keys.
-- Automated tests scan produced logs and support bundles for seeded secrets.
-
-### P0.4 Transaction safety and crash recovery
-
-- Add a durable operation journal for issue, renew, rebind, remove, and upgrade operations.
-- Record intended mutations before changing the certificate store or IIS.
-- Preserve the previous certificate and binding until replacement verification succeeds.
-- Verify the new site over HTTPS after the IIS binding swap.
-- Verify hostname, certificate thumbprint, validity period, and chain.
-- Restore previous bindings automatically when verification fails.
-- Recover interrupted operations when the service or GUI starts.
-- Make every operation idempotent.
-- Back up configuration and state before schema migration.
-- Add versioned state schemas and tested forward migrations.
-
-Acceptance criteria:
-
-- Killing SSLense at every operation boundary never leaves a site without its previous working binding.
-- Interrupted operations are either completed or rolled back on restart.
-- Downgrades fail safely when state schemas are incompatible.
-
-### P0.5 Professional Windows distribution
-
-- Build an MSI or equivalent enterprise-friendly installer.
-- Install GUI, CLI, service, documentation, and required runtime components together.
-- Support unattended installation and uninstallation.
-- Register Add/Remove Programs metadata.
-- Configure ProgramData directories and ACLs during installation.
-- Allow the administrator to choose whether the renewal service starts immediately.
-- Preserve configuration, accounts, and managed-certificate state during upgrades.
-- Roll back failed installations and upgrades.
-- Sign executables, DLLs, installers, uninstallers, scripts, and update packages with a trusted Authenticode identity.
-- Timestamp signatures.
-- Verify update signatures before applying updates.
-- Provide release channels such as Stable and Preview.
-- Support signed offline installers for restricted environments.
-
-Microsoft references:
-
-- [SmartScreen reputation for Windows application developers](https://learn.microsoft.com/windows/apps/package-and-deploy/smartscreen-reputation)
-- [Code signing for Smart App Control](https://learn.microsoft.com/windows/apps/develop/smart-app-control/code-signing-for-smart-app-control)
-
-Acceptance criteria:
-
-- Clean installation, upgrade, repair, and uninstall work on every supported Windows Server version.
-- All shipped executable content has a valid trusted signature.
-- Failed upgrades restore the previously working version and preserve state.
-
-### P0.6 Quality and compatibility
-
-- Define a supported Windows and IIS version matrix.
-- Run integration tests against real IIS virtual machines in CI or a controlled test lab.
-- Test clean installation, upgrade, renewal, rollback, removal, and recovery.
-- Test HTTP-01 through direct public IPs, reverse proxies, NAT, and Cloudflare Tunnel.
-- Test IPv4, IPv6, internationalized domain names, SAN certificates, and large binding sets.
-- Test outbound proxies, authenticated proxies, restricted firewalls, and TLS inspection environments.
-- Test machines with clock skew and delayed Windows updates.
-- Add performance and soak tests for large fleets and thousands of bindings.
-- Add accessibility testing, keyboard navigation, high-contrast support, and scalable text.
-- Localize UI, CLI messages, documentation, dates, and number formats.
-
-Acceptance criteria:
-
-- A published compatibility matrix is backed by repeatable automated tests.
-- Critical issue and renewal scenarios pass on every supported server release.
-- No Core workflow depends on English Windows command output.
-
-### P0.7 Supportability and operations
-
-- Generate a diagnostic support bundle with automatic secret redaction.
-- Include application version, OS/IIS versions, service status, relevant bindings, certificate metadata, configuration schema version, and recent logs.
-- Never include private keys, passwords, tokens, protected blobs, or full webhook URLs.
-- Add a one-click health check covering state, service heartbeat, filesystem permissions, IIS access, certificate store access, DNS, HTTP reachability, ACME connectivity, and notification channels.
-- Add configuration backup and restore.
-- Add log size limits and retention controls.
-- Record service heartbeat and last successful daily cycle.
-- Publish troubleshooting runbooks and support escalation instructions.
-
-Acceptance criteria:
-
-- A support engineer can diagnose common failures without remote server access.
-- Diagnostic bundles pass automated secret-scanning tests.
-
-## 5. Paid product capabilities
-
-### P1.1 DNS-01 and wildcard certificates
-
-- Define a versioned DNS-provider plugin interface.
-- Implement Cloudflare first.
-- Add Azure DNS, AWS Route 53, DigitalOcean, GoDaddy, and other high-demand providers based on customer feedback.
-- Support generic webhook/script integrations for unsupported providers.
-- Support wildcard certificates and split-horizon DNS.
-- Discover authoritative DNS and verify TXT propagation from multiple resolvers.
-- Use provider-scoped least-privilege credentials.
-- Encrypt provider secrets and ensure they never appear in logs.
-- Clean up TXT records safely after validation.
-- Support delegated `_acme-challenge` zones and CNAME-based delegation.
-
-### P1.2 Existing-certificate discovery and adoption
-
-- Scan IIS bindings and `LocalMachine\My` for existing certificates.
-- Detect expired, expiring, duplicate, orphaned, self-signed, and staging certificates.
-- Match certificates to sites, hosts, and private keys.
-- Allow administrators to adopt an existing certificate without immediate reissuance.
-- Detect unmanaged IIS bindings continuously.
-- Recommend SAN consolidation without changing bindings automatically.
-- Import supported external ACME-account or certificate metadata safely.
-
-### P1.3 Multiple certificate authorities
-
-- Support configurable ACME directory URLs.
-- Add External Account Binding.
-- Support Let's Encrypt, Google Trust Services, ZeroSSL, enterprise ACME services, and internal PKI.
-- Store CA accounts and policies separately.
-- Allow per-certificate CA selection and fallback policy.
-- Validate CA chains and expected issuers.
-- Never silently fail over to a different CA without policy authorization.
-
-### P1.4 Broader deployment targets
-
-Keep IIS as the primary experience, then add optional deployment adapters for:
-
-- HTTP.sys
-- Kestrel-hosted applications
-- Windows services
-- Remote Desktop Services
-- SQL Server
-- Exchange Server
-- Network shares and secure file export
-- Load balancers and reverse proxies
-
-Each adapter must implement install, verify, rollback, and remove operations behind a shared interface.
-
-### P1.5 Notifications and escalation
-
-- Add Microsoft Teams, Slack, and incident-management integrations.
-- Support customizable templates and branding.
-- Add repeated escalation for unresolved failures.
-- Notify on service heartbeat loss and missed renewal windows.
-- Add quiet hours and maintenance windows.
-- Support per-certificate owners and routing rules.
-- Provide signed webhook payloads with replay protection.
-
-### P1.6 Automation surfaces
-
-- Publish a stable versioned REST API.
-- Add a PowerShell module.
-- Add machine-readable CLI JSON output.
-- Document stable exit codes.
-- Support unattended configuration import/export.
-- Add webhooks for lifecycle events.
-- Publish API contracts and compatibility guarantees.
-
-### P1.7 Certificate policy engine
-
-- Define allowed domains and wildcard policies.
-- Define allowed key types, sizes, and signature algorithms.
-- Set CA, renewal, notification, and maintenance policies by site or group.
-- Add approval requirements for production issuance, removal, and export.
-- Detect and report policy drift.
-- Support report-only policies before enforcement.
-
-## 6. Multi-server and enterprise roadmap
-
-### P2.1 Central fleet management
-
-- Build a central web console backed by a lightweight Windows agent.
-- Keep local renewal autonomous when the central service is unavailable.
-- Show certificate inventory, expiry, renewal state, service health, and policy compliance across servers.
-- Support safe remote operations with clear target selection and approvals.
-- Use mutually authenticated, rotating agent identities.
-- Queue commands durably and prevent replay.
-- Add staged agent upgrades and rollback.
-- Provide fleet-wide search, reporting, and export.
-
-### P2.2 Enterprise identity and authorization
-
-- Support Microsoft Entra ID and standard OIDC.
-- Add SAML when customer demand requires it.
-- Implement role-based access control.
-- Support least-privilege roles such as Viewer, Operator, Approver, Security Administrator, and Tenant Administrator.
-- Add approval workflows for production issuance, certificate removal, secret changes, and exports.
-- Maintain immutable audit trails with actor, action, target, timestamp, result, and correlation ID.
-- Support service principals and short-lived automation credentials.
-
-### P2.3 MSP and multi-tenancy
-
-- Strictly isolate tenant data, credentials, agents, logs, policies, and billing.
-- Support delegated customer access.
-- Add per-customer branding and reports.
-- Add cross-tenant operational views without exposing secrets.
-- Support per-tenant data retention and deletion.
-- Add usage metering suitable for commercial billing.
-
-### P2.4 Enterprise deployment and governance
-
-- Support Group Policy or policy-file configuration.
-- Support software deployment through common enterprise management systems.
-- Provide offline activation and offline updates where contractually required.
-- Add proxy, private CA, and TLS-inspection configuration.
-- Offer configurable telemetry with an explicit opt-in policy.
-- Provide data residency and retention controls for hosted services.
-
-## 7. Security and supply-chain program
-
-- Maintain a documented threat model and update it for every major architecture change.
-- Add secure coding and peer-review requirements for cryptographic, update, and remote-management code.
-- Generate a software bill of materials for every release.
-- Scan dependencies, source, binaries, containers, installers, and infrastructure definitions.
-- Pin and verify build dependencies.
-- Protect release signing through managed signing or hardware-backed keys.
-- Separate build, test, signing, and publication permissions.
-- Make release builds reproducible where practical.
-- Publish checksums and signature-verification instructions.
-- Establish a security contact and vulnerability disclosure policy.
-- Define severity and response-time targets.
-- Arrange independent penetration testing before general availability and after major security-sensitive changes.
-- Add backup, restore, disaster-recovery, and incident-response exercises.
-
-## 8. Privacy, legal, and commercial operations
-
-Before a paid release:
-
-- Complete product-name and trademark checks in target markets.
-- Publish an EULA and commercial license terms.
-- Publish a privacy policy and explain every collected telemetry field.
-- Prepare a Data Processing Agreement for business customers if hosted services process customer data.
-- Define data retention, export, and deletion procedures.
-- Review GDPR, UK GDPR, applicable US privacy laws, and other target-market requirements with qualified counsel.
-- Define subprocessors for hosted services.
-- Establish refund, cancellation, renewal, and support policies.
-- Use a billing system or merchant-of-record service that can handle international taxes, VAT/GST, invoices, and payment compliance.
-- Define service levels only after monitoring and support processes can measure them.
-- Maintain export-control and sanctions-screening processes where applicable.
-
-This roadmap is engineering guidance, not legal advice. Qualified legal and tax professionals should review commercial obligations before launch.
-
-## 9. Documentation and customer experience
-
-- Create a public installation guide and five-minute quick start.
-- Publish migration guides from manual IIS certificates and common ACME clients.
-- Document firewall, DNS, proxy, permissions, and service-account requirements.
-- Provide task-oriented guides for HTTP-01, DNS-01, wildcard certificates, tunnels, and multi-server deployment.
-- Publish a security architecture and secret-storage guide.
-- Document backup, recovery, certificate revocation, and disaster recovery.
-- Add contextual GUI help and links to exact remediation steps.
-- Provide searchable error codes that remain stable across releases.
-- Build sample scripts for unattended deployments.
-- Maintain release notes, known issues, deprecation notices, and an upgrade compatibility matrix.
-
-## 10. Suggested commercial editions
-
-Licensing should be based primarily on managed servers or nodes rather than certificate count.
-
-### Community
-
-- One server
-- Limited managed certificates
-- HTTP-01
-- Local GUI and CLI
-- Community support
-
-### Professional
-
-- Unlimited local certificates on licensed servers
-- DNS-provider plugins and wildcard certificates
-- Advanced notifications
-- Existing-certificate adoption
-- Signed automatic updates
-- Standard commercial support
-
-### Business
-
-- Central multi-server management
-- Enterprise identity and RBAC
-- Audit logs and policy engine
-- REST API and PowerShell automation
-- Reporting and priority support
-
-### MSP
-
-- Multi-tenancy
-- Delegated customer access
-- Customer branding
-- Fleet reporting
-- Usage metering and tenant-level controls
-
-Final pricing, limits, and packaging should be validated through customer interviews rather than fixed before the private beta.
-
-## 11. Recommended implementation sequence
-
-### Commercial Phase A — Production safety
-
-Status: **Implemented on October 28, 2026.** Automated validation uses staging and mocks only; the controlled production smoke test requires explicit operator authorization.
-
-1. Production/staging separation
-2. ARI and lifetime-relative renewal scheduling
-3. Per-certificate concurrency control
-4. Non-exportable key model and no default PFX persistence
-5. Durable transaction journal and crash recovery
-
-Exit gate: controlled production issuance and renewal can run without risking an existing working IIS binding.
-
-### Commercial Phase B — Distributable beta
-
-Status: **In progress.** Installer technology: WiX Toolset v7 (MSI), chosen October 28, 2026; its EULA must be accepted explicitly in the build, and its maintenance fee applies once revenue passes the threshold in its terms. ProgramData ACL hardening (item 3, directory part) was implemented on October 28, 2026; certificate private-key ACLs for application-pool identities remain open. An unsigned MSI (item 1) is defined in `installer\`: self-contained x64 apps, service with failure actions and an optional `START_SERVICE=0`, Start menu shortcut, CLI on `PATH`, data-directory ACLs, major upgrades with downgrade blocking, and data preserved on uninstall. Remaining for item 1: Authenticode signing, an installer UI with the SSLense license agreement, and install/upgrade/uninstall verification on the supported Windows Server matrix.
-
-1. Signed installer
-2. Signed update mechanism
-3. ProgramData and key ACL hardening
-4. Supported Windows/IIS test matrix
-5. Diagnostic bundle and health checks
-6. Documentation and support workflow
-7. Security review and penetration test
-
-Exit gate: SSLense can be installed, upgraded, supported, and uninstalled safely by external beta customers.
-
-### Commercial Phase C — Paid single-server release
-
-1. Cloudflare DNS-01
-2. Wildcard certificates
-3. Existing-certificate discovery and adoption
-4. Multiple ACME CAs and EAB
-5. PowerShell and JSON CLI automation
-6. Licensing, billing, privacy, and commercial policies
-
-Exit gate: the product has clear paid differentiation from free ACME clients.
-
-### Commercial Phase D — Business and MSP platform
-
-1. Central management service and agent protocol
-2. Entra ID/OIDC and RBAC
-3. Audit logs and policy engine
-4. Multi-tenancy
-5. Reporting, approvals, and fleet automation
-
-Exit gate: SSLense can be sold to organizations and managed-service providers operating multiple servers.
-
-## 12. Private-beta plan
-
-- Recruit 10–20 Windows/IIS administrators from different hosting environments.
-- Include direct public servers, NAT, Cloudflare Tunnel, reverse proxies, and restricted enterprise networks.
-- Use staging first, followed by explicitly approved low-risk production sites.
-- Track installation success, time to first certificate, renewal success, remediation time, support requests, and upgrade reliability.
-- Hold structured interviews after installation and after the first automatic renewal.
-- Do not enable unattended automatic updates until rollback and signature validation have been proven.
-- Convert repeated support issues into health checks, stable error codes, tests, and documentation.
-
-## 13. Definition of commercially ready
-
-SSLense is ready for a general paid release when:
-
-- Production issuance cannot be triggered accidentally.
-- Renewal follows ARI or a safe lifetime-relative fallback.
-- Private keys are non-exportable by default and PFX files are not persisted by default.
-- Issue, renew, remove, and upgrade operations survive interruption safely.
-- Every shipped executable is signed.
-- Installation and upgrades pass the supported OS/IIS matrix.
-- Diagnostic bundles are useful and demonstrably free of secrets.
-- Security, privacy, licensing, billing, and support processes are published and operational.
-- A private beta has completed real automatic production renewals without binding loss.
-- The team can detect, diagnose, communicate, and recover from a failed release.
 
+## 4. Before 1.0
+
+These keep users' sites safe and make SSLense supportable without paid support. Each must be done before a 1.0 release.
+
+### 4.1 Remaining safety work
+
+- Send the ARI `replaces` field on renewal orders (Certes does not expose it yet).
+- Journal challenge files so an interrupted validation is cleaned up on recovery.
+- Certificate private-key permissions for IIS application-pool identities.
+- Configurable maintenance windows that can never let a certificate expire.
+- Recovery procedures for a compromised ACME account or private key.
+
+### 4.2 Diagnostics and health check
+
+- A one-click health check: state files, service heartbeat, folder permissions, IIS access, certificate store, DNS, HTTP reachability, ACME connectivity, and notification channels.
+- A diagnostic bundle that users can attach to a GitHub issue, with automatic redaction of passwords, keys, tokens, protected values, and webhook URLs, and tests that scan it for seeded secrets.
+- Service heartbeat and last successful cycle recorded in state.
+- Stable, searchable error codes.
+
+### 4.3 Distribution
+
+- Release builds from GitHub Actions with SHA-256 checksums attached to each GitHub Release.
+- Authenticode signing of executables and the MSI, for example through the free [SignPath Foundation](https://signpath.org/) program for open-source projects. Unsigned MSIs trigger Windows SmartScreen warnings.
+- An installer UI showing the Apache-2.0 license.
+- A [winget](https://learn.microsoft.com/windows/package-manager/) package.
+- Install, upgrade, repair, and uninstall verified on each supported Windows Server version.
+
+### 4.4 Quality and compatibility
+
+- A published support matrix of Windows Server and IIS versions, backed by repeatable tests on real IIS virtual machines.
+- HTTP-01 tested through direct public IPs, NAT, reverse proxies, and Cloudflare Tunnel.
+- IPv4, IPv6, internationalized domain names, SAN certificates, and large binding sets.
+- Outbound proxies, restricted firewalls, TLS inspection, and clock skew.
+- Accessibility: keyboard navigation, high contrast, and scalable text.
+
+### 4.5 Project health
+
+- A documented threat model, updated with each major architecture change.
+- Dependency and vulnerability scanning in CI, and a software bill of materials for each release.
+- Private vulnerability reporting (see [SECURITY.md](SECURITY.md)) with response targets.
+- Release notes, known issues, and an upgrade compatibility table.
+- Documentation: a quick start, firewall/DNS/proxy requirements, troubleshooting runbooks, and migration guides from manual IIS certificates and other ACME clients.
+
+## 5. After 1.0
+
+Ordered roughly by expected demand. Community feedback decides the order.
+
+- **DNS-01 and wildcard certificates:** a versioned DNS-provider plugin interface; Cloudflare first, then Azure DNS, AWS Route 53, and others; generic script hooks; CNAME delegation; propagation checks from several resolvers; least-privilege, DPAPI-protected provider credentials.
+- **Several certificates per site:** move locks, journals, and CLI/GUI selection from site name to the certificate ID every record already has.
+- **Existing-certificate discovery and adoption:** find expired, expiring, duplicate, self-signed, and staging certificates in IIS and `LocalMachine\My`, and adopt them without reissuing.
+- **More certificate authorities:** configurable ACME directories and External Account Binding (ZeroSSL, Google Trust Services, internal ACME servers), never failing over to another CA without explicit configuration.
+- **Automation:** JSON output for every CLI command, documented exit codes, a PowerShell module, and configuration import/export.
+- **More notification channels:** Microsoft Teams, Slack, and signed webhook payloads.
+- **HTTP-to-HTTPS redirect helper** using an IIS URL Rewrite rule.
+- **Other deployment targets:** HTTP.sys, Kestrel, Remote Desktop Services, SQL Server, and Exchange, each with install, verify, rollback, and remove operations.
+- **Multi-server management:** a possible later project, built so each server's renewal keeps working when any central component is unavailable.
+
+## 6. Sustainability
+
+SSLense is maintained voluntarily. Donations (planned through GitHub Sponsors or Open Collective) help pay for test infrastructure and code signing. Any future paid offering, such as optional services or support, would leave the open-source core intact. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).

@@ -8,7 +8,7 @@
     <OutputName>SSLense-$(Version)-x64</OutputName>
     <InstallerPlatform>x64</InstallerPlatform>
     <Manufacturer Condition=" '$(Manufacturer)' == '' ">$(Company)</Manufacturer>
-    <DefineConstants>ProductVersion=$(Version);Manufacturer=$(Manufacturer);PublishDir=$(PublishDir);IconFile=$(SSLenseIcon)</DefineConstants>
+    <DefineConstants>ProductVersion=$(Version);Manufacturer=$(Manufacturer);PublishDir=$(PublishDir);IconFile=$(SSLenseIcon);RepoRoot=$(SSLenseRepoRoot)</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

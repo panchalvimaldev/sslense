@@ -155,6 +155,6 @@ GUI rules:
 - Do not run anything against Let's Encrypt **production** until I explicitly say so.
 - Ask me before adding new NuGet packages beyond those listed above.
 
-## 9. Commercial development
+## 9. Roadmap and license
 
-The post-MVP security, reliability, packaging, paid-feature, enterprise, and go-to-market development plan is maintained in [COMMERCIAL_ROADMAP.md](COMMERCIAL_ROADMAP.md). Treat its P0 commercial release gates as mandatory before accepting paying production customers.
+SSLense is open source under the Apache License 2.0 (see [LICENSE](LICENSE)). The post-MVP plan is maintained in [ROADMAP.md](ROADMAP.md). Treat its "Before 1.0" items as mandatory before a 1.0 release.
