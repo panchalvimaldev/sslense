@@ -309,6 +309,22 @@ public sealed class RenewalServiceTests
     }
 
     [Theory]
+    [InlineData("acme-test.sslense.com", "is a host name of IIS site 'My Site'")]
+    [InlineData("Unknown Site", "Managed IIS sites: 'My Site'")]
+    public async Task RenewAsync_UnknownSite_SuggestsTheRightSiteName(string siteName, string expectedHint)
+    {
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(30)) with { Hosts = ["acme-test.sslense.com"] }]);
+        var service = CreateService(managed, MockConfig(), new Mock<IAcmeService>(MockBehavior.Strict));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RenewAsync(new RenewalRequest(SiteName: siteName, Force: true)));
+
+        Assert.Contains(expectedHint, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData(1, false, 30, 1)]
     [InlineData(2, false, 30, 2)]
     [InlineData(3, false, 30, 6)]

@@ -18,7 +18,8 @@ var securityWarnings = DataDirectorySecurity.SecureAtStartup();
 
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
-    .WriteTo.Console()
+    // Console output stays readable: no stack traces. The log file below keeps the full exception.
+    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}")
     .WriteTo.File(
         Path.Combine(AppPaths.LogDirectory, "sslense-.log"),
         rollingInterval: RollingInterval.Day,

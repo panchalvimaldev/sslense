@@ -93,8 +93,7 @@ internal sealed class RenewalService : IRenewalService
                 StringComparison.OrdinalIgnoreCase)).ToArray();
         if (!request.All && selected.Count == 0)
         {
-            throw new InvalidOperationException(
-                $"No managed certificate was found for IIS site '{request.SiteName}'.");
+            throw ManagedCertificateNotFound.Create(request.SiteName!, records);
         }
 
         var config = await _configStore.LoadAsync(cancellationToken).ConfigureAwait(false);

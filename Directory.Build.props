@@ -7,10 +7,10 @@
     <Version>0.9.0</Version>
 
     <!--
-      Publisher shown in file properties, Add/Remove Programs, and the MSI. Placeholder until the
-      registered name is decided; it must then match the name on the code-signing certificate.
+      Publisher shown in file properties, Add/Remove Programs, and the MSI. When releases are
+      code-signed, it should match the name on the signing certificate.
     -->
-    <Company>ProAcSys</Company>
+    <Company>panchalvimal</Company>
     <Product>SSLense</Product>
     <Copyright>Copyright © 2026 The SSLense Authors. Licensed under the Apache License 2.0.</Copyright>
     <SSLenseRepoRoot>$(MSBuildThisFileDirectory)</SSLenseRepoRoot>

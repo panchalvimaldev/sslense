@@ -63,6 +63,6 @@ internal sealed class CertificateManagementService(
         var records = await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
         return records.SingleOrDefault(value =>
             string.Equals(value.SiteName, siteName, StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException($"No managed certificate was found for IIS site '{siteName}'.");
+            ?? throw ManagedCertificateNotFound.Create(siteName, records);
     }
 }
