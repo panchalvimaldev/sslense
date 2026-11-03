@@ -134,6 +134,20 @@ internal sealed class RenewalService : IRenewalService
                 continue;
             }
 
+            // Each manual validation needs a person to create DNS records, so renewal never runs on its own.
+            if (certificate.ValidationMethod == ValidationMethod.Dns01Manual)
+            {
+                results.Add(new RenewalResult(
+                    certificate.SiteName,
+                    false,
+                    true,
+                    "Skipped: this certificate uses manual DNS validation. Renew it by hand with " +
+                    $"'SSLense.Cli issue --site \"{certificate.SiteName}\" --email {certificate.Email} --validation dns-manual --force" +
+                    (certificate.AuthorityId == CertificateAuthorities.LetsEncryptId ? " --production --accept-production-risk'." : "'."),
+                    certificate.Thumbprint));
+                continue;
+            }
+
             // Only the service honors the saved backoff; an administrator renewing by hand means "now".
             if (request.Scheduled && !request.Force &&
                 certificate.NextRetryAt is { } retryAt && DateTimeOffset.UtcNow < retryAt)
@@ -190,7 +204,8 @@ internal sealed class RenewalService : IRenewalService
                         certificate.OutputDirectory,
                         true,
                         certificate.AuthorityId,
-                        certificate.Thumbprint),
+                        certificate.Thumbprint,
+                        certificate.ValidationMethod),
                     progress,
                     cancellationToken)
                 .ConfigureAwait(false);

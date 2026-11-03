@@ -183,6 +183,15 @@ internal sealed class DiagnosticBundleService(
                 ProtectedEabHmacKey = authority.ProtectedEabHmacKey is null ? null : SecretRedactor.Marker
             })
             .ToArray(),
+
+        // The zone name helps diagnosis; the token is a credential, and the zone ID identifies the account's zone.
+        DnsProviders = config.DnsProviders
+            .Select(provider => provider with
+            {
+                ZoneId = provider.ZoneId is null ? null : SecretRedactor.Marker,
+                ProtectedToken = SecretRedactor.Marker
+            })
+            .ToArray(),
         Notifications = config.Notifications with
         {
             Email = config.Notifications.Email is { } email

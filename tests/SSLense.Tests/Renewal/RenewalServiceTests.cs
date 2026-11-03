@@ -1,4 +1,5 @@
 using Moq;
+using SSLense.Core;
 using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
@@ -29,6 +30,41 @@ public sealed class RenewalServiceTests
         Assert.False(result.Attempted);
         Assert.True(result.Succeeded);
         acme.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task RenewAsync_ManualDnsCertificate_IsNeverAttempted()
+    {
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(2)) with { ValidationMethod = ValidationMethod.Dns01Manual }]);
+        var acme = new Mock<IAcmeService>(MockBehavior.Strict);
+        var service = CreateService(managed, MockConfig(), acme);
+
+        var result = Assert.Single(await service.RenewAsync(new RenewalRequest(All: true, Force: true)));
+
+        Assert.False(result.Attempted);
+        Assert.Contains("dns-manual", result.Message, StringComparison.Ordinal);
+        acme.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task RenewAsync_DnsProviderCertificate_RenewsThroughDns()
+    {
+        var managed = new Mock<IManagedCertificateStore>();
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(2)) with { ValidationMethod = ValidationMethod.Dns01Provider }]);
+        var acme = new Mock<IAcmeService>();
+        acme.Setup(value => value.IssueAsync(It.IsAny<AcmeIssueRequest>(), It.IsAny<IProgress<ProgressEvent>?>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("stop here"));
+        var service = CreateService(managed, MockConfig(), acme);
+
+        await service.RenewAsync(new RenewalRequest(All: true, Force: true));
+
+        acme.Verify(value => value.IssueAsync(
+            It.Is<AcmeIssueRequest>(request => request.ValidationMethod == ValidationMethod.Dns01Provider),
+            It.IsAny<IProgress<ProgressEvent>?>(),
+            It.IsAny<CancellationToken>()));
     }
 
     [Fact]

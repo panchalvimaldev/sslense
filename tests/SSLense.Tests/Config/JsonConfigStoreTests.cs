@@ -122,12 +122,14 @@ public sealed class JsonConfigStoreTests
         // Records compare list properties by reference, so the (empty) lists are compared by content.
         Assert.Empty(actual.Notifications.Chat);
         Assert.Empty(actual.CertificateAuthorities);
+        Assert.Empty(actual.DnsProviders);
         Assert.Equal(
             expected with
             {
                 SchemaVersion = StateSchema.Config,
                 Notifications = actual.Notifications,
-                CertificateAuthorities = actual.CertificateAuthorities
+                CertificateAuthorities = actual.CertificateAuthorities,
+                DnsProviders = actual.DnsProviders
             },
             actual);
         Assert.Equal(expected.Notifications with { Chat = actual.Notifications.Chat }, actual.Notifications);

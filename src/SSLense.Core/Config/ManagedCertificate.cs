@@ -12,6 +12,8 @@ namespace SSLense.Core.Config;
 /// <param name="SnoozedUntil">With <see cref="ReminderMode.Snoozed"/>, when reminders resume.</param>
 /// <param name="LastRemindedAt">When this certificate was last included in a sent digest as needing attention or as a repeated automatic reminder.</param>
 /// <param name="UpcomingNoticeSent">Whether the one upcoming-renewal notice was sent for this certificate.</param>
+/// <param name="ValidationMethod">How the certificate authority checks control of the names.</param>
+/// <param name="CertificateNames">The names on the certificate, when they differ from the IIS hosts in <paramref name="Hosts"/>, as with a wildcard.</param>
 /// <remarks>
 /// The reminder fields belong to the record, not to a certificate: <see cref="IManagedCertificateStore.UpsertAsync"/> keeps
 /// them across installs and resets them when the thumbprint changes (except <see cref="ReminderMode.Off"/>).
@@ -36,7 +38,21 @@ public sealed record ManagedCertificate(
     ReminderMode Reminders = ReminderMode.On,
     DateTimeOffset? SnoozedUntil = null,
     DateTimeOffset? LastRemindedAt = null,
-    bool UpcomingNoticeSent = false);
+    bool UpcomingNoticeSent = false,
+    ValidationMethod ValidationMethod = ValidationMethod.Http01,
+    IReadOnlyList<string>? CertificateNames = null);
+
+public enum ValidationMethod
+{
+    /// <summary>A file served by the IIS site on port 80.</summary>
+    Http01 = 0,
+
+    /// <summary>A TXT record SSLense publishes through a configured DNS provider.</summary>
+    Dns01Provider = 1,
+
+    /// <summary>A TXT record the administrator creates by hand, so renewal needs the administrator too.</summary>
+    Dns01Manual = 2
+}
 
 public enum ReminderMode
 {

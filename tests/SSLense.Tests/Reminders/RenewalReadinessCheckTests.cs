@@ -86,6 +86,18 @@ public sealed class RenewalReadinessCheckTests
         Assert.Empty(result.Problems);
     }
 
+    [Theory]
+    [InlineData(ValidationMethod.Dns01Provider)]
+    [InlineData(ValidationMethod.Dns01Manual)]
+    public async Task DnsCertificates_DoNotRunTheHttpChecks(ValidationMethod method)
+    {
+        var result = await Check(Automatic() with { ValidationMethod = method }, renewsInDays: 10);
+
+        Assert.Empty(result.Problems);
+        Assert.Empty(result.Passed);
+        _preflight.VerifyNoOtherCalls();
+    }
+
     [Fact]
     public async Task CheckThatCannotRun_IsAnErrorAndOthersContinue()
     {

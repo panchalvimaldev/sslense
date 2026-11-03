@@ -21,6 +21,8 @@ public sealed class DiagnosticBundleServiceTests : IDisposable
     private const string LoggedBearer = "eyJhbGciOi.eyJzdWIiOi.SflKxwRJSM";
     private const string PrivateKeyBody = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7PrivateKeyBody";
     private const string AccountEmail = "admin@example.com";
+    private const string DnsToken = "AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAProtectedDnsTokenBlobValue1234==";
+    private const string DnsZoneId = "0123456789abcdef0123456789abcdef";
 
     private readonly string _output = Path.Combine(Path.GetTempPath(), $"sslense-bundle-{Guid.NewGuid():N}.zip");
 
@@ -39,7 +41,7 @@ public sealed class DiagnosticBundleServiceTests : IDisposable
         foreach (var secret in new[]
                  {
                      SmtpPassword, WebhookUrl, HeartbeatUrl, LoggedPassword, LoggedWebhookToken, LoggedBearer, PrivateKeyBody,
-                     AccountEmail, "smtp-user@example.com", "alerts@example.com"
+                     DnsToken, DnsZoneId, AccountEmail, "smtp-user@example.com", "alerts@example.com"
                  })
         {
             Assert.DoesNotContain(secret, everything, StringComparison.Ordinal);
@@ -182,6 +184,8 @@ public sealed class DiagnosticBundleServiceTests : IDisposable
         var config = new AppConfig
         {
             DefaultEmail = AccountEmail,
+            DnsProviders = [new SSLense.Core.DnsValidation.DnsProviderProfile(
+                "Main", SSLense.Core.DnsValidation.DnsProviderType.Cloudflare, "example.com", DnsZoneId, DnsToken)],
             Notifications = new NotificationConfig
             {
                 Email = new EmailNotificationConfig(

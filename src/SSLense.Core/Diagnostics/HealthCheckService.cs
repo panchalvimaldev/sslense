@@ -134,8 +134,8 @@ internal sealed class HealthCheckService(
                     await Check($"DNS: {host}", () => CheckDnsAsync(host, cancellationToken)).ConfigureAwait(false);
                 }
 
-                // Imported certificates are validated by their CA, not over HTTP on this server.
-                if (certificate.Source == CertificateSource.Imported)
+                // Imported certificates are validated by their CA, and DNS certificates through DNS, not over HTTP on this server.
+                if (certificate.Source == CertificateSource.Imported || certificate.ValidationMethod != ValidationMethod.Http01)
                 {
                     continue;
                 }

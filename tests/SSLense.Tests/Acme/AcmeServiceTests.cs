@@ -3,7 +3,9 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
+using SSLense.Core;
 using SSLense.Core.Config;
+using SSLense.Core.DnsValidation;
 using SSLense.Core.Iis;
 using SSLense.Core.Validation;
 using Xunit;
@@ -403,6 +405,218 @@ public sealed class AcmeServiceTests
         certificateStore.Verify(
             value => value.RemoveAsync("AABBCC", CancellationToken.None),
             expectRemoval ? Times.Once() : Times.Never());
+    }
+
+    [Fact]
+    public async Task IssueAsync_Dns_NeedsNoPort80Binding_AndCleansUpBeforeFinalizing()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+
+        await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider));
+
+        Assert.Equal(["check example.com", "publish 1", "validate example.com", "cleanup", "finalize"], harness.Steps);
+        harness.Protocol.Verify(value => value.CreateOrderAsync(
+            It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateAuthority>(), It.IsAny<CancellationToken>()), Times.Never);
+        harness.Managed.Verify(value => value.UpsertAsync(
+            It.Is<ManagedCertificate>(record => record.ValidationMethod == ValidationMethod.Dns01Provider),
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task IssueAsync_Dns_NoHostsGiven_UsesNamedHttpAndHttpsBindings()
+    {
+        var harness = new DnsHarness(
+            new IisBinding("https", "*", 8443, "secure.example.com", null, null, true),
+            new IisBinding("http", "*", 8080, "app.example.com", null, null, false),
+            new IisBinding("ftp", "*", 21, "ftp.example.com", null, null, false));
+        harness.Order.SetupGet(value => value.DnsChallenges).Returns([]);
+
+        await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", [], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider));
+
+        harness.Protocol.Verify(value => value.CreateDnsOrderAsync(
+            "admin@example.com",
+            It.Is<IReadOnlyList<string>>(names => names.SequenceEqual(new[] { "secure.example.com", "app.example.com" })),
+            It.IsAny<CertificateAuthority>(),
+            It.IsAny<CancellationToken>()));
+    }
+
+    [Fact]
+    public async Task IssueAsync_Dns_AHostNotOnTheSite_IsRefusedBeforeAnOrder()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["other.example.com"], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider)));
+
+        Assert.Contains("HTTP or HTTPS binding", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(harness.Steps);
+    }
+
+    [Fact]
+    public async Task IssueAsync_Dns_ProviderCheckFails_CreatesNoOrder()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+        harness.Dns.FailCheck = new InvalidOperationException("no provider");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider)));
+
+        harness.Protocol.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task IssueAsync_Dns_PublishFails_NeverAsksTheCaToValidate()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+        harness.Dns.FailPublish = new TimeoutException("not visible");
+
+        await Assert.ThrowsAsync<TimeoutException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider)));
+
+        Assert.DoesNotContain(harness.Steps, step => step.StartsWith("validate", StringComparison.Ordinal));
+        Assert.DoesNotContain("finalize", harness.Steps);
+    }
+
+    [Fact]
+    public async Task IssueAsync_Dns_ValidationFails_StillCleansUp()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+        harness.Order.Setup(value => value.ValidateAsync(It.IsAny<AcmeDnsChallenge>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("rejected"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider)));
+
+        Assert.Contains("cleanup", harness.Steps);
+        Assert.DoesNotContain("finalize", harness.Steps);
+    }
+
+    [Fact]
+    public async Task IssueAsync_DnsManual_WithoutSomeoneToConfirm_IsRefused()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+
+        await Assert.ThrowsAsync<ArgumentException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Manual)));
+
+        Assert.Empty(harness.Steps);
+    }
+
+    [Fact]
+    public async Task IssueAsync_Http_StillNeedsAPort80Binding()
+    {
+        var harness = new DnsHarness(
+            "C:\\inetpub\\site",
+            new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true)));
+
+        Assert.Contains("port 80", exception.Message, StringComparison.Ordinal);
+    }
+
+    private sealed class DnsHarness
+    {
+        public DnsHarness(params IisBinding[] bindings)
+            : this(null, bindings)
+        {
+        }
+
+        public DnsHarness(string? physicalPath, params IisBinding[] bindings)
+        {
+            var challenge = new AcmeDnsChallenge("example.com", false, "_acme-challenge.example.com", "txt-value");
+            Dns = new FakeDnsChallengeService(Steps);
+            Order.SetupGet(value => value.DnsChallenges).Returns([challenge]);
+            Order.Setup(value => value.ValidateAsync(challenge, It.IsAny<CancellationToken>()))
+                .Callback(() => Steps.Add("validate example.com"))
+                .Returns(Task.CompletedTask);
+            Order.Setup(value => value.FinalizeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .Callback(() => Steps.Add("finalize"))
+                .ReturnsAsync(CreateBundle());
+            Protocol.Setup(value => value.CreateDnsOrderAsync(
+                    It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateAuthority>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(Order.Object);
+            var iis = new Mock<IIisService>();
+            iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>()))
+                .ReturnsAsync([new IisSite(1, "My Site", "Started", physicalPath, bindings)]);
+            var artifacts = new Mock<ICertificateArtifactStore>();
+            artifacts.Setup(value => value.SaveAsync(
+                    It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateBundle>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new AcmeIssueResult("certificate.pem", null, ["example.com"]));
+            var certificateStore = new Mock<ICertificateStore>();
+            certificateStore.Setup(value => value.ImportPfxAsync(
+                    It.IsAny<byte[]>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new InstalledCertificate("AABBCC", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(60), true));
+            Service = new AcmeService(
+                iis.Object,
+                Protocol.Object,
+                Mock.Of<IChallengeHandler>(MockBehavior.Strict),
+                Mock.Of<IChallengeProbe>(MockBehavior.Strict),
+                artifacts.Object,
+                certificateStore.Object,
+                Managed.Object,
+                dnsChallenges: Dns);
+        }
+
+        public List<string> Steps { get; } = [];
+
+        public Mock<IAcmeOrderSession> Order { get; } = new();
+
+        public Mock<IAcmeProtocolClient> Protocol { get; } = new();
+
+        public Mock<IManagedCertificateStore> Managed { get; } = new();
+
+        public FakeDnsChallengeService Dns { get; }
+
+        public AcmeService Service { get; }
+    }
+
+    private sealed class FakeDnsChallengeService(List<string> steps) : IDnsChallengeService
+    {
+        public Exception? FailCheck { get; set; }
+
+        public Exception? FailPublish { get; set; }
+
+        public Task CheckBeforeOrderAsync(ValidationMethod method, IReadOnlyList<string> certificateNames, CancellationToken cancellationToken)
+        {
+            if (FailCheck is not null)
+            {
+                return Task.FromException(FailCheck);
+            }
+
+            steps.Add($"check {string.Join(",", certificateNames)}");
+            return Task.CompletedTask;
+        }
+
+        public Task<IAsyncDisposable> PublishAsync(
+            ValidationMethod method,
+            IReadOnlyList<AcmeDnsChallenge> challenges,
+            ManualDnsConfirmation? confirmManual,
+            IProgress<ProgressEvent>? progress,
+            CancellationToken cancellationToken)
+        {
+            if (FailPublish is not null)
+            {
+                return Task.FromException<IAsyncDisposable>(FailPublish);
+            }
+
+            steps.Add($"publish {challenges.Count}");
+            return Task.FromResult<IAsyncDisposable>(new StepCleanup(steps));
+        }
+
+        public Task<IReadOnlyList<string>> CleanUpAbandonedAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<string>>([]);
+    }
+
+    private sealed class StepCleanup(List<string> steps) : IAsyncDisposable
+    {
+        public ValueTask DisposeAsync()
+        {
+            steps.Add("cleanup");
+            return ValueTask.CompletedTask;
+        }
     }
 
     private static Mock<IIisService> MockIis(IisSite site)

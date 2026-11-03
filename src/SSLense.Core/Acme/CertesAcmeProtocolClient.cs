@@ -29,6 +29,23 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
         }
     }
 
+    public async Task<IAcmeOrderSession> CreateDnsOrderAsync(
+        string email,
+        IReadOnlyList<string> names,
+        CertificateAuthority authority,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(authority);
+        try
+        {
+            return await CreateDnsOrderCoreAsync(email, names, authority, cancellationToken).ConfigureAwait(false);
+        }
+        catch (AcmeRequestException exception) when (IsRateLimited(exception))
+        {
+            throw ToRateLimitedException(exception, authority);
+        }
+    }
+
     internal static bool IsRateLimited(AcmeRequestException exception) =>
         string.Equals(exception.Error?.Type, AcmeRateLimitedException.ProblemType, StringComparison.OrdinalIgnoreCase);
 
@@ -50,6 +67,77 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
         CertificateAuthority authority,
         CancellationToken cancellationToken)
     {
+        var context = await OpenAccountAsync(email, authority, cancellationToken).ConfigureAwait(false);
+        var order = await context.NewOrder(hosts.ToArray()).WaitAsync(cancellationToken).ConfigureAwait(false);
+        var authorizations = await order.Authorizations().WaitAsync(cancellationToken).ConfigureAwait(false);
+        var challenges = new List<CertesChallenge>(authorizations.Count());
+        foreach (var authorization in authorizations)
+        {
+            var authorizationResource = await authorization.Resource()
+                .WaitAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var challenge = await authorization.Http().WaitAsync(cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException(
+                    $"The ACME server did not offer HTTP-01 for '{authorizationResource.Identifier.Value}'.");
+            challenges.Add(new CertesChallenge(
+                new AcmeHttpChallenge(
+                    authorizationResource.Identifier.Value,
+                    challenge.Token,
+                    challenge.KeyAuthz),
+                authorizationResource.Identifier.Value,
+                "HTTP-01",
+                authorization,
+                challenge));
+        }
+
+        return new CertesOrderSession(order, challenges, authority);
+    }
+
+    private async Task<IAcmeOrderSession> CreateDnsOrderCoreAsync(
+        string email,
+        IReadOnlyList<string> names,
+        CertificateAuthority authority,
+        CancellationToken cancellationToken)
+    {
+        var context = await OpenAccountAsync(email, authority, cancellationToken).ConfigureAwait(false);
+        var order = await context.NewOrder(names.ToArray()).WaitAsync(cancellationToken).ConfigureAwait(false);
+        var authorizations = await order.Authorizations().WaitAsync(cancellationToken).ConfigureAwait(false);
+        var challenges = new List<CertesChallenge>(authorizations.Count());
+        foreach (var authorization in authorizations)
+        {
+            var authorizationResource = await authorization.Resource()
+                .WaitAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            // A reused authorization needs no record, so it changes nothing in DNS.
+            if (string.Equals(authorizationResource.Status.ToString(), "Valid", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var host = authorizationResource.Identifier.Value;
+            var challenge = await authorization.Dns().WaitAsync(cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidOperationException($"The ACME server did not offer DNS-01 for '{host}'.");
+            challenges.Add(new CertesChallenge(
+                new AcmeDnsChallenge(
+                    host,
+                    authorizationResource.Wildcard == true,
+                    DnsValidation.DnsNames.ChallengeRecord(host),
+                    context.AccountKey.DnsTxt(challenge.Token)),
+                host,
+                "DNS-01",
+                authorization,
+                challenge));
+        }
+
+        return new CertesOrderSession(order, challenges, authority);
+    }
+
+    private async Task<AcmeContext> OpenAccountAsync(
+        string email,
+        CertificateAuthority authority,
+        CancellationToken cancellationToken)
+    {
         var savedKey = await _accountStore.LoadKeyAsync(authority.Id, cancellationToken).ConfigureAwait(false);
         AcmeContext context;
         if (savedKey is null)
@@ -67,31 +155,13 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
             await context.Account().WaitAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        var order = await context.NewOrder(hosts.ToArray()).WaitAsync(cancellationToken).ConfigureAwait(false);
-        var authorizations = await order.Authorizations().WaitAsync(cancellationToken).ConfigureAwait(false);
-        var challenges = new List<CertesChallenge>(authorizations.Count());
-        foreach (var authorization in authorizations)
-        {
-            var authorizationResource = await authorization.Resource()
-                .WaitAsync(cancellationToken)
-                .ConfigureAwait(false);
-            var challenge = await authorization.Http().WaitAsync(cancellationToken).ConfigureAwait(false)
-                ?? throw new InvalidOperationException(
-                    $"The ACME server did not offer HTTP-01 for '{authorizationResource.Identifier.Value}'.");
-            challenges.Add(new CertesChallenge(
-                new AcmeHttpChallenge(
-                    authorizationResource.Identifier.Value,
-                    challenge.Token,
-                    challenge.KeyAuthz),
-                authorization,
-                challenge));
-        }
-
-        return new CertesOrderSession(order, challenges, authority);
+        return context;
     }
 
     private sealed record CertesChallenge(
-        AcmeHttpChallenge Model,
+        object Model,
+        string Host,
+        string Method,
         IAuthorizationContext Authorization,
         IChallengeContext Context);
 
@@ -109,12 +179,21 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
             _order = order;
             _challenges = challenges;
             _authority = authority;
-            Challenges = challenges.Select(item => item.Model).ToArray();
+            Challenges = challenges.Select(item => item.Model).OfType<AcmeHttpChallenge>().ToArray();
+            DnsChallenges = challenges.Select(item => item.Model).OfType<AcmeDnsChallenge>().ToArray();
         }
 
         public IReadOnlyList<AcmeHttpChallenge> Challenges { get; }
 
-        public async Task ValidateAsync(AcmeHttpChallenge challenge, CancellationToken cancellationToken)
+        public IReadOnlyList<AcmeDnsChallenge> DnsChallenges { get; }
+
+        public Task ValidateAsync(AcmeHttpChallenge challenge, CancellationToken cancellationToken) =>
+            ValidateModelAsync(challenge, cancellationToken);
+
+        public Task ValidateAsync(AcmeDnsChallenge challenge, CancellationToken cancellationToken) =>
+            ValidateModelAsync(challenge, cancellationToken);
+
+        private async Task ValidateModelAsync(object challenge, CancellationToken cancellationToken)
         {
             try
             {
@@ -126,9 +205,9 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
             }
         }
 
-        private async Task ValidateCoreAsync(AcmeHttpChallenge challenge, CancellationToken cancellationToken)
+        private async Task ValidateCoreAsync(object challenge, CancellationToken cancellationToken)
         {
-            var item = _challenges.Single(candidate => candidate.Model == challenge);
+            var item = _challenges.Single(candidate => candidate.Model.Equals(challenge));
             await item.Context.Validate().WaitAsync(cancellationToken).ConfigureAwait(false);
 
             var deadline = DateTimeOffset.UtcNow.AddMinutes(2);
@@ -154,15 +233,17 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
                         .ConfigureAwait(false);
                     var detail = challengeResource.Error?.Detail ?? "The ACME server rejected the authorization.";
                     throw new InvalidOperationException(
-                        $"HTTP-01 validation failed for '{challenge.Host}': {detail}");
+                        $"{item.Method} validation failed for '{item.Host}': {detail}");
                 }
 
                 await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken).ConfigureAwait(false);
             }
 
             throw new TimeoutException(
-                $"Timed out waiting for HTTP-01 validation of '{challenge.Host}'. " +
-                "Confirm public DNS and inbound port 80 access, then try again.");
+                $"Timed out waiting for {item.Method} validation of '{item.Host}'. " +
+                (item.Model is AcmeDnsChallenge
+                    ? "Confirm the TXT record is visible in public DNS, then try again."
+                    : "Confirm public DNS and inbound port 80 access, then try again."));
         }
 
         public async Task<CertificateBundle> FinalizeAsync(

@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
+using SSLense.Core.DnsValidation;
 using SSLense.Core.Iis;
 using SSLense.Core.Validation;
 
@@ -20,6 +21,7 @@ internal sealed class AcmeService : IAcmeService
     private readonly ICertificateOperationLock _operationLock;
     private readonly ICertificateTransactionJournal _transactionJournal;
     private readonly ICertificateAuthorityRegistry _authorities;
+    private readonly IDnsChallengeService? _dnsChallenges;
 
     public AcmeService(
         IIisService iisService,
@@ -31,7 +33,8 @@ internal sealed class AcmeService : IAcmeService
         IManagedCertificateStore managedCertificateStore,
         ICertificateOperationLock? operationLock = null,
         ICertificateTransactionJournal? transactionJournal = null,
-        ICertificateAuthorityRegistry? authorities = null)
+        ICertificateAuthorityRegistry? authorities = null,
+        IDnsChallengeService? dnsChallenges = null)
     {
         _iisService = iisService;
         _protocolClient = protocolClient;
@@ -43,6 +46,7 @@ internal sealed class AcmeService : IAcmeService
         _operationLock = operationLock ?? new NoOpCertificateOperationLock();
         _transactionJournal = transactionJournal ?? new NoOpCertificateTransactionJournal();
         _authorities = authorities ?? CertificateAuthorityRegistry.BuiltInOnly;
+        _dnsChallenges = dnsChallenges;
     }
 
     public async Task<AcmeIssueResult> IssueAsync(
@@ -59,37 +63,47 @@ internal sealed class AcmeService : IAcmeService
         await EnsureExpectedCertificateAsync(request, cancellationToken).ConfigureAwait(false);
         var authority = await _authorities.GetAsync(request.AuthorityId, cancellationToken).ConfigureAwait(false);
         var environmentName = CertificateAuthorities.Label(authority.Id);
+        var usesDns = request.ValidationMethod != ValidationMethod.Http01;
 
-        progress?.Report(new ProgressEvent("preflight", "Checking the IIS site and HTTP bindings."));
+        progress?.Report(new ProgressEvent("preflight", usesDns
+            ? "Checking the IIS site and its bindings."
+            : "Checking the IIS site and HTTP bindings."));
         var sites = await _iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
         var site = sites.SingleOrDefault(candidate =>
             string.Equals(candidate.Name, request.SiteName, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidOperationException($"IIS site '{request.SiteName}' was not found.");
-        if (string.IsNullOrWhiteSpace(site.PhysicalPath))
+        if (!usesDns && string.IsNullOrWhiteSpace(site.PhysicalPath))
         {
             throw new InvalidOperationException($"IIS site '{site.Name}' has no physical root path.");
         }
 
+        // DNS validation never reaches the site, so port 80 is needed only for HTTP-01.
+        bool IsUsableBinding(IisBinding binding) => usesDns
+            ? string.Equals(binding.Protocol, "http", StringComparison.OrdinalIgnoreCase) ||
+              string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase)
+            : string.Equals(binding.Protocol, "http", StringComparison.OrdinalIgnoreCase) && binding.Port == 80;
+
         var requestedHosts = request.Hosts.Count == 0
             ? site.Bindings
-                .Where(binding =>
-                    string.Equals(binding.Protocol, "http", StringComparison.OrdinalIgnoreCase) &&
-                    binding.Port == 80 &&
-                    !string.IsNullOrWhiteSpace(binding.HostName))
+                .Where(binding => IsUsableBinding(binding) && !string.IsNullOrWhiteSpace(binding.HostName))
                 .Select(binding => binding.HostName)
             : request.Hosts;
-        var hosts = NormalizeAndValidateHosts(requestedHosts);
+        var hosts = NormalizeAndValidateHosts(
+            requestedHosts,
+            usesDns
+                ? "No host names were supplied and the IIS site has no named HTTP or HTTPS bindings."
+                : "No host names were supplied and the IIS site has no named HTTP bindings on port 80.");
 
         foreach (var host in hosts)
         {
-            var hasHttpBinding = site.Bindings.Any(binding =>
-                string.Equals(binding.Protocol, "http", StringComparison.OrdinalIgnoreCase) &&
-                binding.Port == 80 &&
+            var hasBinding = site.Bindings.Any(binding =>
+                IsUsableBinding(binding) &&
                 string.Equals(NormalizeHost(binding.HostName), host, StringComparison.OrdinalIgnoreCase));
-            if (!hasHttpBinding)
+            if (!hasBinding)
             {
-                throw new InvalidOperationException(
-                    $"Host name '{host}' does not have an HTTP binding on port 80 for IIS site '{site.Name}'.");
+                throw new InvalidOperationException(usesDns
+                    ? $"Host name '{host}' does not have an HTTP or HTTPS binding for IIS site '{site.Name}'."
+                    : $"Host name '{host}' does not have an HTTP binding on port 80 for IIS site '{site.Name}'.");
             }
         }
 
@@ -99,13 +113,25 @@ internal sealed class AcmeService : IAcmeService
                 .ConfigureAwait(false);
         }
 
+        var dnsChallenges = usesDns
+            ? _dnsChallenges ?? throw new InvalidOperationException("DNS validation is not available.")
+            : null;
+        if (dnsChallenges is not null)
+        {
+            progress?.Report(new ProgressEvent("preflight", "Checking the DNS provider and validation records."));
+            await dnsChallenges.CheckBeforeOrderAsync(request.ValidationMethod, hosts, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         progress?.Report(new ProgressEvent(
             "account",
             $"Loading or creating the {environmentName} ACME account."));
         IAcmeOrderSession order;
         try
         {
-            order = await _protocolClient.CreateOrderAsync(request.Email.Trim(), hosts, authority, cancellationToken)
+            order = await (usesDns
+                    ? _protocolClient.CreateDnsOrderAsync(request.Email.Trim(), hosts, authority, cancellationToken)
+                    : _protocolClient.CreateOrderAsync(request.Email.Trim(), hosts, authority, cancellationToken))
                 .ConfigureAwait(false);
         }
         catch (HttpRequestException exception)
@@ -115,31 +141,15 @@ internal sealed class AcmeService : IAcmeService
                 "Check outbound HTTPS, DNS, proxy, and TLS settings.",
                 exception);
         }
-        if (order.Challenges.Count != hosts.Count)
+        if (dnsChallenges is not null)
         {
-            throw new InvalidOperationException("The ACME server did not return one HTTP-01 challenge per host.");
-        }
-
-        foreach (var challenge in order.Challenges)
-        {
-            if (!hosts.Contains(NormalizeHost(challenge.Host), StringComparer.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException(
-                    $"The ACME server returned an unexpected authorization for '{challenge.Host}'.");
-            }
-
-            progress?.Report(new ProgressEvent("challenge", $"Preparing HTTP-01 for {challenge.Host}."));
-            await using var cleanup = await _challengeHandler
-                .PrepareAsync(site.PhysicalPath, challenge, cancellationToken)
+            await CompleteDnsChallengesAsync(order, dnsChallenges, hosts, request, environmentName, progress, cancellationToken)
                 .ConfigureAwait(false);
-
-            progress?.Report(new ProgressEvent("self-check", $"Checking HTTP access for {challenge.Host}."));
-            await _challengeProbe.VerifyAsync(challenge, cancellationToken).ConfigureAwait(false);
-
-            progress?.Report(new ProgressEvent(
-                "validation",
-                $"Requesting {environmentName} validation for {challenge.Host}."));
-            await order.ValidateAsync(challenge, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await CompleteHttpChallengesAsync(order, site.PhysicalPath!, hosts, environmentName, progress, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         progress?.Report(new ProgressEvent(
@@ -175,7 +185,8 @@ internal sealed class AcmeService : IAcmeService
                 true,
                 "Certificate issued and bound successfully.",
                 authority.Id,
-                Issuer: publicCertificate.GetNameInfo(X509NameType.SimpleName, forIssuer: true));
+                Issuer: publicCertificate.GetNameInfo(X509NameType.SimpleName, forIssuer: true),
+                ValidationMethod: request.ValidationMethod);
             var transaction = await _transactionJournal.BeginAsync(
                     preparedRecord,
                     request.ExpectedCurrentThumbprint,
@@ -262,6 +273,76 @@ internal sealed class AcmeService : IAcmeService
             {
                 CryptographicOperations.ZeroMemory(bundle.PfxBytes);
             }
+        }
+    }
+
+    private async Task CompleteHttpChallengesAsync(
+        IAcmeOrderSession order,
+        string sitePhysicalPath,
+        IReadOnlyList<string> hosts,
+        string environmentName,
+        IProgress<ProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (order.Challenges.Count != hosts.Count)
+        {
+            throw new InvalidOperationException("The ACME server did not return one HTTP-01 challenge per host.");
+        }
+
+        foreach (var challenge in order.Challenges)
+        {
+            if (!hosts.Contains(NormalizeHost(challenge.Host), StringComparer.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"The ACME server returned an unexpected authorization for '{challenge.Host}'.");
+            }
+
+            progress?.Report(new ProgressEvent("challenge", $"Preparing HTTP-01 for {challenge.Host}."));
+            await using var cleanup = await _challengeHandler
+                .PrepareAsync(sitePhysicalPath, challenge, cancellationToken)
+                .ConfigureAwait(false);
+
+            progress?.Report(new ProgressEvent("self-check", $"Checking HTTP access for {challenge.Host}."));
+            await _challengeProbe.VerifyAsync(challenge, cancellationToken).ConfigureAwait(false);
+
+            progress?.Report(new ProgressEvent(
+                "validation",
+                $"Requesting {environmentName} validation for {challenge.Host}."));
+            await order.ValidateAsync(challenge, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Publishes every record before asking the CA to validate any: a name and its wildcard share one record name, and
+    /// propagation takes time per round. The records are removed as soon as validation ends.
+    /// </summary>
+    private static async Task CompleteDnsChallengesAsync(
+        IAcmeOrderSession order,
+        IDnsChallengeService dnsChallenges,
+        IReadOnlyList<string> names,
+        AcmeIssueRequest request,
+        string environmentName,
+        IProgress<ProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        foreach (var challenge in order.DnsChallenges)
+        {
+            if (!names.Contains(NormalizeHost(challenge.Host), StringComparer.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"The ACME server returned an unexpected authorization for '{challenge.Host}'.");
+            }
+        }
+
+        await using var cleanup = await dnsChallenges
+            .PublishAsync(request.ValidationMethod, order.DnsChallenges, request.ConfirmManualDns, progress, cancellationToken)
+            .ConfigureAwait(false);
+        foreach (var challenge in order.DnsChallenges)
+        {
+            progress?.Report(new ProgressEvent(
+                "validation",
+                $"Requesting {environmentName} validation for {challenge.Host}."));
+            await order.ValidateAsync(challenge, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -377,9 +458,13 @@ internal sealed class AcmeService : IAcmeService
             throw new ArgumentException("A valid account email address is required.", nameof(request), exception);
         }
 
+        if (request.ValidationMethod == ValidationMethod.Dns01Manual && request.ConfirmManualDns is null)
+        {
+            throw new ArgumentException("Manual DNS validation needs someone to create the records.", nameof(request));
+        }
     }
 
-    private static IReadOnlyList<string> NormalizeAndValidateHosts(IEnumerable<string> requestedHosts)
+    private static IReadOnlyList<string> NormalizeAndValidateHosts(IEnumerable<string> requestedHosts, string noHostsMessage)
     {
         var hosts = requestedHosts
             .Select(NormalizeHost)
@@ -388,8 +473,7 @@ internal sealed class AcmeService : IAcmeService
             .ToArray();
         if (hosts.Length == 0)
         {
-            throw new InvalidOperationException(
-                "No host names were supplied and the IIS site has no named HTTP bindings on port 80.");
+            throw new InvalidOperationException(noHostsMessage);
         }
 
         foreach (var host in hosts)

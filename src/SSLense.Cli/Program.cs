@@ -2,6 +2,7 @@ using SSLense;
 using SSLense.Core;
 using SSLense.Core.Acme;
 using SSLense.Core.Config;
+using SSLense.Core.DnsValidation;
 using SSLense.Core.Iis;
 using SSLense.Core.Reminders;
 using SSLense.Core.Renewal;
@@ -106,7 +107,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     };
     var hostsOption = new Option<string?>("--hosts")
     {
-        Description = "Comma-separated host names. Defaults to named HTTP bindings on the site."
+        Description = "Comma-separated host names. Defaults to the site's named HTTP bindings, and with DNS validation its named HTTPS bindings too."
     };
     var emailOption = new Option<string>("--email")
     {
@@ -133,7 +134,14 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     {
         Description = "Replace an existing valid certificate for the requested hosts."
     };
-    var issueCommand = new Command("issue", "Obtain and install a certificate using HTTP-01.");
+    var validationOption = new Option<string>("--validation")
+    {
+        Description = "How to prove control of the host names: http (the default, needs port 80), dns (a provider added with 'dns add'), or dns-manual (records you create by hand; no automatic renewal).",
+        DefaultValueFactory = _ => "http"
+    };
+    validationOption.AcceptOnlyFromAmong("http", "dns", "dns-manual");
+    var issueCommand = new Command("issue", "Obtain and install a certificate, validated over HTTP or DNS.");
+    issueCommand.Options.Add(validationOption);
     issueCommand.Options.Add(siteOption);
     issueCommand.Options.Add(hostsOption);
     issueCommand.Options.Add(emailOption);
@@ -152,8 +160,10 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         parseResult.GetValue(stagingOption),
         parseResult.GetValue(productionOption),
         parseResult.GetValue(acceptProductionRiskOption),
+        parseResult.GetRequiredValue(validationOption),
         cancellationToken));
     rootCommand.Subcommands.Add(issueCommand);
+    rootCommand.Subcommands.Add(CreateDnsCommand(services));
 
     var renewAllOption = new Option<bool>("--all")
     {
@@ -641,6 +651,151 @@ static int ReportFailure(Exception exception, string logMessage)
     Log.Error(exception, "{Operation}", logMessage);
     Console.Error.WriteLine($"Error: {exception.Message}");
     return 1;
+}
+
+static Command CreateDnsCommand(IServiceProvider services)
+{
+    IDnsProviderService Providers() => services.GetRequiredService<IDnsProviderService>();
+    var command = new Command("dns", "Configure the DNS zones SSLense can publish validation records in.");
+
+    var listCommand = new Command("list", "List the configured DNS providers.");
+    listCommand.SetAction((_, token) => ListDnsProvidersAsync(Providers(), token));
+    command.Subcommands.Add(listCommand);
+
+    var providerOption = new Option<string>("--provider") { Required = true, Description = "The DNS service. Currently: cloudflare." };
+    providerOption.AcceptOnlyFromAmong("cloudflare");
+    var addNameOption = new Option<string>("--name") { Required = true, Description = "A label for this provider." };
+    var zoneOption = new Option<string>("--zone") { Required = true, Description = "The DNS zone, such as example.com." };
+    var zoneIdOption = new Option<string>("--zone-id") { Required = true, Description = "The zone ID, from the domain's Overview page in Cloudflare." };
+    var addCommand = new Command(
+        "add",
+        "Add a DNS provider. The API token is prompted without echo. Use a token with Zone > DNS > Edit on this one zone: it can change every record in the zone.");
+    addCommand.Options.Add(providerOption);
+    addCommand.Options.Add(addNameOption);
+    addCommand.Options.Add(zoneOption);
+    addCommand.Options.Add(zoneIdOption);
+    addCommand.SetAction((parseResult, token) => AddDnsProviderAsync(
+        Providers(),
+        parseResult.GetRequiredValue(providerOption),
+        parseResult.GetRequiredValue(addNameOption),
+        parseResult.GetRequiredValue(zoneOption),
+        parseResult.GetRequiredValue(zoneIdOption),
+        token));
+    command.Subcommands.Add(addCommand);
+
+    var testNameOption = new Option<string>("--name") { Required = true, Description = "The DNS provider to test." };
+    var testCommand = new Command("test", "Prove the token can change the zone, by adding and removing a temporary TXT record.");
+    testCommand.Options.Add(testNameOption);
+    testCommand.SetAction((parseResult, token) => TestDnsProviderAsync(
+        Providers(), parseResult.GetRequiredValue(testNameOption), token));
+    command.Subcommands.Add(testCommand);
+
+    var removeNameOption = new Option<string>("--name") { Required = true, Description = "The DNS provider to remove." };
+    var removeCommand = new Command("remove", "Remove a DNS provider that no certificate renews through. Revoke its token in the DNS service too.");
+    removeCommand.Options.Add(removeNameOption);
+    removeCommand.SetAction((parseResult, token) => RemoveDnsProviderAsync(
+        Providers(), parseResult.GetRequiredValue(removeNameOption), token));
+    command.Subcommands.Add(removeCommand);
+    return command;
+}
+
+static async Task<int> ListDnsProvidersAsync(IDnsProviderService providers, CancellationToken token)
+{
+    try
+    {
+        var overview = await providers.ListAsync(token).ConfigureAwait(false);
+        if (overview.Count == 0)
+        {
+            Console.WriteLine("No DNS providers are configured. Add one with 'SSLense.Cli dns add'.");
+            return 0;
+        }
+
+        foreach (var provider in overview)
+        {
+            Console.WriteLine($"{provider.Name}: {provider.Provider}, zone {provider.ZoneName}");
+        }
+
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        return ReportDnsFailure(exception, "Failed to list DNS providers");
+    }
+}
+
+static async Task<int> AddDnsProviderAsync(
+    IDnsProviderService providers,
+    string provider,
+    string name,
+    string zone,
+    string zoneId,
+    CancellationToken token)
+{
+    try
+    {
+        var apiToken = ReadHiddenValue("API token: ");
+        await providers.AddAsync(
+                new DnsProviderRequest(name, Enum.Parse<DnsProviderType>(provider, ignoreCase: true), zone, zoneId, apiToken),
+                token)
+            .ConfigureAwait(false);
+        Console.WriteLine($"DNS provider '{name}' added. Run 'SSLense.Cli dns test --name \"{name}\"' to confirm the token can change the zone.");
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        return ReportDnsFailure(exception, "Failed to add a DNS provider");
+    }
+}
+
+static async Task<int> TestDnsProviderAsync(IDnsProviderService providers, string name, CancellationToken token)
+{
+    try
+    {
+        Console.WriteLine(await providers.TestAsync(name, token).ConfigureAwait(false));
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        return ReportDnsFailure(exception, "Failed to test a DNS provider");
+    }
+}
+
+static async Task<int> RemoveDnsProviderAsync(IDnsProviderService providers, string name, CancellationToken token)
+{
+    try
+    {
+        await providers.RemoveAsync(name, token).ConfigureAwait(false);
+        Console.WriteLine($"DNS provider '{name}' removed. Revoke its token in the DNS service too.");
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        return ReportDnsFailure(exception, "Failed to remove a DNS provider");
+    }
+}
+
+static int ReportDnsFailure(Exception exception, string logMessage)
+{
+    Log.Error(exception, "{Operation}", logMessage);
+    Console.Error.WriteLine($"Error: {exception.Message}");
+    return 1;
+}
+
+static async Task<bool> ConfirmManualDnsAsync(IReadOnlyList<DnsTxtRecord> records, CancellationToken token)
+{
+    Console.WriteLine();
+    Console.WriteLine("Create these TXT records in your DNS service:");
+    foreach (var record in records)
+    {
+        Console.WriteLine($"  Name:  {record.Name}");
+        Console.WriteLine($"  Value: {record.Value}");
+        Console.WriteLine();
+    }
+
+    Console.WriteLine("You can delete them after this command finishes.");
+    Console.Write("Press Enter once they are created, or type 'no' to stop: ");
+    var answer = await Task.Run(Console.ReadLine, CancellationToken.None).WaitAsync(token).ConfigureAwait(false);
+    return answer is not null && !string.Equals(answer.Trim(), "no", StringComparison.OrdinalIgnoreCase);
 }
 
 static Command CreateNotificationsCommand(IServiceProvider services)
@@ -1476,6 +1631,7 @@ static async Task<int> IssueAsync(
     bool staging,
     bool production,
     bool acceptProductionRisk,
+    string validation,
     CancellationToken cancellationToken)
 {
     try
@@ -1496,8 +1652,22 @@ static async Task<int> IssueAsync(
         var hosts = string.IsNullOrWhiteSpace(hostsValue)
             ? Array.Empty<string>()
             : hostsValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var validationMethod = validation switch
+        {
+            "dns" => ValidationMethod.Dns01Provider,
+            "dns-manual" => ValidationMethod.Dns01Manual,
+            _ => ValidationMethod.Http01
+        };
         var result = await acmeService.IssueAsync(
-                new AcmeIssueRequest(siteName, hosts, email, outputDirectory, force, authorityId),
+                new AcmeIssueRequest(
+                    siteName,
+                    hosts,
+                    email,
+                    outputDirectory,
+                    force,
+                    authorityId,
+                    ValidationMethod: validationMethod,
+                    ConfirmManualDns: validationMethod == ValidationMethod.Dns01Manual ? ConfirmManualDnsAsync : null),
                 new ConsoleProgress(),
                 cancellationToken)
             .ConfigureAwait(false);

@@ -42,6 +42,8 @@ public static class AppPaths
 
     public static string ChallengeJournalDirectory => Path.Combine(DataDirectory, "challenges");
 
+    public static string DnsChallengeJournalDirectory => Path.Combine(DataDirectory, "dns-challenges");
+
     public static string PendingRequestsFile => Path.Combine(DataDirectory, "pending-requests.json");
 
     public static string ReminderStateFile => Path.Combine(DataDirectory, "reminder-state.json");

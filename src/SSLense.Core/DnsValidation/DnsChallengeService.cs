@@ -1,0 +1,244 @@
+using SSLense.Core.Acme;
+using SSLense.Core.Config;
+using SSLense.Core.Validation;
+
+namespace SSLense.Core.DnsValidation;
+
+internal interface IDnsChallengeService
+{
+    /// <summary>Confirms, before an order is created, that every record can be published.</summary>
+    Task CheckBeforeOrderAsync(
+        ValidationMethod method,
+        IReadOnlyList<string> certificateNames,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Publishes every record in one batch and waits until they are visible. Disposing the result removes the
+    /// records SSLense published; it never throws, because a leftover record must not fail the operation.
+    /// </summary>
+    Task<IAsyncDisposable> PublishAsync(
+        ValidationMethod method,
+        IReadOnlyList<AcmeDnsChallenge> challenges,
+        ManualDnsConfirmation? confirmManual,
+        IProgress<ProgressEvent>? progress,
+        CancellationToken cancellationToken);
+
+    /// <summary>Removes records left behind by a process that exited mid-validation. Returns a message for each.</summary>
+    Task<IReadOnlyList<string>> CleanUpAbandonedAsync(CancellationToken cancellationToken);
+}
+
+internal sealed class DnsChallengeService(
+    IConfigStore configStore,
+    IEnumerable<IDnsProvider> providers,
+    IDnsLookup lookup,
+    IDnsChallengeJournal journal,
+    DnsPropagationChecker propagation) : IDnsChallengeService
+{
+    /// <summary>After this long a record that cannot be removed is reported once and no longer retried.</summary>
+    private static readonly TimeSpan GiveUpAfter = TimeSpan.FromDays(7);
+
+    public async Task CheckBeforeOrderAsync(
+        ValidationMethod method,
+        IReadOnlyList<string> certificateNames,
+        CancellationToken cancellationToken)
+    {
+        if (method != ValidationMethod.Dns01Provider)
+        {
+            return;
+        }
+
+        var profiles = await GetProfilesAsync(cancellationToken).ConfigureAwait(false);
+        var selected = new Dictionary<string, DnsProviderProfile>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in certificateNames)
+        {
+            var target = await lookup.ResolveCnameAsync(DnsNames.ChallengeRecord(name), cancellationToken).ConfigureAwait(false);
+            var profile = SelectProfile(profiles, target);
+            selected[profile.Name] = profile;
+        }
+
+        foreach (var profile in selected.Values)
+        {
+            await GetProvider(profile).VerifyAccessAsync(profile, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public async Task<IAsyncDisposable> PublishAsync(
+        ValidationMethod method,
+        IReadOnlyList<AcmeDnsChallenge> challenges,
+        ManualDnsConfirmation? confirmManual,
+        IProgress<ProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        var records = new List<DnsTxtRecord>(challenges.Count);
+        foreach (var challenge in challenges)
+        {
+            var target = await lookup.ResolveCnameAsync(challenge.RecordName, cancellationToken).ConfigureAwait(false);
+            records.Add(new DnsTxtRecord(target, challenge.TxtValue));
+        }
+
+        records = records.Distinct().ToList();
+        var cleanup = new PublishedRecords(this, journal, progress);
+        if (records.Count == 0)
+        {
+            return cleanup;
+        }
+
+        try
+        {
+            if (method == ValidationMethod.Dns01Manual)
+            {
+                if (confirmManual is null ||
+                    !await confirmManual(records, cancellationToken).ConfigureAwait(false))
+                {
+                    throw new InvalidOperationException("The DNS records were not confirmed, so the certificate was not requested.");
+                }
+            }
+            else
+            {
+                await PublishWithProviderAsync(records, cleanup, progress, cancellationToken).ConfigureAwait(false);
+            }
+
+            progress?.Report(new ProgressEvent("dns-propagation", "Checking that the DNS records are visible."));
+            await propagation.WaitAsync(records, progress, cancellationToken).ConfigureAwait(false);
+            return cleanup;
+        }
+        catch
+        {
+            await cleanup.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    public async Task<IReadOnlyList<string>> CleanUpAbandonedAsync(CancellationToken cancellationToken)
+    {
+        var entries = await journal.GetAbandonedAsync(cancellationToken).ConfigureAwait(false);
+        if (entries.Count == 0)
+        {
+            return [];
+        }
+
+        var profiles = await GetProfilesAsync(cancellationToken).ConfigureAwait(false);
+        var messages = new List<string>(entries.Count);
+        foreach (var entry in entries)
+        {
+            var profile = profiles.FirstOrDefault(value =>
+                string.Equals(value.Name, entry.ProviderName, StringComparison.OrdinalIgnoreCase));
+            if (profile is null)
+            {
+                await journal.CompleteAsync(entry.Id).ConfigureAwait(false);
+                messages.Add(
+                    $"The DNS TXT record '{entry.RecordName}' from an interrupted validation may remain, because DNS provider " +
+                    $"'{entry.ProviderName}' no longer exists. Delete it in your DNS service.");
+                continue;
+            }
+
+            try
+            {
+                await GetProvider(profile)
+                    .RemoveTxtRecordAsync(profile, entry.RecordName, entry.Value, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception) when (
+                exception is not OperationCanceledException &&
+                DateTimeOffset.UtcNow - entry.CreatedAt > GiveUpAfter)
+            {
+                await journal.CompleteAsync(entry.Id).ConfigureAwait(false);
+                messages.Add(
+                    $"The DNS TXT record '{entry.RecordName}' could not be removed for {GiveUpAfter.TotalDays:0} days " +
+                    $"({exception.Message}). SSLense will stop trying; delete it in your DNS service.");
+                continue;
+            }
+
+            await journal.CompleteAsync(entry.Id).ConfigureAwait(false);
+            messages.Add(
+                $"Removed the DNS TXT record '{entry.RecordName}' left by an interrupted validation " +
+                $"started {entry.CreatedAt:yyyy-MM-dd HH:mm} UTC.");
+        }
+
+        return messages;
+    }
+
+    private async Task PublishWithProviderAsync(
+        IReadOnlyList<DnsTxtRecord> records,
+        PublishedRecords cleanup,
+        IProgress<ProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        var profiles = await GetProfilesAsync(cancellationToken).ConfigureAwait(false);
+
+        // Before anything changes, so a record without a provider publishes nothing.
+        var targets = records.Select(record => (Record: record, Profile: SelectProfile(profiles, record.Name))).ToArray();
+        var owner = JsonChallengeJournal.CurrentProcess;
+        foreach (var (record, profile) in targets)
+        {
+            var entry = new DnsChallengeEntry(
+                Guid.NewGuid(),
+                profile.Name,
+                record.Name,
+                record.Value,
+                owner.ProcessId,
+                owner.StartedAt,
+                DateTimeOffset.UtcNow);
+
+            // Journal first: if the process dies after this point, recovery can still remove the record.
+            await journal.RecordAsync(entry, cancellationToken).ConfigureAwait(false);
+            cleanup.Add(entry, profile);
+            progress?.Report(new ProgressEvent("dns-publish", $"Publishing the TXT record '{record.Name}' with {profile.Name}."));
+            await GetProvider(profile)
+                .AddTxtRecordAsync(profile, record.Name, record.Value, cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private async Task<IReadOnlyList<DnsProviderProfile>> GetProfilesAsync(CancellationToken cancellationToken) =>
+        (await configStore.LoadAsync(cancellationToken).ConfigureAwait(false)).DnsProviders;
+
+    private static DnsProviderProfile SelectProfile(IReadOnlyList<DnsProviderProfile> profiles, string recordName) =>
+        DnsNames.SelectProfile(profiles, recordName)
+        ?? throw new InvalidOperationException(
+            $"No DNS provider manages '{recordName}'. Add one with 'SSLense.Cli dns add', delegate the record with a CNAME, " +
+            "or use manual DNS validation.");
+
+    private IDnsProvider GetProvider(DnsProviderProfile profile) =>
+        providers.FirstOrDefault(provider => provider.Type == profile.Provider)
+        ?? throw new InvalidOperationException($"DNS provider type '{profile.Provider}' is not supported by this SSLense version.");
+
+    private sealed class PublishedRecords(
+        DnsChallengeService owner,
+        IDnsChallengeJournal journal,
+        IProgress<ProgressEvent>? progress) : IAsyncDisposable
+    {
+        private readonly List<(DnsChallengeEntry Entry, DnsProviderProfile Profile)> _entries = [];
+        private int _disposed;
+
+        public void Add(DnsChallengeEntry entry, DnsProviderProfile profile) => _entries.Add((entry, profile));
+
+        public async ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            {
+                return;
+            }
+
+            foreach (var (entry, profile) in _entries)
+            {
+                try
+                {
+                    await owner.GetProvider(profile)
+                        .RemoveTxtRecordAsync(profile, entry.RecordName, entry.Value, CancellationToken.None)
+                        .ConfigureAwait(false);
+
+                    // Only once the record is gone, so a failure above leaves the entry for recovery to retry.
+                    await journal.CompleteAsync(entry.Id).ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    progress?.Report(new ProgressEvent(
+                        "dns-cleanup",
+                        $"Warning: the TXT record '{entry.RecordName}' could not be removed: {exception.Message} " +
+                        "SSLense will try again when it next starts."));
+                }
+            }
+        }
+    }
+}

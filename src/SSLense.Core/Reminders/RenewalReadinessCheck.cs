@@ -36,7 +36,9 @@ internal sealed class RenewalReadinessCheck(
         var passed = new List<string>();
         var errors = new List<string>();
         foreach (var certificate in certificates.Where(value =>
-                     value.Source == CertificateSource.Acme && !ReminderDigestBuilder.IsMuted(value, now)))
+                     value.Source == CertificateSource.Acme &&
+                     value.ValidationMethod == ValidationMethod.Http01 && // These checks test HTTP-01 only.
+                     !ReminderDigestBuilder.IsMuted(value, now)))
         {
             if (!scheduledRenewals.TryGetValue(certificate.SiteName, out var renewalAt) || renewalAt - now > Window)
             {
