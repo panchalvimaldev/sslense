@@ -198,7 +198,7 @@ SSLense.Cli preflight --site "Shop" --validation dns --names "*.example.com,exam
 SSLense.Cli issue --site "Shop" --email admin@example.com --validation dns --names "*.example.com,example.com" --hosts "shop.example.com,example.com"
 ```
 
-**Use another DNS service with CNAME delegation.** Create this one permanent record at your DNS service, then use `--validation dns` with a provider for the other zone:
+**Use another DNS service with CNAME delegation.** Create this one permanent record at your DNS service, then use `--validation dns` with a provider for the other zone. If your DNS service can proxy records, as Cloudflare can, turn that off for this one:
 
 ```text
 _acme-challenge.example.com  CNAME  example-com.acme.example.net
