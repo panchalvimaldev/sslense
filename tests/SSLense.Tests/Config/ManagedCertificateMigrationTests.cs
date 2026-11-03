@@ -65,6 +65,32 @@ public sealed class ManagedCertificateMigrationTests
     }
 
     [Fact]
+    public async Task SchemaThreeFile_DefaultsToHttpValidationWithTheHostsAsNames()
+    {
+        const string schemaThree = """
+            {
+              "schemaVersion": 3,
+              "certificates": [
+                {
+                  "siteName": "Site", "hosts": ["example.com"], "email": "admin@example.com", "thumbprint": "AA",
+                  "notBefore": "2026-10-01T00:00:00+00:00", "notAfter": "2026-12-30T00:00:00+00:00",
+                  "authorityId": "letsencrypt"
+                }
+              ]
+            }
+            """;
+        var fileSystem = new InMemoryFileSystem();
+        fileSystem.Files[StatePath] = schemaThree;
+        var store = new JsonManagedCertificateStore(fileSystem, StatePath, LockPath);
+
+        var record = Assert.Single(await store.GetAllAsync());
+
+        Assert.Equal(ValidationMethod.Http01, record.ValidationMethod);
+        Assert.Null(record.CertificateNames);
+        Assert.Equal(CertificateAuthorities.LetsEncryptId, record.AuthorityId);
+    }
+
+    [Fact]
     public async Task UnversionedArray_WithEnvironment_IsUpgradedToo()
     {
         var fileSystem = new InMemoryFileSystem();

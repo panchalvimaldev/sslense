@@ -20,9 +20,36 @@
     <Button Content="Save general settings" Command="{Binding SaveGeneralCommand}" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" Margin="0,16,0,0"/>
    </StackPanel></GroupBox>
 
+   <GroupBox Header="DNS providers" Margin="0,0,0,14"><StackPanel>
+    <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,10"
+               Text="Needed for wildcard certificates and sites without port 80 when they renew automatically. In Cloudflare, go to My Profile, API Tokens, Create Token, and use the Edit zone DNS template for one zone only. The token can change every record in that zone, so for an important domain, consider a CNAME that points _acme-challenge to a separate zone."/>
+    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="7" ClipToBounds="True" Margin="0,0,0,8">
+     <DataGrid ItemsSource="{Binding DnsProviders}" SelectedItem="{Binding SelectedDnsProvider}" Height="110" AutomationProperties.Name="DNS providers">
+      <DataGrid.Columns>
+       <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
+       <DataGridTextColumn Header="Service" Binding="{Binding Provider}" Width="110"/>
+       <DataGridTextColumn Header="Zone" Binding="{Binding ZoneName}" Width="2*"/>
+      </DataGrid.Columns>
+     </DataGrid>
+    </Border>
+    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+     <Button Content="Test selected" Command="{Binding TestDnsProviderCommand}" Margin="0,0,8,0" ToolTip="Adds a temporary TXT record at _sslense-test in the zone, then removes it."/>
+     <Button Content="Replace token" Command="{Binding ReplaceDnsTokenCommand}" Margin="0,0,8,0" ToolTip="Enter the new token under API token below, then click this. Certificates keep renewing through this provider."/>
+     <Button Content="Remove selected" Command="{Binding RemoveDnsProviderCommand}" Style="{StaticResource DangerButton}"/>
+    </StackPanel>
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <StackPanel Margin="0,0,8,0"><TextBlock Text="NAME" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewDnsName}" AutomationProperties.Name="DNS provider name"/></StackPanel>
+     <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="ZONE" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewDnsZone}" AutomationProperties.Name="DNS zone"/></StackPanel>
+     <StackPanel Grid.Column="2" Margin="0,0,8,0"><TextBlock Text="CLOUDFLARE ZONE ID" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewDnsZoneId}" AutomationProperties.Name="Cloudflare zone ID"/></StackPanel>
+     <StackPanel Grid.Column="3" Margin="0,0,8,0"><TextBlock Text="API TOKEN" Style="{StaticResource FieldLabel}"/><PasswordBox x:Name="DnsTokenBox" PasswordChanged="OnDnsTokenChanged" AutomationProperties.Name="DNS API token"/></StackPanel>
+     <Button Grid.Column="4" Content="Add provider" Command="{Binding AddDnsProviderCommand}" Style="{StaticResource PrimaryButton}" VerticalAlignment="Bottom"/>
+    </Grid>
+    <TextBlock Text="The zone ID is on the domain's Overview page in Cloudflare. The token is encrypted on this server and is never shown again." Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+   </StackPanel></GroupBox>
+
    <GroupBox Header="Reminders" Margin="0,0,0,14"><StackPanel>
     <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,14"
-               Text="One digest a day to every notification channel, only when a certificate needs attention: one from another provider that must be ordered again, an automatic renewal that is failing or late, or an expired certificate. It repeats until the certificate is renewed. Turn reminders off or snooze them per certificate on Certificate Details."/>
+               Text="One digest a day to every notification channel, only when a certificate needs attention: one from another provider that must be ordered again, a manual DNS certificate that must be renewed by hand, an automatic renewal that is failing or late, or an expired certificate. It repeats until the certificate is renewed. Turn reminders off or snooze them per certificate on Certificate Details."/>
     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
      <StackPanel Margin="0,0,24,0"><TextBlock Text="START REMINDING (DAYS BEFORE EXPIRY)" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding ReminderStartDays}" Width="120" HorizontalAlignment="Left" AutomationProperties.Name="Start reminding, days before expiry"/></StackPanel>
      <StackPanel Grid.Column="1" Margin="0,0,24,0"><TextBlock Text="REPEAT EVERY (DAYS)" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding ReminderRepeatDays}" Width="120" HorizontalAlignment="Left" AutomationProperties.Name="Repeat every, days"/></StackPanel>
@@ -35,7 +62,7 @@
     <CheckBox Content="Keep reminding about Let's Encrypt certificates until they renew" IsChecked="{Binding RepeatAutomaticReminders}" Margin="0,8,0,0"
               ToolTip="Lists the certificate at the repeat interval from the start of the reminder window until it renews, instead of telling you once. No action is needed for these lines. Problems are reported either way."/>
     <CheckBox Content="Check renewal readiness and served certificates daily" IsChecked="{Binding ProactiveChecks}" Margin="0,8,0,0"
-              ToolTip="Runs the pre-flight checks in the 30 days before each Let's Encrypt renewal, and compares what this server serves with what SSLense expects. Problems are reported after two daily failures in a row. The checks only report; the only thing written is one small file, removed straight away, in the site's challenge folder."/>
+              ToolTip="Runs the pre-flight checks in the 30 days before each Let's Encrypt renewal, and compares what this server serves with what SSLense expects. Problems are reported after two daily failures in a row. The checks only report. The only thing written is one small file, removed straight away, in the challenge folder of a site using HTTP validation; DNS is never changed."/>
     <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
      <Button Content="Save reminders" Command="{Binding SaveRemindersCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"/>
      <Button Content="Send sample digest" Command="{Binding SendSampleReminderCommand}" ToolTip="Sends today's digest now, marked as a sample. Nothing is recorded, so real reminders are unchanged."/>

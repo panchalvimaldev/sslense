@@ -21,4 +21,7 @@ public sealed record AppConfig
 
     /// <summary>Certificate authorities added by the administrator. The Let's Encrypt profiles are built in.</summary>
     public IReadOnlyList<Acme.CertificateAuthority> CertificateAuthorities { get; init; } = [];
+
+    /// <summary>DNS zones SSLense can publish validation records in.</summary>
+    public IReadOnlyList<DnsValidation.DnsProviderProfile> DnsProviders { get; init; } = [];
 }

@@ -1,5 +1,6 @@
 using SSLense.Core.Validation;
 using SSLense.Core.Config;
+using SSLense.Core.DnsValidation;
 using SSLense.Core.Iis;
 
 namespace SSLense.Core.Certificates;
@@ -10,7 +11,8 @@ internal sealed class CertificateRecoveryService(
     ICertificateStore certificateStore,
     IManagedCertificateStore managedStore,
     IIisService iisService,
-    IChallengeHandler? challengeHandler = null) : ICertificateRecoveryService
+    IChallengeHandler? challengeHandler = null,
+    IDnsChallengeService? dnsChallenges = null) : ICertificateRecoveryService
 {
     public async Task<IReadOnlyList<CertificateRecoveryResult>> RecoverAsync(
         CancellationToken cancellationToken = default)
@@ -29,6 +31,23 @@ internal sealed class CertificateRecoveryService(
                 results.Add(new CertificateRecoveryResult(
                     false,
                     $"Leftover HTTP-01 challenge files could not be cleaned up: {exception.Message} " +
+                    "It will be retried on the next start."));
+            }
+        }
+
+        if (dnsChallenges is not null)
+        {
+            try
+            {
+                results.AddRange(
+                    (await dnsChallenges.CleanUpAbandonedAsync(cancellationToken).ConfigureAwait(false))
+                    .Select(message => new CertificateRecoveryResult(true, message)));
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                results.Add(new CertificateRecoveryResult(
+                    false,
+                    $"Leftover DNS challenge records could not be cleaned up: {exception.Message} " +
                     "It will be retried on the next start."));
             }
         }

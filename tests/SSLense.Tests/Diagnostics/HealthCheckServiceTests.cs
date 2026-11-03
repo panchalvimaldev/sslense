@@ -125,6 +125,53 @@ public sealed class HealthCheckServiceTests
         AssertStatus(results, "Reminders", HealthStatus.Warning, "--mode on");
     }
 
+    [Fact]
+    public async Task RunAsync_ManualDnsCertificateExpiringSoon_GivesTheHandRenewalCommand()
+    {
+        var certificate = Certificate() with { NotAfter = DateTimeOffset.UtcNow.AddDays(5), ValidationMethod = ValidationMethod.Dns01Manual };
+
+        var results = await CreateService(certificate: certificate).RunAsync();
+
+        AssertStatus(results, "Expiry: My Site", HealthStatus.Fail, "--validation dns-manual");
+    }
+
+    [Fact]
+    public async Task RunAsync_AHostTheWildcardCoversWithoutAManagedBinding_IsAWarning()
+    {
+        var iis = new Mock<IIisService>(MockBehavior.Strict);
+        iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new IisSite(1, "My Site", "Started", @"C:\inetpub\site", [
+                new IisBinding("https", "*", 443, "example.com", Thumbprint, "My", true),
+                new IisBinding("http", "*", 80, "new.example.com", null, null, false),
+                new IisBinding("http", "*", 80, "other.example.net", null, null, false)
+            ])]);
+        var certificate = Certificate() with { ValidationMethod = ValidationMethod.Dns01Provider, CertificateNames = ["*.example.com", "example.com"] };
+
+        var results = await CreateService(certificate: certificate, iis: iis).RunAsync();
+
+        var warning = Assert.Single(results, value => value.Name == "Wildcard coverage: My Site");
+        Assert.Equal(HealthStatus.Warning, warning.Status);
+        Assert.Contains("new.example.com", warning.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("other.example.net", warning.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RunAsync_ACertificateBoundToAnotherSite_IsAWarning()
+    {
+        var iis = new Mock<IIisService>(MockBehavior.Strict);
+        iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                new IisSite(1, "My Site", "Started", @"C:\inetpub\site", [new IisBinding("https", "*", 443, "example.com", Thumbprint, "My", true)]),
+                new IisSite(2, "Blog", "Started", @"C:\inetpub\blog", [new IisBinding("https", "*", 443, "blog.example.com", Thumbprint, "My", true)])
+            ]);
+
+        var results = await CreateService(iis: iis).RunAsync();
+
+        var warning = Assert.Single(results, value => value.Name == "Shared certificate: My Site");
+        Assert.Equal(HealthStatus.Warning, warning.Status);
+        Assert.Contains("'Blog'", warning.Message, StringComparison.Ordinal);
+    }
+
     private static void AssertStatus(IReadOnlyList<HealthCheckResult> results, string name, HealthStatus status, string fixContains)
     {
         var result = Assert.Single(results, value => value.Name == name);

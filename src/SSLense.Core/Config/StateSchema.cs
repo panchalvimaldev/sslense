@@ -10,20 +10,24 @@ internal static class StateSchema
     /// Version 0 was a bare JSON array; version 1 wraps it with a version and adds record IDs. Version 2 replaces
     /// the Let's Encrypt environment with a certificate authority ID and adds the certificate source
     /// (see <see cref="ManagedCertificateMigrations"/>). Version 3 replaces the fixed reminder and expiry-warning markers
-    /// with the per-certificate reminder setting; the new fields default and the old ones are dropped.
+    /// with the per-certificate reminder setting; the new fields default and the old ones are dropped. Version 4 adds
+    /// the validation method and certificate names, which default to HTTP-01 and the record's hosts.
     /// </summary>
-    public const int ManagedCertificates = 3;
+    public const int ManagedCertificates = 4;
 
     /// <summary>
     /// Version 0 had no version field. Version 2 replaced the single SMTP server and generic webhook with
     /// email, chat channels, a heartbeat, and the Event Log (see <see cref="ConfigMigrations"/>). Version 3 adds
     /// configured certificate authorities. Version 4 adds reminder settings, which default when absent. Version 5 adds
-    /// the proactive-checks and repeat-automatic-reminders settings, which also default when absent.
+    /// the proactive-checks and repeat-automatic-reminders settings, which also default when absent. Version 6 adds
+    /// DNS providers, which default to none.
     /// </summary>
-    public const int Config = 5;
+    public const int Config = 6;
 
     /// <summary>Version 2 stores the certificate snapshot in managed-certificate schema 2.</summary>
     public const int Transactions = 2;
+
+    public const int DnsChallenges = 1;
 
     public const int ServiceHeartbeat = 1;
 

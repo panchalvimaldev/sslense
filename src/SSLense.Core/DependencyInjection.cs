@@ -1,6 +1,7 @@
 using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
+using SSLense.Core.DnsValidation;
 using SSLense.Core.Iis;
 using SSLense.Core.Validation;
 using SSLense.Core.Renewal;
@@ -28,6 +29,12 @@ public static class DependencyInjection
         services.AddSingleton<IChallengeProbe, HttpChallengeProbe>();
         services.AddSingleton<IChallengeJournal, JsonChallengeJournal>();
         services.AddTransient<IChallengeHandler, Http01Handler>();
+        services.AddSingleton<IDnsLookup, DnsClientLookup>();
+        services.AddSingleton<IDnsProvider, CloudflareDnsProvider>();
+        services.AddSingleton<IDnsChallengeJournal, JsonDnsChallengeJournal>();
+        services.AddTransient<DnsPropagationChecker>();
+        services.AddTransient<IDnsChallengeService, DnsChallengeService>();
+        services.AddTransient<IDnsProviderService, DnsProviderService>();
         services.AddTransient<ICertificateArtifactStore, CertificateArtifactStore>();
         services.AddTransient<ICertificateStore, WindowsCertificateStore>();
         services.AddSingleton<ICertificateOperationLock, CertificateOperationLock>();

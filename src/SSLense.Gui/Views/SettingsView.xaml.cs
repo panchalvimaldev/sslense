@@ -31,6 +31,12 @@ public partial class SettingsView : UserControl
         if (e.PropertyName == nameof(SettingsViewModel.EmailPassword) && vm.EmailPassword.Length == 0) EmailPasswordBox.Clear();
         if (e.PropertyName == nameof(SettingsViewModel.NewChatUrl) && vm.NewChatUrl.Length == 0) ChatUrlBox.Clear();
         if (e.PropertyName == nameof(SettingsViewModel.HeartbeatUrl) && vm.HeartbeatUrl.Length == 0) HeartbeatUrlBox.Clear();
+        if (e.PropertyName == nameof(SettingsViewModel.NewDnsToken) && vm.NewDnsToken.Length == 0) DnsTokenBox.Clear();
+    }
+
+    private void OnDnsTokenChanged(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is { } vm) vm.NewDnsToken = DnsTokenBox.Password;
     }
 
     private void OnEmailPasswordChanged(object sender, RoutedEventArgs e)

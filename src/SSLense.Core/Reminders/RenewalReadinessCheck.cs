@@ -1,5 +1,6 @@
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
+using SSLense.Core.DnsValidation;
 using SSLense.Core.Validation;
 
 namespace SSLense.Core.Reminders;
@@ -21,7 +22,8 @@ public interface IRenewalReadinessCheck
 
 internal sealed class RenewalReadinessCheck(
     IPreflightService preflight,
-    ICertificateOperationLock operationLock) : IRenewalReadinessCheck
+    ICertificateOperationLock operationLock,
+    IDnsChallengeService dnsChallenges) : IRenewalReadinessCheck
 {
     /// <summary>Checks start this long before the scheduled renewal, so a certificate far from it causes no daily emails.</summary>
     internal static readonly TimeSpan Window = TimeSpan.FromDays(30);
@@ -36,7 +38,9 @@ internal sealed class RenewalReadinessCheck(
         var passed = new List<string>();
         var errors = new List<string>();
         foreach (var certificate in certificates.Where(value =>
-                     value.Source == CertificateSource.Acme && !ReminderDigestBuilder.IsMuted(value, now)))
+                     value.Source == CertificateSource.Acme &&
+                     value.ValidationMethod != ValidationMethod.Dns01Manual && // Nothing runs on its own, so nothing to check.
+                     !ReminderDigestBuilder.IsMuted(value, now)))
         {
             if (!scheduledRenewals.TryGetValue(certificate.SiteName, out var renewalAt) || renewalAt - now > Window)
             {
@@ -52,10 +56,12 @@ internal sealed class RenewalReadinessCheck(
 
             try
             {
-                var failed = (await preflight.CheckAsync(certificate.SiteName, certificate.Hosts, cancellationToken).ConfigureAwait(false))
-                    .Where(check => !check.Succeeded)
-                    .Select(check => $"'{check.Name}' failed: {check.Message}")
-                    .ToArray();
+                var failed = certificate.ValidationMethod == ValidationMethod.Http01
+                    ? (await preflight.CheckAsync(certificate.SiteName, certificate.Hosts, cancellationToken).ConfigureAwait(false))
+                        .Where(check => !check.Succeeded)
+                        .Select(check => $"'{check.Name}' failed: {check.Message}")
+                        .ToArray()
+                    : await CheckDnsAsync(certificate, cancellationToken).ConfigureAwait(false);
                 if (failed.Length == 0)
                 {
                     passed.Add(certificate.SiteName);
@@ -72,5 +78,24 @@ internal sealed class RenewalReadinessCheck(
         }
 
         return new ProactiveCheckResult(problems, passed, errors);
+    }
+
+    /// <summary>Changes nothing in DNS. Anything other than a finding, such as a network failure, means the check could not run.</summary>
+    private async Task<string[]> CheckDnsAsync(ManagedCertificate certificate, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await dnsChallenges.CheckBeforeOrderAsync(
+                    certificate.ValidationMethod,
+                    certificate.CertificateNames ?? certificate.Hosts,
+                    certificate.AuthorityId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return [];
+        }
+        catch (InvalidOperationException exception)
+        {
+            return [exception.Message];
+        }
     }
 }

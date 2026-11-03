@@ -86,7 +86,7 @@ public partial class MainViewModel : ObservableObject
     private async Task InitializePageAsync(NavigationItem page, string? context)
     {
         if (ReferenceEquals(page.ViewModel, _dashboard)) await _dashboard.InitializeAsync();
-        else if (ReferenceEquals(page.ViewModel, _issue)) await _issue.InitializeAsync();
+        else if (ReferenceEquals(page.ViewModel, _issue)) await _issue.InitializeAsync(context);
         else if (ReferenceEquals(page.ViewModel, _otherProviders)) await _otherProviders.InitializeAsync(context);
         else if (ReferenceEquals(page.ViewModel, _details)) await _details.InitializeAsync(context);
         else if (ReferenceEquals(page.ViewModel, _settings)) await _settings.InitializeAsync();

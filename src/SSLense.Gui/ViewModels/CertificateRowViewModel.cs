@@ -14,6 +14,7 @@ public sealed class CertificateRowViewModel
         DaysRemaining = status.DaysRemaining;
         Thumbprint = status.Thumbprint;
         IsImported = status.Source == CertificateSource.Imported;
+        IsManualDns = !IsImported && status.ValidationMethod == ValidationMethod.Dns01Manual;
         Reminders = status.Reminders switch
         {
             ReminderMode.Snoozed when status.SnoozedUntil is { } until && until > DateTimeOffset.UtcNow => $"Snoozed to {until.ToLocalTime():dd MMM}",
@@ -41,7 +42,7 @@ public sealed class CertificateRowViewModel
         else if (status.DaysRemaining <= 30)
         {
             // SSLense cannot renew an imported certificate; the administrator orders the next one.
-            Status = IsImported ? "Order renewal" : "Renew soon";
+            Status = IsImported ? "Order renewal" : IsManualDns ? "Renew by hand" : "Renew soon";
             StatusKey = "Amber";
         }
         else
@@ -64,6 +65,8 @@ public sealed class CertificateRowViewModel
     public string Environment { get; }
 
     public bool IsImported { get; }
+
+    public bool IsManualDns { get; }
 
     public string Reminders { get; }
 

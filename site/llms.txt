@@ -10,7 +10,8 @@
 
 ## Facts
 - Platform: Windows Server with IIS
-- Certificates: free domain-validated certificates from Let’s Encrypt, using HTTP-01 validation
+- Certificates: free domain-validated certificates from Let’s Encrypt, using HTTP-01 or DNS-01 validation, including wildcard certificates
+- DNS validation: automatic renewal through Cloudflare, or through a CNAME from any DNS service to a domain on Cloudflare; a manual method for any DNS service, renewed by hand; one wildcard per IIS site for now
 - Interfaces: desktop GUI, CLI (SSLense.Cli), and a Windows service that checks hourly
 - Renewal: follows ACME Renewal Information (ARI), with a lifetime-relative fallback
 - Notifications: email through any SMTP server or relay, Microsoft Teams, Slack, Discord, Telegram, ntfy, a heartbeat ping, and the Windows Event Log

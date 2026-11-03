@@ -84,7 +84,9 @@ internal sealed class RenewalService : IRenewalService
                 value.Issuer,
                 value.Reminders,
                 value.SnoozedUntil,
-                value.LastRemindedAt));
+                value.LastRemindedAt,
+                value.ValidationMethod,
+                value.CertificateNames));
         }
 
         return statuses;
@@ -130,6 +132,18 @@ internal sealed class RenewalService : IRenewalService
                     true,
                     "Skipped: imported certificate, renewed manually. Order the replacement from " +
                     $"{certificate.Issuer ?? "the issuer"} with a certificate request: Other Providers in the app, or 'SSLense.Cli csr --site \"{certificate.SiteName}\"' then 'complete'.",
+                    certificate.Thumbprint));
+                continue;
+            }
+
+            // Each manual validation needs a person to create DNS records, so renewal never runs on its own.
+            if (certificate.ValidationMethod == ValidationMethod.Dns01Manual)
+            {
+                results.Add(new RenewalResult(
+                    certificate.SiteName,
+                    false,
+                    true,
+                    $"Skipped: this certificate uses manual DNS validation. Renew it by hand with '{ManualDnsRenewal.Command(certificate)}'.",
                     certificate.Thumbprint));
                 continue;
             }
@@ -190,7 +204,9 @@ internal sealed class RenewalService : IRenewalService
                         certificate.OutputDirectory,
                         true,
                         certificate.AuthorityId,
-                        certificate.Thumbprint),
+                        certificate.Thumbprint,
+                        certificate.ValidationMethod,
+                        CertificateNames: certificate.CertificateNames),
                     progress,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -208,7 +224,8 @@ internal sealed class RenewalService : IRenewalService
                         $"SSLense renewal succeeded: {certificate.SiteName}",
                         $"The {CertificateAuthorities.Label(certificate.AuthorityId)} certificate for {certificate.SiteName} " +
                         $"({string.Join(", ", certificate.Hosts)}) " +
-                        $"was renewed successfully. New thumbprint: {newThumbprint}."),
+                        $"was renewed successfully. New thumbprint: {newThumbprint}." +
+                        (cleanupMessage is null ? string.Empty : $" {cleanupMessage}")),
                     progress,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -380,28 +397,10 @@ internal sealed class RenewalService : IRenewalService
         string newThumbprint,
         CancellationToken cancellationToken)
     {
-        if (string.Equals(oldThumbprint, newThumbprint, StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        var sites = await _iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
-        var stillUsed = sites.SelectMany(value => value.Bindings).Any(binding =>
-            string.Equals(binding.CertificateThumbprint, oldThumbprint, StringComparison.OrdinalIgnoreCase));
-        if (stillUsed)
-        {
-            return "Renewed successfully; the old certificate was retained because another IIS binding uses it.";
-        }
-
-        try
-        {
-            await _certificateStore.RemoveAsync(oldThumbprint, cancellationToken).ConfigureAwait(false);
-            return null;
-        }
-        catch (Exception exception)
-        {
-            return $"Renewed successfully, but the unused old certificate could not be removed: {exception.Message}";
-        }
+        var message = await ReplacedCertificateCleanup
+            .RemoveIfUnusedAsync(_iisService, _certificateStore, oldThumbprint, newThumbprint, cancellationToken)
+            .ConfigureAwait(false);
+        return message is null ? null : $"Renewed successfully; {message}";
     }
 
     private static void ValidateRequest(RenewalRequest request)

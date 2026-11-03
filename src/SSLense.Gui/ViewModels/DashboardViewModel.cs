@@ -262,7 +262,7 @@ public partial class DashboardViewModel : ObservableObject
 
     private bool CanRun() => !IsBusy;
 
-    private bool CanRenewSelected() => !IsBusy && SelectedCertificate is { IsImported: false };
+    private bool CanRenewSelected() => !IsBusy && SelectedCertificate is { IsImported: false, IsManualDns: false };
 
     private bool CanRenewAll() => !IsBusy && Certificates.Count > 0;
 

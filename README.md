@@ -13,6 +13,7 @@ SSLense is a Windows application for IIS administrators. It gets free Let's Encr
 ## Why SSLense
 
 - **A failed renewal never takes a site down.** After every change, SSLense connects to the site over HTTPS to check the new certificate is really served. If it isn't, the previous binding is restored automatically.
+- **Wildcard certificates and sites without port 80.** DNS validation issues `*.example.com`, and works for internal servers and sites that cannot open port 80. It renews automatically through Cloudflare, or through a CNAME from any DNS service to a domain on Cloudflare.
 - **Certificates from any provider, not only Let's Encrypt.** It creates the certificate request with a private key that never leaves the server, installs what the provider issues with the same safety checks, or simply starts watching a certificate that is already in IIS.
 - **No need to log on to the server to check expiry dates.** One digest a day, sent only when something needs attention, by email (any SMTP setup, including Microsoft 365 relays), Teams, Slack, Discord, Telegram, ntfy, or the Windows Event Log.
 - **Problems explained, with a fix for each one.** A health check covers the service, permissions, IIS, DNS, port 80, and Let's Encrypt. A redacted diagnostic bundle can be attached to a bug report.
@@ -24,7 +25,7 @@ SSLense is a Windows application for IIS administrators. It gets free Let's Encr
 1. Download the latest `SSLense-<version>-x64.msi` from [Releases](https://github.com/panchalvimaldev/sslense/releases) and run it on the IIS server. It installs the desktop app, the command line, and the renewal service. No separate .NET installation is needed. Releases are not code-signed yet, so Windows SmartScreen may warn; each release lists a SHA-256 checksum to verify the download.
 2. Open **SSLense** from the Start menu.
 3. Then either:
-   - **Let's Encrypt:** **Issue Certificate**, choose the site and host names, run the pre-flight checks, and issue. Use staging first; production needs an explicit confirmation. The site needs a public DNS record and a port 80 binding.
+   - **Let's Encrypt:** **Issue Certificate**, choose the site and host names, run the pre-flight checks, and issue. Use staging first; production needs an explicit confirmation. With HTTP validation, the site needs a public DNS record and a port 80 binding. For a wildcard, or without port 80, choose DNS validation; see [DNS validation and wildcard certificates](#dns-validation-and-wildcard-certificates).
    - **A certificate you bought:** **Other Providers** → select the site's HTTPS binding → **Adopt selected**.
 4. Under **Settings**, add an email or chat channel and click **Send test**, then check **Settings → Reminders**.
 
@@ -66,8 +67,8 @@ The rest of this page is the reference: requirements, building, every CLI comman
 - IIS Management Scripts and Tools
 - Nothing extra when installed from the MSI (the apps are self-contained); the .NET 10 SDK to build from source
 - Administrator access
-- An IIS HTTP binding on port 80 for every requested host
-- Public HTTP access to `/.well-known/acme-challenge/` for HTTP-01 validation
+- For HTTP validation: an IIS HTTP binding on port 80 for every requested host, and public HTTP access to `/.well-known/acme-challenge/`
+- For DNS validation: an IIS HTTP or HTTPS binding for every requested host, and a name in public DNS. Port 80 and public access to the server are not needed. Automatic renewal needs a Cloudflare zone
 
 If the IIS machine has no public IP, a Cloudflare Tunnel can route the hostname to the local IIS HTTP binding. The tunnel route must preserve the expected host header.
 
@@ -169,6 +170,50 @@ dotnet run --project .\src\SSLense.Cli -- renew --site "My IIS Site" --force
 ```
 
 SSLense removes an old certificate only after the replacement binding is confirmed and no other IIS binding references the old thumbprint.
+
+### DNS validation and wildcard certificates
+
+Let's Encrypt only issues wildcard certificates through DNS validation. It also suits internal servers and sites that cannot open port 80. There are three ways to use it:
+
+| Method | Works with | Renewal |
+|---|---|---|
+| **DNS provider** | Cloudflare | Automatic |
+| **CNAME delegation** | Any DNS service, plus a domain on Cloudflare | Automatic |
+| **Manual** | Any DNS service | By hand, with new records each time |
+
+**Add a provider.** In Cloudflare, go to **My Profile → API Tokens → Create Token** and use the **Edit zone DNS** template for one zone. The zone ID is on the domain's **Overview** page. The token is prompted for, never passed as an argument, and is encrypted on the server with DPAPI. In the app, use **Settings → DNS providers**.
+
+```powershell
+SSLense.Cli dns add --provider cloudflare --name "Main" --zone example.com --zone-id <zone-id>
+SSLense.Cli dns test --name "Main"     # adds and removes a TXT record at _sslense-test.example.com
+SSLense.Cli dns list
+SSLense.Cli dns update-token --name "Main"   # for a token that expired or was rotated
+SSLense.Cli dns remove --name "Main"   # refused while a certificate renews through it
+```
+
+**Issue a certificate.** `--names` lists what the certificate covers, and `--hosts` lists the real IIS bindings to manage. Without `--names`, the certificate covers the hosts. A wildcard covers one level and does not include the base name, so list both if you need both:
+
+```powershell
+SSLense.Cli preflight --site "Shop" --validation dns --names "*.example.com,example.com" --hosts "shop.example.com,example.com"
+SSLense.Cli issue --site "Shop" --email admin@example.com --validation dns --names "*.example.com,example.com" --hosts "shop.example.com,example.com"
+```
+
+**Use another DNS service with CNAME delegation.** Create this one permanent record at your DNS service, then use `--validation dns` with a provider for the other zone. If your DNS service can proxy records, as Cloudflare can, turn that off for this one:
+
+```text
+_acme-challenge.example.com  CNAME  example-com.acme.example.net
+```
+
+**Create the records yourself** with `--validation dns-manual`. SSLense shows each record, waits for you to confirm, and checks they are visible. **A manual certificate cannot renew automatically.** The daily digest reminds you, with the command to run; in the app, use **Certificate Details → Renew by hand**. With shorter certificate lifetimes this becomes frequent work, so CNAME delegation is usually better.
+
+**Good to know:**
+
+- **The token can change every record in its zone,** because Cloudflare grants DNS permissions per zone. Anyone who takes over the server could use it to redirect that domain. For an important domain, use CNAME delegation to a separate zone, so the token can't touch the main one.
+- **SSLense only removes TXT records it published.** It leaves other values at the same name alone. If it can't remove one, it tries again when it next starts.
+- **It checks before asking Let's Encrypt,** including CAA records and the zone's own name servers, to avoid using up the failed validation limit. If outbound port 53 is blocked, it can't check, so it says so, waits 2 minutes, and continues.
+- **One wildcard belongs to one IIS site in this version.** Requesting the same wildcard for another site is refused. Bound by hand to another site, a certificate isn't updated on that site at renewal, so SSLense warns you about it.
+- **`*.example.com` can't be an IIS binding that SSLense manages.** Use real host names in `--hosts`. A host added to the site later isn't bound automatically: the health check reports it, and you run `issue --force` again with the new host in `--hosts`.
+- **Other DNS services:** more are planned; see [ROADMAP.md](ROADMAP.md).
 
 ### Certificates from other providers (bring your own)
 
@@ -361,10 +406,10 @@ Windows displays an administrator elevation prompt because the application manif
 - Renewal checks for all due certificates
 - Cancellable operations with live progress
 - A live log viewer with level filtering and access to the log folder
-- A visual three-step issuance wizard with IIS selection, guarded environment choice, pre-flight checks, live progress, and cancellation
+- A visual three-step issuance wizard with IIS selection, HTTP or DNS validation, certificate names for wildcards, guarded environment choice, pre-flight checks, the records to create for manual DNS validation, live progress, and cancellation
 - Certificate details, renewal, confirmed removal, bindings, issuer, validity, and recent logs
 - An **Other Providers** page for certificates bought elsewhere: create a request (CSR) to copy or save, complete it with the issued certificate and bundle, import a PFX, or adopt a certificate already bound in IIS. Imported certificates show as "Imported" on the Dashboard, with "Order renewal" when 30 days or fewer remain
-- General, notification, reminder, and Windows Service settings; per-certificate reminders on Certificate Details
+- General, DNS provider, notification, reminder, and Windows Service settings; per-certificate reminders on Certificate Details
 
 Staging remains the wizard default. Production requires a separate selection and acknowledgement before the Issue button is enabled. Use **Issue certificate** on the Dashboard to open the wizard. Removing a certificate requires confirmation and removes only matching HTTPS bindings; a certificate still used by another IIS site is retained in the Windows certificate store.
 
@@ -389,7 +434,7 @@ dotnet run --project .\src\SSLense.Cli -- remove --site "My IIS Site" --yes
 
 SSLense stores files under `C:\ProgramData\SSLense`:
 
-- `config.json`: non-secret settings and DPAPI-protected notification values
+- `config.json`: non-secret settings, and DPAPI-protected notification values and DNS provider tokens
 - `managed-certificates.json`: sites, hosts, certificate dates, thumbprints, and renewal results
 - `account-key.staging.dat`: DPAPI-protected staging ACME account key
 - `account-key.production.dat`: separate DPAPI-protected production ACME account key, created only when production is used
@@ -399,13 +444,14 @@ SSLense stores files under `C:\ProgramData\SSLense`:
 - `locks\`: per-site cross-process operation locks shared by the GUI, CLI, and service
 - `transactions\`: durable certificate-operation journals, normally removed automatically after commit or recovery
 - `challenges\`: records of HTTP-01 challenge files written into a site, so files left by an interrupted validation are removed at the next start (only once the process that wrote them has exited)
+- `dns-challenges\`: records of DNS TXT records being published, so a record left by an interrupted validation is removed at the next start
 - `service-heartbeat.json`: when the renewal service last started and completed a cycle, used by the health check
 - `reminder-state.json`: the day the last reminder digest and weekly summary were handled, so a restart never sends one twice
 - `logs\sslense-YYYYMMDD.log`: rolling logs retained for 30 days
 
 `config.json`, `managed-certificates.json`, `pending-requests.json`, and transaction journals carry a `schemaVersion`. Before SSLense first rewrites a file from an older schema, it saves the original as `<file>.v<old version>.bak` (for example `managed-certificates.json.v0.bak`). A file written by a newer SSLense version is never modified: SSLense stops with a message to install the newer version, so a downgrade cannot corrupt state.
 
-Private keys, PFX passwords, SMTP passwords, webhook URLs, and the ACME account key must never appear in logs.
+Private keys, PFX passwords, SMTP passwords, webhook URLs, DNS provider tokens, and the ACME account key must never appear in logs.
 
 ### Data directory permissions
 
@@ -439,10 +485,10 @@ To ask for help, create a diagnostic bundle and attach it to a GitHub issue:
 
 ```powershell
 SSLense.Cli diagnostics                  # sslense-diagnostics-<timestamp>.zip on your Desktop
-SSLense.Cli diagnostics --redact-hosts   # also replaces site names, host names, and site folders, for public posts
+SSLense.Cli diagnostics --redact-hosts   # also replaces site names, host names, DNS zones, and site folders, for public posts
 ```
 
-The bundle contains a system summary (SSLense, Windows, .NET, and IIS versions), the health check results, configuration, managed certificates, IIS sites and bindings, interrupted operations, the service heartbeat, and the three newest log files. It never contains private keys, ACME account keys, PFX files, SMTP passwords, webhook URLs, or DPAPI-protected values. Email addresses are masked, and URL paths and query strings are removed except for Let's Encrypt and HTTP-01 challenge URLs. Thumbprints are kept because they are public identifiers. Review the files before sharing them.
+The bundle contains a system summary (SSLense, Windows, .NET, and IIS versions), the health check results, configuration, managed certificates, IIS sites and bindings, interrupted operations, the service heartbeat, and the three newest log files. It never contains private keys, ACME account keys, PFX files, SMTP passwords, webhook URLs, DNS provider tokens or zone IDs, or DPAPI-protected values. Email addresses are masked, and URL paths and query strings are removed except for Let's Encrypt and HTTP-01 challenge URLs. Thumbprints are kept because they are public identifiers. Review the files before sharing them.
 
 The GUI's **Health** page runs the same checks and saves the bundle to your Desktop.
 
@@ -464,6 +510,11 @@ The command prints a `PASS` or `FAIL` line for each check. Fix the first failing
 - **A proxy or CDN intercepts the challenge:** DNS and the IIS binding look correct, but HTTP-01 returns a 404, redirect, authentication page, or unrelated response. Configure the proxy, CDN, or tunnel to forward `/.well-known/acme-challenge/` to the same IIS site over HTTP, preserve the requested host header, and bypass authentication, rewriting, and caching for that path. Confirm the route from outside the server before retrying issuance.
 - **HTTP-01 returns 404 or unexpected content:** check the IIS binding, tunnel host header, authentication, URL Rewrite, MVC routing, proxies, and cached responses for `/.well-known/acme-challenge/<token>`.
 - **ACME validation times out:** confirm public DNS and tunnel routing, and that inbound HTTP remains available throughout validation.
+- **No DNS provider manages a record:** add a provider for that zone, or check the CNAME at `_acme-challenge.<name>`. SSLense follows the CNAME, and the zone it ends in needs a provider.
+- **Cloudflare rejects the token (HTTP 401 or 403):** check that the token still exists, hasn't expired, and has **Zone → DNS → Edit** on that zone, and that the zone ID belongs to the same domain. To change the token, use `SSLense.Cli dns update-token`, or **Replace token** in **Settings → DNS providers**.
+- **The DNS records did not appear in time:** SSLense waits up to 5 minutes and doesn't ask Let's Encrypt to validate. Check the records at your DNS service, then try again. For manual records, check for a typo and that every value exists.
+- **CAA records block Let's Encrypt:** the message names the record to add. For a wildcard, an `issuewild` record takes priority over `issue`.
+- **A wildcard is refused because it is managed for another site:** one wildcard belongs to one IIS site in this version. Remove it from the other site first.
 - **Access denied:** run PowerShell as Administrator.
 - **IIS sites cannot be read:** install IIS Management Scripts and Tools.
 - **SMTP test fails:** verify the port, TLS mode, credentials, outbound firewall policy, and provider-specific authentication requirements.

@@ -120,6 +120,58 @@ public sealed class ServedCertificateCheckTests
         Assert.Empty(result.Problems);
     }
 
+    [Fact]
+    public async Task AutomaticCertificateBoundToAnotherSite_IsReported()
+    {
+        Sites(new IisSite(2, "Blog", "Started", null, [new IisBinding("https", "*", 443, "blog.example.com", "aabb ccdd eeff 0011 2233", "My", true)]));
+        Serves(Expected);
+
+        var result = await Check(Certificate() with { Source = CertificateSource.Acme });
+
+        Assert.Contains("IIS site 'Blog' also uses this certificate", result.Problems["Shop"], StringComparison.Ordinal);
+        Assert.Empty(result.Passed);
+    }
+
+    [Fact]
+    public async Task AutomaticCertificateBoundToAnotherSite_IsReportedEvenWhenItsOwnSiteIsStopped()
+    {
+        _iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                new IisSite(1, "Shop", "Stopped", null, [Binding()]),
+                new IisSite(2, "Blog", "Started", null, [new IisBinding("https", "*", 443, "blog.example.com", Expected, "My", true)])
+            ]);
+
+        var result = await Check(Certificate() with { Source = CertificateSource.Acme });
+
+        Assert.Contains("'Blog'", result.Problems["Shop"], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ImportedCertificateOnSeveralSites_IsNotReported()
+    {
+        Sites(new IisSite(2, "Blog", "Started", null, [new IisBinding("https", "*", 443, "blog.example.com", Expected, "My", true)]));
+        Serves(Expected);
+
+        Assert.Equal(["Shop"], (await Check()).Passed);
+    }
+
+    [Fact]
+    public async Task AnotherSiteManagingTheSameCertificate_IsNotReported()
+    {
+        Sites(new IisSite(2, "Blog", "Started", null, [new IisBinding("https", "*", 443, "blog.example.com", Expected, "My", true)]));
+        Serves(Expected);
+        var certificate = Certificate() with { Source = CertificateSource.Acme };
+
+        var result = await new ServedCertificateCheck(_iis.Object, _probe.Object, _store.Object, _lock.Object)
+            .CheckAllAsync([certificate, certificate with { SiteName = "Blog", Hosts = ["blog.example.com"], Reminders = ReminderMode.Off }], Now);
+
+        Assert.Equal(["Shop"], result.Passed);
+    }
+
+    private void Sites(IisSite other) =>
+        _iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new IisSite(1, "Shop", "Started", null, [Binding()]), other]);
+
     private Task<ProactiveCheckResult> Check(ManagedCertificate? certificate = null) =>
         new ServedCertificateCheck(_iis.Object, _probe.Object, _store.Object, _lock.Object)
             .CheckAllAsync([certificate ?? Certificate()], Now);

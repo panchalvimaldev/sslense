@@ -53,7 +53,7 @@ public static partial class SecretRedactor
     [GeneratedRegex(@"(?i)\bBearer\s+[A-Za-z0-9\-._~+/]+=*")]
     private static partial Regex BearerToken();
 
-    [GeneratedRegex(@"(?i)(?<key>\b(?:password|passwd|pwd|secret|client[-_]?secret|token|access[-_]?token|api[-_]?key|apikey|authorization|protected(?:password|url)))(?<sep>""?\s*[:=]\s*""?)[^\s"",;}]+")]
+    [GeneratedRegex(@"(?i)(?<key>\b(?:password|passwd|pwd|secret|client[-_]?secret|token|access[-_]?token|api[-_]?key|apikey|authorization|protected(?:password|url|token)))(?<sep>""?\s*[:=]\s*""?)[^\s"",;}]+")]
     private static partial Regex SecretAssignment();
 
     [GeneratedRegex(@"https?://[^\s""'<>\])]+", RegexOptions.IgnoreCase)]

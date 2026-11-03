@@ -29,7 +29,10 @@ public enum ReminderItemKind
     UpcomingAutomaticRenewal,
 
     /// <summary>For information: an automatic certificate is still in the window, and repeats were asked for.</summary>
-    AutomaticRenewalReminder
+    AutomaticRenewalReminder,
+
+    /// <summary>A certificate using manual DNS validation is within the reminder window; someone must renew it by hand.</summary>
+    ManualDnsRenewalDue
 }
 
 /// <param name="Detail">What a daily check found, for the kinds that report one.</param>
@@ -168,7 +171,12 @@ public sealed record ReminderDigest(
                 $"{name} ({source}): EXPIRED on {Date(certificate.NotAfter)}. Browsers now reject this site's certificate. " +
                 (certificate.Source == CertificateSource.Imported
                     ? "Order a replacement from the provider and install it on the Other Providers page."
-                    : $"Automatic renewal has not succeeded: {certificate.LastRenewalMessage ?? "see the SSLense log"}"),
+                    : certificate.ValidationMethod == ValidationMethod.Dns01Manual
+                        ? $"It uses manual DNS validation, so renew it by hand: {Renewal.ManualDnsRenewal.Command(certificate)}"
+                        : $"Automatic renewal has not succeeded: {certificate.LastRenewalMessage ?? "see the SSLense log"}"),
+            ReminderItemKind.ManualDnsRenewalDue =>
+                $"{name} ({source}): expires {Date(certificate.NotAfter)}, {item.DaysLeft} days left. It uses manual DNS validation, " +
+                $"so SSLense cannot renew it on its own. Renew it by hand: {Renewal.ManualDnsRenewal.Command(certificate)}",
             ReminderItemKind.ManualRenewalDue =>
                 $"{name} ({source}): expires {Date(certificate.NotAfter)}, {item.DaysLeft} days left. Order the renewal from " +
                 $"{source}, then on the Other Providers page in SSLense create a request and complete it with the new certificate.",
@@ -329,6 +337,17 @@ public static class ReminderDigestBuilder
             }
 
             return Repeating(ReminderItemKind.ManualRenewalDue, $"the renewal must be ordered, {daysLeft} days left", interval, null);
+        }
+
+        if (certificate.ValidationMethod == ValidationMethod.Dns01Manual)
+        {
+            if (!inWindow)
+            {
+                var start = WindowStart(certificate, settings, now);
+                return Skipped($"reminders start on {DayText(start)}", start);
+            }
+
+            return Repeating(ReminderItemKind.ManualDnsRenewalDue, $"it must be renewed by hand, {daysLeft} days left", interval, null);
         }
 
         // Failures are also sent immediately when they happen; the digest repeats them while they last.

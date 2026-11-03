@@ -24,4 +24,6 @@ public sealed record ManagedCertificateStatus(
     string? Issuer = null,
     ReminderMode Reminders = ReminderMode.On,
     DateTimeOffset? SnoozedUntil = null,
-    DateTimeOffset? LastRemindedAt = null);
+    DateTimeOffset? LastRemindedAt = null,
+    ValidationMethod ValidationMethod = ValidationMethod.Http01,
+    IReadOnlyList<string>? CertificateNames = null);

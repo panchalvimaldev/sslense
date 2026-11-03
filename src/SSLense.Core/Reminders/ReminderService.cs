@@ -392,7 +392,9 @@ internal sealed class ReminderService(
     {
         var scheduled = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
         foreach (var certificate in certificates.Where(value =>
-                     value.Source == CertificateSource.Acme && !ReminderDigestBuilder.IsMuted(value, now)))
+                     value.Source == CertificateSource.Acme &&
+                     value.ValidationMethod != ValidationMethod.Dns01Manual &&
+                     !ReminderDigestBuilder.IsMuted(value, now)))
         {
             try
             {

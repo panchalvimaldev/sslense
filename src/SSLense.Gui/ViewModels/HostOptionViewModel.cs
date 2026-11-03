@@ -7,10 +7,17 @@ public partial class HostOptionViewModel : ObservableObject
     [ObservableProperty]
     private bool isSelected;
 
-    public HostOptionViewModel(string host, bool hasHttpBinding)
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsReady))]
+    [NotifyPropertyChangedFor(nameof(BindingStatus))]
+    private bool usesDns;
+
+    /// <param name="hasDnsBinding">It has an HTTP or HTTPS binding SSLense can manage; DNS validation needs nothing more.</param>
+    public HostOptionViewModel(string host, bool hasHttpBinding, bool hasDnsBinding)
     {
         Host = host;
         HasHttpBinding = hasHttpBinding;
+        HasDnsBinding = hasDnsBinding;
         isSelected = hasHttpBinding;
     }
 
@@ -18,5 +25,11 @@ public partial class HostOptionViewModel : ObservableObject
 
     public bool HasHttpBinding { get; }
 
-    public string BindingStatus => HasHttpBinding ? "HTTP :80 ready" : "⚠ Missing HTTP :80 binding";
+    public bool HasDnsBinding { get; }
+
+    public bool IsReady => UsesDns ? HasDnsBinding : HasHttpBinding;
+
+    public string BindingStatus => UsesDns
+        ? HasDnsBinding ? "Ready for DNS validation" : "⚠ Needs a real host name binding"
+        : HasHttpBinding ? "HTTP :80 ready" : "⚠ Missing HTTP :80 binding";
 }

@@ -1,4 +1,5 @@
 using Moq;
+using SSLense.Core;
 using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
@@ -29,6 +30,120 @@ public sealed class RenewalServiceTests
         Assert.False(result.Attempted);
         Assert.True(result.Succeeded);
         acme.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task RenewAsync_ManualDnsCertificate_IsNeverAttempted()
+    {
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(2)) with { ValidationMethod = ValidationMethod.Dns01Manual }]);
+        var acme = new Mock<IAcmeService>(MockBehavior.Strict);
+        var service = CreateService(managed, MockConfig(), acme);
+
+        var result = Assert.Single(await service.RenewAsync(new RenewalRequest(All: true, Force: true)));
+
+        Assert.False(result.Attempted);
+        Assert.Contains("dns-manual", result.Message, StringComparison.Ordinal);
+        acme.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task RenewAsync_DnsProviderCertificate_RenewsThroughDns()
+    {
+        var managed = new Mock<IManagedCertificateStore>();
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(2)) with { ValidationMethod = ValidationMethod.Dns01Provider }]);
+        var acme = new Mock<IAcmeService>();
+        acme.Setup(value => value.IssueAsync(It.IsAny<AcmeIssueRequest>(), It.IsAny<IProgress<ProgressEvent>?>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("stop here"));
+        var service = CreateService(managed, MockConfig(), acme);
+
+        await service.RenewAsync(new RenewalRequest(All: true, Force: true));
+
+        acme.Verify(value => value.IssueAsync(
+            It.Is<AcmeIssueRequest>(request => request.ValidationMethod == ValidationMethod.Dns01Provider),
+            It.IsAny<IProgress<ProgressEvent>?>(),
+            It.IsAny<CancellationToken>()));
+    }
+
+    [Fact]
+    public async Task RenewAsync_Wildcard_OrdersTheSameNamesAndHosts()
+    {
+        var managed = new Mock<IManagedCertificateStore>();
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(2)) with
+            {
+                ValidationMethod = ValidationMethod.Dns01Provider,
+                CertificateNames = ["*.example.com", "example.com"]
+            }]);
+        var acme = new Mock<IAcmeService>();
+        acme.Setup(value => value.IssueAsync(It.IsAny<AcmeIssueRequest>(), It.IsAny<IProgress<ProgressEvent>?>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("stop here"));
+        var service = CreateService(managed, MockConfig(), acme);
+
+        await service.RenewAsync(new RenewalRequest(All: true, Force: true));
+
+        acme.Verify(value => value.IssueAsync(
+            It.Is<AcmeIssueRequest>(request =>
+                request.CertificateNames!.SequenceEqual(new[] { "*.example.com", "example.com" }) &&
+                request.Hosts.SequenceEqual(new[] { "example.com" })),
+            It.IsAny<IProgress<ProgressEvent>?>(),
+            It.IsAny<CancellationToken>()));
+    }
+
+    [Fact]
+    public async Task RenewAsync_ManualDnsWildcard_TheHintKeepsTheNamesAndHosts()
+    {
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(2)) with
+            {
+                ValidationMethod = ValidationMethod.Dns01Manual,
+                CertificateNames = ["*.example.com"]
+            }]);
+        var service = CreateService(managed, MockConfig(), new Mock<IAcmeService>(MockBehavior.Strict));
+
+        var result = Assert.Single(await service.RenewAsync(new RenewalRequest(All: true)));
+
+        Assert.Contains("--names \"*.example.com\" --hosts \"example.com\"", result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RenewAsync_ManualDnsWithoutSeparateNames_TheHintStillKeepsTheHosts()
+    {
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(2)) with { ValidationMethod = ValidationMethod.Dns01Manual, OutputDirectory = @"D:\certs" }]);
+        var service = CreateService(managed, MockConfig(), new Mock<IAcmeService>(MockBehavior.Strict));
+
+        var result = Assert.Single(await service.RenewAsync(new RenewalRequest(All: true)));
+
+        Assert.Contains("--hosts \"example.com\" --output \"D:\\certs\"", result.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("--names", result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RenewAsync_OldCertificateStillBoundElsewhere_NamesTheSitesInTheResultAndNotification()
+    {
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(5))]);
+        var acme = new Mock<IAcmeService>(MockBehavior.Strict);
+        acme.Setup(value => value.IssueAsync(It.IsAny<AcmeIssueRequest>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AcmeIssueResult("pem", "pfx", ["example.com"], "NEW"));
+        var iis = new Mock<IIisService>(MockBehavior.Strict);
+        iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new IisSite(2, "Blog", "Started", null, [new IisBinding("https", "*", 443, "blog.example.com", "OLD", "My", true)])]);
+        var notifier = new Mock<INotifier>();
+        var service = CreateService(managed, MockConfig(), acme, iis, new Mock<ICertificateStore>(MockBehavior.Strict), notifier: notifier);
+
+        var result = Assert.Single(await service.RenewAsync(new RenewalRequest(All: true)));
+
+        Assert.Contains("'Blog'", result.Message, StringComparison.Ordinal);
+        notifier.Verify(value => value.NotifyAsync(
+            It.Is<NotificationMessage>(message => message.Body.Contains("'Blog'", StringComparison.Ordinal)),
+            It.IsAny<CancellationToken>()));
     }
 
     [Fact]

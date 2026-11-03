@@ -19,6 +19,7 @@
   </Grid>
 
   <Border Grid.Row="2" Style="{StaticResource Card}" Padding="24">
+   <ScrollViewer VerticalScrollBarVisibility="Auto">
    <Grid>
     <StackPanel Visibility="{Binding IsStepOne, Converter={StaticResource BoolToVisibility}}">
      <TextBlock Text="Choose an IIS site" Style="{StaticResource SectionTitle}"/>
@@ -30,22 +31,42 @@
        <TextBlock Text="{Binding SelectedSite.HttpsSummary}" TextWrapping="Wrap" Margin="0,3,0,0"/>
        <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0"
                   Text="Issuing replaces that certificate for the host names you select, for example to move from a paid certificate to Let's Encrypt. To keep it and only get expiry reminders, adopt it on the Other Providers page instead."/>
+       <CheckBox Content="Replace the current certificate even if it is still valid" IsChecked="{Binding ReplaceExisting}" Margin="0,8,0,0" AutomationProperties.Name="Replace the current certificate even if it is still valid"/>
       </StackPanel>
      </Border>
+     <TextBlock Text="VALIDATION" Style="{StaticResource FieldLabel}" Margin="0,10,0,6"/>
+     <WrapPanel>
+      <RadioButton GroupName="Validation" Content="HTTP (port 80)" IsChecked="{Binding UseHttpValidation}" Margin="0,0,20,0" AutomationProperties.Name="HTTP validation"/>
+      <RadioButton GroupName="Validation" Content="DNS provider (wildcards, automatic renewal)" IsChecked="{Binding UseDnsProvider}" Margin="0,0,20,0" AutomationProperties.Name="DNS provider validation"/>
+      <RadioButton GroupName="Validation" Content="DNS manual (any DNS service)" IsChecked="{Binding UseDnsManual}" AutomationProperties.Name="Manual DNS validation"/>
+     </WrapPanel>
+     <TextBlock Text="{Binding ValidationHint}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+     <Border Style="{StaticResource InfoBanner}" Margin="0,10,0,0" Visibility="{Binding UseDnsManual, Converter={StaticResource BoolToVisibility}}">
+      <StackPanel>
+       <TextBlock Text="This certificate cannot renew automatically" FontWeight="SemiBold"/>
+       <TextBlock TextWrapping="Wrap" Margin="0,3,0,0" Text="Each renewal needs new DNS records, so you must renew it by hand before it expires. SSLense reminds you in the daily digest. To avoid this with a DNS service SSLense does not support, add a permanent CNAME that points _acme-challenge to a zone on a supported provider, then use the DNS provider option."/>
+      </StackPanel>
+     </Border>
+     <StackPanel Margin="0,10,0,0" Visibility="{Binding UsesDns, Converter={StaticResource BoolToVisibility}}">
+      <TextBlock Text="CERTIFICATE NAMES (OPTIONAL)" Style="{StaticResource FieldLabel}"/>
+      <TextBox Text="{Binding CertificateNames, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Certificate names"/>
+      <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0" Text="For a wildcard, enter for example *.example.com, example.com. A wildcard covers one level and does not include example.com itself. Leave this empty to cover only the host names below."/>
+     </StackPanel>
      <Border Height="10"/>
      <TextBlock Text="HOST NAMES" Style="{StaticResource FieldLabel}"/>
      <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="7" Padding="12,7">
      <ItemsControl ItemsSource="{Binding Hosts}"><ItemsControl.ItemTemplate><DataTemplate>
       <Grid Margin="4,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="220"/></Grid.ColumnDefinitions>
        <CheckBox Content="{Binding Host}" IsChecked="{Binding IsSelected}" FontWeight="SemiBold" AutomationProperties.Name="{Binding Host}"/>
-       <TextBlock Grid.Column="1" Text="{Binding BindingStatus}" HorizontalAlignment="Right"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/><Style.Triggers><DataTrigger Binding="{Binding HasHttpBinding}" Value="False"><Setter Property="Foreground" Value="{StaticResource DangerBrush}"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
+       <TextBlock Grid.Column="1" Text="{Binding BindingStatus}" HorizontalAlignment="Right"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/><Style.Triggers><DataTrigger Binding="{Binding IsReady}" Value="False"><Setter Property="Foreground" Value="{StaticResource DangerBrush}"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
       </Grid>
      </DataTemplate></ItemsControl.ItemTemplate></ItemsControl></Border>
     </StackPanel>
 
     <StackPanel Visibility="{Binding IsStepTwo, Converter={StaticResource BoolToVisibility}}">
      <TextBlock Text="Verify issuance readiness" Style="{StaticResource SectionTitle}"/>
-     <TextBlock Text="SSLense checks access, bindings, and challenge-folder permissions before contacting Let's Encrypt." Style="{StaticResource PageSubtitle}" Margin="0,4,0,20"/>
+     <TextBlock Text="{Binding PreflightSubtitle}" Style="{StaticResource PageSubtitle}" Margin="0,4,0,20"/>
+     <Border Style="{StaticResource InfoBanner}" Margin="0,0,0,14" Visibility="{Binding IsRenewingByHand, Converter={StaticResource BoolToVisibility}}"><TextBlock Text="{Binding RenewalNotice}" FontWeight="SemiBold" TextWrapping="Wrap"/></Border>
      <TextBlock Text="LET'S ENCRYPT ACCOUNT EMAIL" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,16" AutomationProperties.Name="Let's Encrypt account email"/>
      <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
       <RadioButton Content="Staging environment (recommended)" IsChecked="{Binding UseStaging}" Margin="0,0,20,0" AutomationProperties.Name="Staging environment (recommended)"/>
@@ -63,10 +84,30 @@
     <StackPanel Visibility="{Binding IsStepThree, Converter={StaticResource BoolToVisibility}}">
      <TextBlock Text="Issuing certificate" Style="{StaticResource SectionTitle}"/>
      <TextBlock Text="Keep this window open while SSLense validates and installs the certificate." Style="{StaticResource PageSubtitle}" Margin="0,4,0,16"/>
+     <Border Style="{StaticResource InfoBanner}" Margin="0,0,0,14" Visibility="{Binding IsWaitingForManualDns, Converter={StaticResource BoolToVisibility}}">
+      <StackPanel>
+       <TextBlock Text="Create these TXT records in your DNS service" FontWeight="SemiBold"/>
+       <TextBlock TextWrapping="Wrap" Margin="0,3,0,10" Text="Keep every record, even when two have the same name: each value is needed. Set the lowest TTL your DNS service allows. SSLense then checks that the records are visible, for up to 5 minutes."/>
+       <ItemsControl ItemsSource="{Binding ManualRecords}" AutomationProperties.Name="DNS records to create">
+        <ItemsControl.ItemTemplate>
+         <DataTemplate>
+          <StackPanel Margin="0,0,0,10">
+           <TextBlock Text="NAME" Style="{StaticResource FieldLabel}"/>
+           <TextBox Text="{Binding Name, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" AutomationProperties.Name="Record name"/>
+           <TextBlock Text="VALUE" Style="{StaticResource FieldLabel}" Margin="0,6,0,6"/>
+           <TextBox Text="{Binding Value, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" AutomationProperties.Name="Record value"/>
+          </StackPanel>
+         </DataTemplate>
+        </ItemsControl.ItemTemplate>
+       </ItemsControl>
+       <Button Content="I have created the records" Command="{Binding ConfirmManualRecordsCommand}" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left"/>
+      </StackPanel>
+     </Border>
      <Border CornerRadius="7" ClipToBounds="True"><ListBox ItemsSource="{Binding ProgressLines}" Height="310" Style="{StaticResource ConsoleList}"/></Border>
      <Border Style="{StaticResource SuccessBanner}" Margin="0,14,0,0"><TextBlock Text="{Binding ResultMessage}" FontWeight="SemiBold" Foreground="{StaticResource SuccessBrush}" TextWrapping="Wrap"/></Border>
     </StackPanel>
    </Grid>
+   </ScrollViewer>
   </Border>
   <DockPanel Grid.Row="3" Margin="0,14,0,0">
    <TextBlock Text="{Binding ErrorMessage}" Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center"/>
