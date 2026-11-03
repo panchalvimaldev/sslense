@@ -211,7 +211,7 @@ Must hold before merge:
 |---|---|---|
 | 1 | This design. **Done.** | Docs |
 | 2 | Core: data model and migrations, DNS challenges, Cloudflare and manual methods, CNAME following, propagation check, token storage, journal and recovery; `dns` commands and `issue --validation`. **Done.** Tested November 3, 2026 on Let's Encrypt staging with the real Cloudflare API: `dns add`, `dns test`, `issue --validation dns` and a forced `renew` from the CLI. The renewal reused the valid authorization, so it published no DNS records. | CLI, staging |
-| 3 | Wildcards: `--names`, CAA checks, renewal, readiness and health checks, reminders for manual certificates, one-site rule, hand-sharing detection, diagnostics. **Code done; needs a staging test of a wildcard on a real zone.** | CLI |
+| 3 | Wildcards: `--names`, CAA checks, renewal, readiness and health checks, reminders for manual certificates, one-site rule, hand-sharing detection, diagnostics. **Done.** Tested November 3, 2026 on Let's Encrypt staging with the real Cloudflare API: a wildcard with its base name, which published two values at one record name, then a forced `renew` from the CLI. The renewal reused the valid authorizations, so it published no DNS records. | CLI |
 | 4 | GUI, README, website, roadmap; manual acceptance; release as 0.13 | Both |
 | 5 | Sharing one certificate across several sites, after its design section; release as 0.14 | Both |
 | 6 | A script method, after its design section: the service runs as SYSTEM, so the design must cover who can configure a script and how the script file is protected | Both |

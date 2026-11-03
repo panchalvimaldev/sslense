@@ -355,7 +355,7 @@ internal sealed class AcmeService : IAcmeService
         {
             progress?.Report(new ProgressEvent(
                 "validation",
-                $"Requesting {environmentName} validation for {challenge.Host}."));
+                $"Requesting {environmentName} validation for {(challenge.IsWildcard ? "*." : string.Empty)}{challenge.Host}."));
             await order.ValidateAsync(challenge, cancellationToken).ConfigureAwait(false);
         }
     }

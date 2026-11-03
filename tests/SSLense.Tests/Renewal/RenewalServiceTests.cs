@@ -110,6 +110,20 @@ public sealed class RenewalServiceTests
     }
 
     [Fact]
+    public async Task RenewAsync_ManualDnsWithoutSeparateNames_TheHintStillKeepsTheHosts()
+    {
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(2)) with { ValidationMethod = ValidationMethod.Dns01Manual }]);
+        var service = CreateService(managed, MockConfig(), new Mock<IAcmeService>(MockBehavior.Strict));
+
+        var result = Assert.Single(await service.RenewAsync(new RenewalRequest(All: true)));
+
+        Assert.Contains("--hosts \"example.com\"", result.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("--names", result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RenewAsync_OldCertificateStillBoundElsewhere_NamesTheSitesInTheResultAndNotification()
     {
         var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);

@@ -9,11 +9,14 @@ internal static class ManualDnsRenewal
     public static string Command(ManagedCertificate certificate)
     {
         var names = certificate.CertificateNames is { } values
-            ? $" --names \"{string.Join(",", values)}\" --hosts \"{string.Join(",", certificate.Hosts)}\""
+            ? $" --names \"{string.Join(",", values)}\""
             : string.Empty;
+
+        // Always listed: without them, issue would use every named binding on the site.
+        var hosts = $" --hosts \"{string.Join(",", certificate.Hosts)}\"";
         var production = certificate.AuthorityId == CertificateAuthorities.LetsEncryptId
             ? " --production --accept-production-risk"
             : string.Empty;
-        return $"SSLense.Cli issue --site \"{certificate.SiteName}\" --email {certificate.Email} --validation dns-manual --force{names}{production}";
+        return $"SSLense.Cli issue --site \"{certificate.SiteName}\" --email {certificate.Email} --validation dns-manual --force{names}{hosts}{production}";
     }
 }
