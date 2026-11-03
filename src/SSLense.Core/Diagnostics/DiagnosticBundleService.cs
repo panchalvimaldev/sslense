@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Win32;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
+using SSLense.Core.DnsValidation;
 using SSLense.Core.Iis;
 using SSLense.Core.WindowsServices;
 
@@ -65,6 +66,7 @@ internal sealed class DiagnosticBundleService(
         var notes = new List<string>();
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var zones = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         async Task Collect(string entry, string description, Func<Task<object?>> collect)
         {
@@ -87,7 +89,11 @@ internal sealed class DiagnosticBundleService(
         await Collect("health.json", "health check results", async () =>
             await healthCheckService.RunAsync(progress, cancellationToken).ConfigureAwait(false)).ConfigureAwait(false);
         await Collect("config.json", "configuration", async () =>
-            RedactConfig(await configStore.LoadAsync(cancellationToken).ConfigureAwait(false))).ConfigureAwait(false);
+        {
+            var config = await configStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+            zones.UnionWith(config.DnsProviders.Select(provider => provider.ZoneName));
+            return RedactConfig(config);
+        }).ConfigureAwait(false);
         await Collect("managed-certificates.json", "managed certificates", async () =>
         {
             var records = await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
@@ -95,6 +101,11 @@ internal sealed class DiagnosticBundleService(
             {
                 names.Add(record.SiteName);
                 names.UnionWith(record.Hosts);
+                foreach (var name in record.CertificateNames ?? record.Hosts)
+                {
+                    names.Add(name);
+                    names.Add(DnsNames.ChallengeRecord(name));
+                }
             }
 
             return records.Select(record => record with { Email = SecretRedactor.MaskEmail(record.Email) ?? string.Empty });
@@ -144,7 +155,7 @@ internal sealed class DiagnosticBundleService(
         }
 
         var folderMap = request.RedactHosts ? CreateFolderMap(folders) : [];
-        var hostMap = request.RedactHosts ? CreateHostMap(names) : [];
+        var hostMap = request.RedactHosts ? CreateHostMap(names, zones) : [];
         entries["README.txt"] = CreateReadme(request.RedactHosts, notes);
 
         progress?.Report(new ProgressEvent("diagnostics", "Redacting and writing the bundle."));
@@ -261,17 +272,22 @@ internal sealed class DiagnosticBundleService(
             : "not installed";
     }
 
-    internal static IReadOnlyList<(Regex Pattern, string Replacement)> CreateHostMap(IEnumerable<string> names)
+    /// <param name="zones">DNS zones. Any name inside one is replaced too, because a CNAME target appears only in the logs.</param>
+    internal static IReadOnlyList<(Regex Pattern, string Replacement)> CreateHostMap(IEnumerable<string> names, IEnumerable<string>? zones = null)
     {
         var siteIndex = 0;
         var hostIndex = 0;
+        var zoneSet = new HashSet<string>(zones ?? [], StringComparer.OrdinalIgnoreCase);
 
         // Longest first, so "www.example.com" is replaced before "example.com".
         return names
+            .Union(zoneSet, StringComparer.OrdinalIgnoreCase)
             .Where(name => name.Length > 2)
             .OrderByDescending(name => name.Length)
             .Select(name => (
-                new Regex($@"(?<![A-Za-z0-9.\-]){MatchText(name)}(?![A-Za-z0-9\-])", RegexOptions.IgnoreCase),
+                new Regex(
+                    $@"(?<![A-Za-z0-9.\-]){(zoneSet.Contains(name) ? @"(?:[A-Za-z0-9_\-*]+\.)*" : string.Empty)}{MatchText(name)}(?![A-Za-z0-9\-])",
+                    RegexOptions.IgnoreCase),
                 name.Contains('.') ? $"host-{++hostIndex}.example" : $"site-{++siteIndex}"))
             .ToArray();
     }
@@ -318,8 +334,8 @@ internal sealed class DiagnosticBundleService(
         builder.AppendLine("removed except for Let's Encrypt and HTTP-01 challenge URLs.");
         builder.AppendLine();
         builder.AppendLine(hostsRedacted
-            ? "Site names, host names, and site folders were replaced with placeholders such as site-1, host-1.example, and folder-1. Other folder paths in the logs are not changed."
-            : "Site names, host names, and site folders are included. Create the bundle with host redaction before posting it publicly if they are private.");
+            ? "Site names, host names, DNS zones, and site folders were replaced with placeholders such as site-1, host-1.example, and folder-1. Other folder paths in the logs are not changed."
+            : "Site names, host names, DNS zones, and site folders are included. Create the bundle with host redaction before posting it publicly if they are private.");
         builder.AppendLine("Certificate thumbprints are included; they are public identifiers, not secrets.");
         builder.AppendLine();
         builder.AppendLine("Review the files before sharing them.");

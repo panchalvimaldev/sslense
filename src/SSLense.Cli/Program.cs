@@ -107,7 +107,11 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     };
     var hostsOption = new Option<string?>("--hosts")
     {
-        Description = "Comma-separated host names. Defaults to the site's named HTTP bindings, and with DNS validation its named HTTPS bindings too."
+        Description = "Comma-separated host names to bind in IIS. Defaults to the site's named HTTP bindings, and with DNS validation its named HTTPS bindings too. With --names, only the bindings those names cover."
+    };
+    var namesOption = new Option<string?>("--names")
+    {
+        Description = "Comma-separated names for the certificate to cover, such as \"*.example.com,example.com\". Needs DNS validation. Defaults to the host names."
     };
     var emailOption = new Option<string>("--email")
     {
@@ -143,6 +147,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     var issueCommand = new Command("issue", "Obtain and install a certificate, validated over HTTP or DNS.");
     issueCommand.Options.Add(validationOption);
     issueCommand.Options.Add(siteOption);
+    issueCommand.Options.Add(namesOption);
     issueCommand.Options.Add(hostsOption);
     issueCommand.Options.Add(emailOption);
     issueCommand.Options.Add(stagingOption);
@@ -161,6 +166,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         parseResult.GetValue(productionOption),
         parseResult.GetValue(acceptProductionRiskOption),
         parseResult.GetRequiredValue(validationOption),
+        parseResult.GetValue(namesOption),
         cancellationToken));
     rootCommand.Subcommands.Add(issueCommand);
     rootCommand.Subcommands.Add(CreateDnsCommand(services));
@@ -1548,6 +1554,18 @@ static async Task<int> StatusAsync(
                 Console.WriteLine($"  Issuer: {status.Issuer}");
             }
             Console.WriteLine($"  Hosts: {string.Join(", ", status.Hosts)}");
+            if (status.CertificateNames is { } certificateNames)
+            {
+                Console.WriteLine($"  Certificate names: {string.Join(", ", certificateNames)}");
+            }
+
+            if (status.ValidationMethod != ValidationMethod.Http01)
+            {
+                Console.WriteLine(status.ValidationMethod == ValidationMethod.Dns01Manual
+                    ? "  Validation: manual DNS; renew it by hand"
+                    : "  Validation: DNS provider");
+            }
+
             Console.WriteLine($"  Issued: {status.NotBefore:yyyy-MM-dd HH:mm:ss} UTC");
             Console.WriteLine($"  Expires: {status.NotAfter:yyyy-MM-dd HH:mm:ss} UTC ({status.DaysRemaining} days left)");
             Console.WriteLine($"  Thumbprint: {status.Thumbprint}");
@@ -1632,6 +1650,7 @@ static async Task<int> IssueAsync(
     bool production,
     bool acceptProductionRisk,
     string validation,
+    string? namesValue,
     CancellationToken cancellationToken)
 {
     try
@@ -1667,7 +1686,8 @@ static async Task<int> IssueAsync(
                     force,
                     authorityId,
                     ValidationMethod: validationMethod,
-                    ConfirmManualDns: validationMethod == ValidationMethod.Dns01Manual ? ConfirmManualDnsAsync : null),
+                    ConfirmManualDns: validationMethod == ValidationMethod.Dns01Manual ? ConfirmManualDnsAsync : null,
+                    CertificateNames: namesValue?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)),
                 new ConsoleProgress(),
                 cancellationToken)
             .ConfigureAwait(false);

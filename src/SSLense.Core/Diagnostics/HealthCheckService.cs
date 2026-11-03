@@ -117,6 +117,20 @@ internal sealed class HealthCheckService(
                     .ConfigureAwait(false);
                 await Check($"Served certificate: {site}", () => CheckServedAsync(certificate, sites, cancellationToken))
                     .ConfigureAwait(false);
+                if (Reminders.ServedCertificateCheck.DescribeSharing(certificate, sites, certificates) is { } shared)
+                {
+                    results.Add(new HealthCheckResult($"Shared certificate: {site}", HealthStatus.Warning, shared));
+                }
+
+                if (FindUnmanagedCoveredHosts(certificate, sites) is { Length: > 0 } unmanaged)
+                {
+                    results.Add(new HealthCheckResult(
+                        $"Wildcard coverage: {site}",
+                        HealthStatus.Warning,
+                        $"{string.Join(", ", unmanaged)} on this site {(unmanaged.Length == 1 ? "is" : "are")} covered by the wildcard, but SSLense does not manage the HTTPS binding.",
+                        $"Issue the certificate again with those hosts in --hosts, for example 'SSLense.Cli issue --site \"{site}\" --force --hosts ...'."));
+                }
+
                 await Check($"Expiry: {site}", () => Task.FromResult(CheckExpiry(certificate))).ConfigureAwait(false);
                 if (certificate.Source == CertificateSource.Imported)
                 {
@@ -182,6 +196,26 @@ internal sealed class HealthCheckService(
         await Check("Notifications", () => Task.FromResult(CheckNotifications(config))).ConfigureAwait(false);
         await Check("Reminders", () => Task.FromResult(CheckReminders(config, certificates))).ConfigureAwait(false);
         return results;
+    }
+
+    /// <summary>Host names added to the site after a wildcard was issued are not bound automatically.</summary>
+    private static string[] FindUnmanagedCoveredHosts(ManagedCertificate certificate, IReadOnlyList<IisSite> sites)
+    {
+        if (certificate.CertificateNames is not { } names)
+        {
+            return [];
+        }
+
+        var site = sites.FirstOrDefault(value => string.Equals(value.Name, certificate.SiteName, StringComparison.OrdinalIgnoreCase));
+        return site is null
+            ? []
+            : site.Bindings
+                .Where(binding => binding.Protocol is "http" or "https" && binding.HostName.Length > 0 && !binding.HostName.Contains('*'))
+                .Select(binding => binding.HostName.ToLowerInvariant())
+                .Distinct()
+                .Where(host => CertificateInspector.Covers(names, host) &&
+                               !certificate.Hosts.Contains(host, StringComparer.OrdinalIgnoreCase))
+                .ToArray();
     }
 
     /// <summary>What IIS really serves from this server, which may differ from what visitors receive through a CDN or proxy.</summary>
@@ -395,6 +429,15 @@ internal sealed class HealthCheckService(
 
         var environment = CertificateAuthorities.Label(certificate.AuthorityId);
         var expires = $"{environment} certificate expires {certificate.NotAfter:yyyy-MM-dd HH:mm} UTC";
+        if (certificate.ValidationMethod == ValidationMethod.Dns01Manual)
+        {
+            var renew = $"Renew it by hand: '{ManualDnsRenewal.Command(certificate)}'.";
+            return days < 0 ? new HealthCheckResult(name, HealthStatus.Fail, $"{expires} and has expired.", renew)
+                : days <= 7 ? new HealthCheckResult(name, HealthStatus.Fail, $"{expires} ({days} days left).", renew)
+                : days <= 30 ? new HealthCheckResult(name, HealthStatus.Warning, $"{expires} ({days} days left).", renew)
+                : Pass(name, $"{expires} ({days} days left). It uses manual DNS validation, so it is renewed by hand.");
+        }
+
         return ExpiryLevels.GetLevel(certificate, DateTimeOffset.UtcNow) switch
         {
             ExpiryWarningLevel.None => Pass(name, $"{expires} ({days} days left)."),
@@ -415,7 +458,9 @@ internal sealed class HealthCheckService(
         certificate.Source == CertificateSource.Imported
             ? $"Reinstall it with 'SSLense.Cli import --site \"{certificate.SiteName}\" --pfx <file>', or create a request with " +
               "'csr' and install the issued certificate with 'complete'."
-            : acmeFix;
+            : certificate.ValidationMethod == ValidationMethod.Dns01Manual
+                ? $"Renew it by hand: '{ManualDnsRenewal.Command(certificate)}'."
+                : acmeFix;
 
     private async Task<HealthCheckResult> CheckChainAsync(ManagedCertificate certificate, CancellationToken cancellationToken)
     {

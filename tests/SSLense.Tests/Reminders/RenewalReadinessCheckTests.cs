@@ -1,6 +1,9 @@
 using Moq;
+using SSLense.Core;
+using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
+using SSLense.Core.DnsValidation;
 using SSLense.Core.Reminders;
 using SSLense.Core.Validation;
 using Xunit;
@@ -12,6 +15,7 @@ public sealed class RenewalReadinessCheckTests
     private static readonly DateTimeOffset Now = new(2026, 12, 1, 9, 0, 0, TimeSpan.Zero);
     private readonly Mock<IPreflightService> _preflight = new(MockBehavior.Strict);
     private readonly Mock<ICertificateOperationLock> _lock = new();
+    private readonly FakeDnsChecks _dns = new();
 
     public RenewalReadinessCheckTests()
     {
@@ -66,7 +70,7 @@ public sealed class RenewalReadinessCheckTests
         var imported = Automatic() with { Source = CertificateSource.Imported };
         var muted = Automatic() with { SiteName = "Muted", Reminders = ReminderMode.Off };
 
-        var result = await new RenewalReadinessCheck(_preflight.Object, _lock.Object).CheckAsync(
+        var result = await new RenewalReadinessCheck(_preflight.Object, _lock.Object, _dns).CheckAsync(
             [imported, muted],
             new Dictionary<string, DateTimeOffset> { ["Api"] = Now, ["Muted"] = Now },
             Now);
@@ -86,16 +90,49 @@ public sealed class RenewalReadinessCheckTests
         Assert.Empty(result.Problems);
     }
 
-    [Theory]
-    [InlineData(ValidationMethod.Dns01Provider)]
-    [InlineData(ValidationMethod.Dns01Manual)]
-    public async Task DnsCertificates_DoNotRunTheHttpChecks(ValidationMethod method)
+    [Fact]
+    public async Task ManualDnsCertificate_IsNotChecked()
     {
-        var result = await Check(Automatic() with { ValidationMethod = method }, renewsInDays: 10);
+        var result = await Check(Automatic() with { ValidationMethod = ValidationMethod.Dns01Manual }, renewsInDays: 10);
 
         Assert.Empty(result.Problems);
         Assert.Empty(result.Passed);
+        Assert.Empty(_dns.Checked);
         _preflight.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task DnsCertificate_RunsTheDnsChecksOnItsCertificateNames_NotTheHttpChecks()
+    {
+        var result = await Check(
+            Automatic() with { ValidationMethod = ValidationMethod.Dns01Provider, CertificateNames = ["*.example.com"], AuthorityId = "letsencrypt" },
+            renewsInDays: 10);
+
+        Assert.Equal(["Api"], result.Passed);
+        Assert.Equal(["Dns01Provider *.example.com letsencrypt"], _dns.Checked);
+        _preflight.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task DnsCertificate_AFinding_IsReportedAsAProblem()
+    {
+        _dns.Fail = new InvalidOperationException("The CAA records do not allow it.");
+
+        var result = await Check(Automatic() with { ValidationMethod = ValidationMethod.Dns01Provider }, renewsInDays: 10);
+
+        Assert.Equal("The CAA records do not allow it.", result.Problems["Api"]);
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public async Task DnsCertificate_ANetworkFailure_IsAnErrorNotAProblem()
+    {
+        _dns.Fail = new HttpRequestException("Cloudflare cannot be reached");
+
+        var result = await Check(Automatic() with { ValidationMethod = ValidationMethod.Dns01Provider }, renewsInDays: 10);
+
+        Assert.Empty(result.Problems);
+        Assert.Contains("Cloudflare cannot be reached", Assert.Single(result.Errors), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -110,7 +147,7 @@ public sealed class RenewalReadinessCheckTests
     }
 
     private Task<ProactiveCheckResult> Check(ManagedCertificate certificate, int renewsInDays) =>
-        new RenewalReadinessCheck(_preflight.Object, _lock.Object).CheckAsync(
+        new RenewalReadinessCheck(_preflight.Object, _lock.Object, _dns).CheckAsync(
             [certificate],
             new Dictionary<string, DateTimeOffset> { [certificate.SiteName] = Now.AddDays(renewsInDays) },
             Now);
@@ -121,4 +158,28 @@ public sealed class RenewalReadinessCheckTests
 
     private static ManagedCertificate Automatic() => new(
         "Api", ["api.example.com"], "admin@example.com", "CCDD", Now.AddDays(-50), Now.AddDays(40));
+
+    private sealed class FakeDnsChecks : IDnsChallengeService
+    {
+        public List<string> Checked { get; } = [];
+
+        public Exception? Fail { get; set; }
+
+        public Task CheckBeforeOrderAsync(ValidationMethod method, IReadOnlyList<string> certificateNames, string authorityId, CancellationToken cancellationToken)
+        {
+            Checked.Add($"{method} {string.Join(",", certificateNames)} {authorityId}");
+            return Fail is null ? Task.CompletedTask : Task.FromException(Fail);
+        }
+
+        public Task<IAsyncDisposable> PublishAsync(
+            ValidationMethod method,
+            IReadOnlyList<AcmeDnsChallenge> challenges,
+            ManualDnsConfirmation? confirmManual,
+            IProgress<ProgressEvent>? progress,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("The daily checks must not change DNS.");
+
+        public Task<IReadOnlyList<string>> CleanUpAbandonedAsync(CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("The daily checks must not change DNS.");
+    }
 }

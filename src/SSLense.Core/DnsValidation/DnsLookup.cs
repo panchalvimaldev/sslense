@@ -20,6 +20,10 @@ internal interface IDnsLookup
 
     /// <summary>The TXT values one server returns for <paramref name="name"/>, or null when it does not answer.</summary>
     Task<IReadOnlyList<string>?> QueryTxtAsync(string serverAddress, string name, CancellationToken cancellationToken);
+
+    /// <summary>The CAA records at exactly <paramref name="name"/>; empty when it has none.</summary>
+    /// <exception cref="DnsLookupUnavailableException">Public DNS could not be reached or could not answer.</exception>
+    Task<IReadOnlyList<DnsCaaRecord>> QueryCaaAsync(string name, CancellationToken cancellationToken);
 }
 
 internal sealed class DnsClientLookup : IDnsLookup
@@ -111,6 +115,19 @@ internal sealed class DnsClientLookup : IDnsLookup
         {
             return null;
         }
+    }
+
+    public async Task<IReadOnlyList<DnsCaaRecord>> QueryCaaAsync(string name, CancellationToken cancellationToken)
+    {
+        var response = await QueryAsync(_publicResolvers, DnsNames.Normalize(name), QueryType.CAA, cancellationToken).ConfigureAwait(false);
+        if (response.HasError && response.Header.ResponseCode != DnsHeaderResponseCode.NotExistentDomain)
+        {
+            throw new DnsLookupUnavailableException(
+                $"DNS could not answer for '{name}': {response.ErrorMessage}",
+                new InvalidOperationException(response.ErrorMessage));
+        }
+
+        return response.Answers.CaaRecords().Select(record => new DnsCaaRecord(record.Flags, record.Tag, record.Value)).ToArray();
     }
 
     private async Task<string?> GetAddressAsync(string server, CancellationToken cancellationToken)

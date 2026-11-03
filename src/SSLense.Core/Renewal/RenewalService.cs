@@ -84,7 +84,9 @@ internal sealed class RenewalService : IRenewalService
                 value.Issuer,
                 value.Reminders,
                 value.SnoozedUntil,
-                value.LastRemindedAt));
+                value.LastRemindedAt,
+                value.ValidationMethod,
+                value.CertificateNames));
         }
 
         return statuses;
@@ -141,9 +143,7 @@ internal sealed class RenewalService : IRenewalService
                     certificate.SiteName,
                     false,
                     true,
-                    "Skipped: this certificate uses manual DNS validation. Renew it by hand with " +
-                    $"'SSLense.Cli issue --site \"{certificate.SiteName}\" --email {certificate.Email} --validation dns-manual --force" +
-                    (certificate.AuthorityId == CertificateAuthorities.LetsEncryptId ? " --production --accept-production-risk'." : "'."),
+                    $"Skipped: this certificate uses manual DNS validation. Renew it by hand with '{ManualDnsRenewal.Command(certificate)}'.",
                     certificate.Thumbprint));
                 continue;
             }
@@ -205,7 +205,8 @@ internal sealed class RenewalService : IRenewalService
                         true,
                         certificate.AuthorityId,
                         certificate.Thumbprint,
-                        certificate.ValidationMethod),
+                        certificate.ValidationMethod,
+                        CertificateNames: certificate.CertificateNames),
                     progress,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -223,7 +224,8 @@ internal sealed class RenewalService : IRenewalService
                         $"SSLense renewal succeeded: {certificate.SiteName}",
                         $"The {CertificateAuthorities.Label(certificate.AuthorityId)} certificate for {certificate.SiteName} " +
                         $"({string.Join(", ", certificate.Hosts)}) " +
-                        $"was renewed successfully. New thumbprint: {newThumbprint}."),
+                        $"was renewed successfully. New thumbprint: {newThumbprint}." +
+                        (cleanupMessage is null ? string.Empty : $" {cleanupMessage}")),
                     progress,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -401,11 +403,16 @@ internal sealed class RenewalService : IRenewalService
         }
 
         var sites = await _iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
-        var stillUsed = sites.SelectMany(value => value.Bindings).Any(binding =>
-            string.Equals(binding.CertificateThumbprint, oldThumbprint, StringComparison.OrdinalIgnoreCase));
-        if (stillUsed)
+        var stillUsedBy = sites
+            .Where(value => value.Bindings.Any(binding =>
+                string.Equals(binding.CertificateThumbprint, oldThumbprint, StringComparison.OrdinalIgnoreCase)))
+            .Select(value => value.Name)
+            .ToArray();
+        if (stillUsedBy.Length > 0)
         {
-            return "Renewed successfully; the old certificate was retained because another IIS binding uses it.";
+            return "Renewed successfully; the old certificate was retained because an IIS binding still uses it on " +
+                   $"{string.Join(", ", stillUsedBy.Select(name => $"'{name}'"))}. SSLense does not update those bindings, " +
+                   "so they will keep the old certificate until it expires.";
         }
 
         try

@@ -47,8 +47,14 @@ internal sealed class ServedCertificateCheck(
         foreach (var certificate in candidates)
         {
             var site = sites.FirstOrDefault(value => string.Equals(value.Name, certificate.SiteName, StringComparison.OrdinalIgnoreCase));
+            var sharedProblem = DescribeSharing(certificate, sites, certificates);
             if (site is not { State: StartedState })
             {
+                if (sharedProblem is not null)
+                {
+                    problems[certificate.SiteName] = sharedProblem;
+                }
+
                 continue;
             }
 
@@ -61,9 +67,10 @@ internal sealed class ServedCertificateCheck(
 
             try
             {
-                if (await CheckAsync(certificate, site, cancellationToken).ConfigureAwait(false) is { } problem)
+                var served = await CheckAsync(certificate, site, cancellationToken).ConfigureAwait(false);
+                if (served is not null || sharedProblem is not null)
                 {
-                    problems[certificate.SiteName] = problem;
+                    problems[certificate.SiteName] = string.Join(" ", new[] { served, sharedProblem }.OfType<string>());
                 }
                 else
                 {
@@ -107,6 +114,36 @@ internal sealed class ServedCertificateCheck(
         return problems.Count == 0
             ? null
             : $"{string.Join(" ", problems.Distinct())} Check the site's HTTPS binding in IIS.";
+    }
+
+    /// <summary>
+    /// An administrator may bind an automatic certificate to another site in IIS. Renewal leaves that binding on the old
+    /// certificate, so that site would expire without warning unless it is reported.
+    /// </summary>
+    internal static string? DescribeSharing(
+        ManagedCertificate certificate,
+        IReadOnlyList<IisSite> sites,
+        IReadOnlyList<ManagedCertificate> certificates)
+    {
+        if (certificate.Source != CertificateSource.Acme)
+        {
+            return null;
+        }
+
+        var expected = Normalize(certificate.Thumbprint);
+        var others = sites
+            .Where(site =>
+                !string.Equals(site.Name, certificate.SiteName, StringComparison.OrdinalIgnoreCase) &&
+                site.Bindings.Any(binding => binding.CertificateThumbprint is { } thumbprint && Normalize(thumbprint) == expected) &&
+                !certificates.Any(other =>
+                    string.Equals(other.SiteName, site.Name, StringComparison.OrdinalIgnoreCase) &&
+                    Normalize(other.Thumbprint) == expected))
+            .Select(site => $"'{site.Name}'")
+            .ToArray();
+        return others.Length == 0
+            ? null
+            : $"IIS site {string.Join(", ", others)} also uses this certificate, but SSLense does not update that binding when it renews, " +
+              $"so it will stop working when the current certificate expires on {certificate.NotAfter:yyyy-MM-dd}. Give that site its own certificate.";
     }
 
     private async Task<string?> CheckBindingAsync(

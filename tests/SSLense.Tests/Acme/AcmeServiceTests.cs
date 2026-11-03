@@ -505,6 +505,227 @@ public sealed class AcmeServiceTests
     }
 
     [Fact]
+    public async Task IssueAsync_Wildcard_OrdersTheNames_BindsTheHosts_AndRecordsBoth()
+    {
+        var harness = WildcardHarness();
+
+        await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site",
+            ["shop.example.com", "example.com"],
+            "admin@example.com",
+            ValidationMethod: ValidationMethod.Dns01Provider,
+            CertificateNames: ["*.example.com", "Example.com."]));
+
+        Assert.Equal("check *.example.com,example.com", harness.Steps[0]);
+        Assert.Equal("publish 2", harness.Steps[1]);
+        harness.Protocol.Verify(value => value.CreateDnsOrderAsync(
+            "admin@example.com",
+            It.Is<IReadOnlyList<string>>(names => names.SequenceEqual(new[] { "*.example.com", "example.com" })),
+            It.IsAny<CertificateAuthority>(),
+            It.IsAny<CancellationToken>()));
+        harness.Order.Verify(value => value.FinalizeAsync("*.example.com", It.IsAny<string>(), It.IsAny<CancellationToken>()));
+        harness.Iis.Verify(value => value.ConfigureHttpsBindingsAsync(
+            "My Site",
+            It.Is<IReadOnlyList<string>>(hosts => hosts.SequenceEqual(new[] { "shop.example.com", "example.com" })),
+            "AABBCC",
+            "My",
+            It.IsAny<CancellationToken>()));
+        harness.Managed.Verify(value => value.UpsertAsync(
+            It.Is<ManagedCertificate>(record =>
+                record.Hosts.SequenceEqual(new[] { "shop.example.com", "example.com" }) &&
+                record.CertificateNames!.SequenceEqual(new[] { "*.example.com", "example.com" })),
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task IssueAsync_NamesWithoutHosts_BindsOnlyTheBindingsTheNamesCover()
+    {
+        var harness = WildcardHarness(
+            new IisBinding("http", "*", 80, "shop.example.com", null, null, false),
+            new IisBinding("http", "*", 80, "deep.shop.example.com", null, null, false),
+            new IisBinding("http", "*", 80, "example.net", null, null, false));
+        harness.Order.SetupGet(value => value.DnsChallenges).Returns(
+            [new AcmeDnsChallenge("example.com", true, "_acme-challenge.example.com", "wild-value")]);
+
+        await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", [], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider, CertificateNames: ["*.example.com"]));
+
+        harness.Iis.Verify(value => value.ConfigureHttpsBindingsAsync(
+            "My Site",
+            It.Is<IReadOnlyList<string>>(hosts => hosts.SequenceEqual(new[] { "shop.example.com" })),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<CancellationToken>()));
+    }
+
+    [Fact]
+    public async Task IssueAsync_NoBindingIsCoveredByTheNames_IsRefusedBeforeAnOrder()
+    {
+        var harness = WildcardHarness(new IisBinding("http", "*", 80, "example.net", null, null, false));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", [], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider, CertificateNames: ["*.example.com"])));
+
+        Assert.Contains("*.example.com", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(harness.Steps);
+    }
+
+    [Fact]
+    public async Task IssueAsync_AHostTheNamesDoNotCover_IsRefusedBeforeAnOrder()
+    {
+        var harness = WildcardHarness();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site",
+            ["example.com"],
+            "admin@example.com",
+            ValidationMethod: ValidationMethod.Dns01Provider,
+            CertificateNames: ["*.example.com"])));
+
+        Assert.Contains("not covered", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(harness.Steps);
+    }
+
+    [Fact]
+    public async Task IssueAsync_NamesOverHttp_AreRefused()
+    {
+        var harness = new DnsHarness("C:\\inetpub\\site", new IisBinding("http", "*", 80, "shop.example.com", null, null, false));
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["shop.example.com"], "admin@example.com", CertificateNames: ["*.example.com"])));
+
+        Assert.Contains("DNS validation", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("*.com")]
+    [InlineData("*.*.example.com")]
+    [InlineData("shop.*.example.com")]
+    [InlineData("*example.com")]
+    [InlineData("not a name")]
+    public async Task IssueAsync_InvalidCertificateName_IsRefused(string name)
+    {
+        var harness = WildcardHarness();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider, CertificateNames: [name])));
+
+        Assert.Empty(harness.Steps);
+    }
+
+    [Fact]
+    public async Task IssueAsync_ANameTheWildcardAlreadyCovers_IsRefused()
+    {
+        var harness = WildcardHarness();
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site",
+            ["shop.example.com"],
+            "admin@example.com",
+            ValidationMethod: ValidationMethod.Dns01Provider,
+            CertificateNames: ["*.example.com", "shop.example.com"])));
+
+        Assert.Contains("already covered", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task IssueAsync_ALiteralWildcardHost_IsRefusedWithAnExplanation()
+    {
+        var harness = WildcardHarness();
+
+        var exception = await Assert.ThrowsAsync<ArgumentException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["*.example.com"], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider)));
+
+        Assert.Contains("--names", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task IssueAsync_AnAuthorizationForAWildcardNotRequested_IsRefused()
+    {
+        var harness = WildcardHarness();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider, CertificateNames: ["example.com"])));
+
+        Assert.Contains("*.example.com", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("finalize", harness.Steps);
+    }
+
+    [Theory]
+    [InlineData("Other Site", CertificateAuthorities.LetsEncryptStagingId, CertificateSource.Acme, true)]
+    [InlineData("OTHER SITE", CertificateAuthorities.LetsEncryptStagingId, CertificateSource.Acme, true)]
+    [InlineData("My Site", CertificateAuthorities.LetsEncryptStagingId, CertificateSource.Acme, false)]
+    [InlineData("Other Site", CertificateAuthorities.LetsEncryptId, CertificateSource.Acme, false)]
+    [InlineData("Other Site", CertificateAuthorities.LetsEncryptStagingId, CertificateSource.Imported, false)]
+    public async Task IssueAsync_AWildcardManagedForAnotherSite_IsRefusedEvenWithForce(
+        string site,
+        string authorityId,
+        CertificateSource source,
+        bool refused)
+    {
+        var harness = WildcardHarness();
+        harness.SetManaged(new ManagedCertificate(
+            site,
+            ["other.example.com"],
+            "admin@example.com",
+            "OLD",
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow.AddDays(60),
+            AuthorityId: authorityId,
+            Source: source,
+            CertificateNames: ["*.EXAMPLE.com"]));
+        var request = new AcmeIssueRequest(
+            "My Site",
+            ["shop.example.com", "example.com"],
+            "admin@example.com",
+            Force: true,
+            ValidationMethod: ValidationMethod.Dns01Provider,
+            CertificateNames: ["*.example.com", "example.com"]);
+
+        if (refused)
+        {
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(request));
+            Assert.Contains("only one site", exception.Message, StringComparison.Ordinal);
+            Assert.Empty(harness.Steps);
+        }
+        else
+        {
+            await harness.Service.IssueAsync(request);
+            Assert.Contains("finalize", harness.Steps);
+        }
+    }
+
+    [Fact]
+    public async Task IssueAsync_HostsOnly_RecordsNoCertificateNames()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+
+        await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider));
+
+        harness.Managed.Verify(value => value.UpsertAsync(
+            It.Is<ManagedCertificate>(record => record.CertificateNames == null),
+            CancellationToken.None));
+    }
+
+    private static DnsHarness WildcardHarness(params IisBinding[] bindings)
+    {
+        var harness = new DnsHarness(bindings.Length > 0
+            ? bindings
+            : [
+                new IisBinding("http", "*", 80, "shop.example.com", null, null, false),
+                new IisBinding("http", "*", 80, "example.com", null, null, false)
+            ]);
+        harness.Order.SetupGet(value => value.DnsChallenges).Returns(
+        [
+            new AcmeDnsChallenge("example.com", true, "_acme-challenge.example.com", "wild-value"),
+            new AcmeDnsChallenge("example.com", false, "_acme-challenge.example.com", "base-value")
+        ]);
+        harness.SetManaged();
+        return harness;
+    }
+
+    [Fact]
     public async Task IssueAsync_Http_StillNeedsAPort80Binding()
     {
         var harness = new DnsHarness(
@@ -538,8 +759,7 @@ public sealed class AcmeServiceTests
             Protocol.Setup(value => value.CreateDnsOrderAsync(
                     It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateAuthority>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(Order.Object);
-            var iis = new Mock<IIisService>();
-            iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>()))
+            Iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>()))
                 .ReturnsAsync([new IisSite(1, "My Site", "Started", physicalPath, bindings)]);
             var artifacts = new Mock<ICertificateArtifactStore>();
             artifacts.Setup(value => value.SaveAsync(
@@ -550,7 +770,7 @@ public sealed class AcmeServiceTests
                     It.IsAny<byte[]>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new InstalledCertificate("AABBCC", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(60), true));
             Service = new AcmeService(
-                iis.Object,
+                Iis.Object,
                 Protocol.Object,
                 Mock.Of<IChallengeHandler>(MockBehavior.Strict),
                 Mock.Of<IChallengeProbe>(MockBehavior.Strict),
@@ -561,6 +781,11 @@ public sealed class AcmeServiceTests
         }
 
         public List<string> Steps { get; } = [];
+
+        public Mock<IIisService> Iis { get; } = new();
+
+        public void SetManaged(params ManagedCertificate[] records) =>
+            Managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(records);
 
         public Mock<IAcmeOrderSession> Order { get; } = new();
 
@@ -579,7 +804,7 @@ public sealed class AcmeServiceTests
 
         public Exception? FailPublish { get; set; }
 
-        public Task CheckBeforeOrderAsync(ValidationMethod method, IReadOnlyList<string> certificateNames, CancellationToken cancellationToken)
+        public Task CheckBeforeOrderAsync(ValidationMethod method, IReadOnlyList<string> certificateNames, string authorityId, CancellationToken cancellationToken)
         {
             if (FailCheck is not null)
             {

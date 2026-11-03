@@ -76,6 +76,19 @@ internal sealed class FakeDnsLookup : IDnsLookup
 
     public Task<IReadOnlyList<string>?> QueryTxtAsync(string serverAddress, string name, CancellationToken cancellationToken) =>
         Task.FromResult(Answer(serverAddress, name));
+
+    /// <summary>CAA records by the exact name that holds them.</summary>
+    public Dictionary<string, IReadOnlyList<DnsCaaRecord>> Caa { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public List<string> CaaQueries { get; } = [];
+
+    public Task<IReadOnlyList<DnsCaaRecord>> QueryCaaAsync(string name, CancellationToken cancellationToken)
+    {
+        CaaQueries.Add(name);
+        return Unavailable
+            ? Task.FromException<IReadOnlyList<DnsCaaRecord>>(new DnsLookupUnavailableException("blocked", new TimeoutException()))
+            : Task.FromResult(Caa.TryGetValue(name, out var records) ? records : (IReadOnlyList<DnsCaaRecord>)[]);
+    }
 }
 
 internal sealed class FakeDnsChallengeJournal : IDnsChallengeJournal

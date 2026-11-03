@@ -287,6 +287,38 @@ public sealed class ReminderDigestBuilderTests
             digest.ToRecords());
     }
 
+    [Fact]
+    public void ManualDnsCertificate_InTheWindow_AsksForAHandRenewal_AndNeverPromisesAnAutomaticOne()
+    {
+        var certificate = Automatic(10) with { ValidationMethod = ValidationMethod.Dns01Manual };
+
+        var digest = Build(certificate);
+
+        Assert.Equal(ReminderItemKind.ManualDnsRenewalDue, Assert.Single(digest.Items).Kind);
+        var body = digest.ToMessage("WEB01").Body;
+        Assert.Contains("--validation dns-manual", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("renew it automatically", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Will renew automatically", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ManualDnsCertificate_OutsideTheWindow_IsSkippedUntilItOpens()
+    {
+        var decision = Decision(Automatic(200) with { ValidationMethod = ValidationMethod.Dns01Manual });
+
+        Assert.False(decision.Included);
+        Assert.NotNull(decision.NextReminder);
+    }
+
+    [Fact]
+    public void ManualDnsCertificate_Expired_GivesTheHandRenewalCommand()
+    {
+        var digest = Build(Automatic(-3) with { ValidationMethod = ValidationMethod.Dns01Manual });
+
+        Assert.Equal(ReminderItemKind.Expired, Assert.Single(digest.Items).Kind);
+        Assert.Contains("--validation dns-manual", digest.ToMessage("WEB01").Body, StringComparison.Ordinal);
+    }
+
     private static ReminderDecision Decision(ManagedCertificate certificate) => Assert.Single(Build(certificate).Decisions);
 
     private static ReminderDigest Build(ManagedCertificate certificate, DateTimeOffset? scheduledRenewal = null) =>

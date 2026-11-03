@@ -169,16 +169,95 @@ public sealed class DnsChallengeServiceTests
     public async Task CheckBeforeOrder_VerifiesEachProviderOnce()
     {
         await Service().CheckBeforeOrderAsync(
-            ValidationMethod.Dns01Provider, ["example.com", "www.example.com"], CancellationToken.None);
+            ValidationMethod.Dns01Provider, ["example.com", "www.example.com"], CertificateAuthorities.LetsEncryptStagingId, CancellationToken.None);
 
         Assert.Equal(["verify Main"], _provider.Calls);
+    }
+
+    [Fact]
+    public async Task CheckBeforeOrder_NoPublicNameServers_IsRefused()
+    {
+        _lookup.Servers = [];
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => Service().CheckBeforeOrderAsync(
+            ValidationMethod.Dns01Manual, ["server.example.com"], CertificateAuthorities.LetsEncryptStagingId, CancellationToken.None));
+
+        Assert.Contains("public name servers", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CheckBeforeOrder_CaaAtAParentBlocksTheCa_IsRefused()
+    {
+        _lookup.Caa["example.com"] = [new DnsCaaRecord(0, "issue", "other-ca.example")];
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => Service().CheckBeforeOrderAsync(
+            ValidationMethod.Dns01Provider, ["shop.example.com"], CertificateAuthorities.LetsEncryptId, CancellationToken.None));
+
+        Assert.Contains("'example.com'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("letsencrypt.org", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CheckBeforeOrder_ClosestCaaDecides_AndParentsAreNotRead()
+    {
+        _lookup.Caa["shop.example.com"] = [new DnsCaaRecord(0, "issue", "letsencrypt.org")];
+        _lookup.Caa["example.com"] = [new DnsCaaRecord(0, "issue", "other-ca.example")];
+
+        await Service().CheckBeforeOrderAsync(
+            ValidationMethod.Dns01Provider, ["shop.example.com"], CertificateAuthorities.LetsEncryptId, CancellationToken.None);
+
+        Assert.Equal(["shop.example.com"], _lookup.CaaQueries);
+    }
+
+    [Fact]
+    public async Task CheckBeforeOrder_Wildcard_ChecksItsBaseNameWithTheWildcardRules()
+    {
+        _lookup.Caa["example.com"] = [new DnsCaaRecord(0, "issue", "letsencrypt.org"), new DnsCaaRecord(0, "issuewild", ";")];
+
+        await Service().CheckBeforeOrderAsync(
+            ValidationMethod.Dns01Provider, ["example.com"], CertificateAuthorities.LetsEncryptId, CancellationToken.None);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().CheckBeforeOrderAsync(
+            ValidationMethod.Dns01Provider, ["*.example.com"], CertificateAuthorities.LetsEncryptId, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CheckBeforeOrder_DnsBlocked_SkipsTheEarlyChecks()
+    {
+        _lookup.Unavailable = true;
+        _lookup.Caa["example.com"] = [new DnsCaaRecord(0, "issue", ";")];
+
+        await Service().CheckBeforeOrderAsync(
+            ValidationMethod.Dns01Provider, ["example.com"], CertificateAuthorities.LetsEncryptId, CancellationToken.None);
+
+        Assert.Equal(["verify Main"], _provider.Calls);
+    }
+
+    [Fact]
+    public async Task CheckBeforeOrder_CaaUnknownForThisCa_IsNotChecked()
+    {
+        await Service().CheckBeforeOrderAsync(ValidationMethod.Dns01Provider, ["example.com"], "custom-ca", CancellationToken.None);
+
+        Assert.Empty(_lookup.CaaQueries);
+    }
+
+    [Fact]
+    public async Task Publish_WildcardAndBaseName_PublishesBothValuesAtOneName()
+    {
+        await using var cleanup = await Service().PublishAsync(
+            ValidationMethod.Dns01Provider,
+            [Base, new AcmeDnsChallenge("example.com", true, "_acme-challenge.example.com", "wild-value")],
+            null,
+            Progress(),
+            CancellationToken.None);
+
+        Assert.Equal(2, _provider.Records.Count(record => record.Name == "_acme-challenge.example.com"));
     }
 
     [Fact]
     public async Task CheckBeforeOrder_NoProvider_ExplainsTheOptions()
     {
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => Service().CheckBeforeOrderAsync(
-            ValidationMethod.Dns01Provider, ["other.net"], CancellationToken.None));
+            ValidationMethod.Dns01Provider, ["other.net"], CertificateAuthorities.LetsEncryptStagingId, CancellationToken.None));
 
         Assert.Contains("dns add", exception.Message, StringComparison.Ordinal);
         Assert.Contains("CNAME", exception.Message, StringComparison.Ordinal);
@@ -187,7 +266,7 @@ public sealed class DnsChallengeServiceTests
     [Fact]
     public async Task CheckBeforeOrder_Manual_NeedsNoProvider()
     {
-        await Service().CheckBeforeOrderAsync(ValidationMethod.Dns01Manual, ["other.net"], CancellationToken.None);
+        await Service().CheckBeforeOrderAsync(ValidationMethod.Dns01Manual, ["other.net"], CertificateAuthorities.LetsEncryptStagingId, CancellationToken.None);
 
         Assert.Empty(_provider.Calls);
     }

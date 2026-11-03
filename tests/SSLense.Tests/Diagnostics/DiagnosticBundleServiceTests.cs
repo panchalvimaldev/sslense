@@ -68,6 +68,26 @@ public sealed class DiagnosticBundleServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task CreateAsync_RedactHosts_HidesDnsZonesAndNamesInsideThem_EvenWhenNoCertificateUsesThem()
+    {
+        var result = await CreateService().CreateAsync(new DiagnosticBundleRequest(_output, RedactHosts: true));
+
+        var entries = ReadEntries(result.Path);
+        Assert.Contains("Main", entries["config.json"], StringComparison.Ordinal);
+        Assert.DoesNotContain("example.com", string.Join("\n", entries.Values), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WithoutRedaction_KeepsDnsZones()
+    {
+        var result = await CreateService().CreateAsync(new DiagnosticBundleRequest(_output));
+
+        var entries = ReadEntries(result.Path);
+        Assert.Contains("\"example.com\"", entries["config.json"], StringComparison.Ordinal);
+        Assert.Contains("shop-com.acme.example.com", entries["logs/sslense-20261028.log"], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task CreateAsync_RedactHosts_ReplacesSiteFoldersInJsonAndLogs()
     {
         var service = CreateService();
@@ -130,6 +150,34 @@ public sealed class DiagnosticBundleServiceTests : IDisposable
         var everything = string.Join("\n", ReadEntries(result.Path).Values);
         Assert.DoesNotContain(LoggedPassword, everything, StringComparison.Ordinal);
         Assert.DoesNotContain(LoggedBearer, everything, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("TXT '_acme-challenge.shop.example.com' published")]
+    [InlineData("{\"certificateNames\":[\"*.example.com\"]}")]
+    [InlineData("TXT 'shop-com.acme.delegated.example' published")]
+    [InlineData("zone delegated.example")]
+    public void HostMap_HidesWildcardsChallengeRecordsZonesAndNamesInsideZones(string text)
+    {
+        var map = DiagnosticBundleService.CreateHostMap(
+            ["*.example.com", "_acme-challenge.example.com", "_acme-challenge.shop.example.com", "example.com"],
+            ["delegated.example"]);
+
+        var redacted = map.Aggregate(text, (current, item) => item.Pattern.Replace(current, item.Replacement));
+
+        Assert.DoesNotContain("example.com", redacted, StringComparison.Ordinal);
+        Assert.DoesNotContain("delegated.example", redacted, StringComparison.Ordinal);
+        Assert.Contains("host-", redacted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HostMap_AZoneDoesNotHideALongerNameThatOnlyEndsTheSame()
+    {
+        var map = DiagnosticBundleService.CreateHostMap([], ["example.com"]);
+
+        Assert.Equal(
+            "notexample.com",
+            map.Aggregate("notexample.com", (current, item) => item.Pattern.Replace(current, item.Replacement)));
     }
 
     [Fact]
@@ -199,6 +247,7 @@ public sealed class DiagnosticBundleServiceTests : IDisposable
         var fileSystem = new InMemoryFileSystem();
         fileSystem.Files[Path.Combine(AppPaths.LogDirectory, "sslense-20261028.log")] = string.Join("\n",
             "[INF] Issued for acme-test.sslense.com, thumbprint 6533D7B01A1F3C4BDF85551F375A3EFC4BD45F5F",
+            "[INF] Publishing the TXT record 'shop-com.acme.example.com' with Main.",
             @"[INF] Preparing the challenge in C:\inetpub\sslense\.well-known",
             @"[INF] Preparing the challenge in D:\clients\admin@example.com\PrivateProject\web\.well-known",
             $"[ERR] SMTP authentication failed: password={LoggedPassword}",

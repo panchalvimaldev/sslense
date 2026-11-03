@@ -52,7 +52,7 @@ SSLense shows each record to create, waits until the administrator confirms, che
 
 **Manual certificates cannot renew automatically.** The service never tries to renew them. The daily digest reminds the administrator using the existing reminder settings:
 
-> **\*.example.com (Let's Encrypt): renew this certificate by hand.** It expires on 15 Jan 2027 and uses manual DNS validation. Run `SSLense.Cli renew --site "Shop"`, or use **Renew** in the GUI.
+> **shop.example.com on site 'Shop' (Let's Encrypt): expires 15 Jan 2027, 12 days left.** It uses manual DNS validation, so SSLense cannot renew it on its own. Renew it by hand: `SSLense.Cli issue --site "Shop" --email ops@example.com --validation dns-manual --force --names "*.example.com" --hosts "shop.example.com"`
 
 With certificate lifetimes moving toward 45 days, this is a lot of work. The wizard and documentation say so, and recommend CNAME delegation instead.
 
@@ -157,7 +157,7 @@ This is the most common reason to want a wildcard, and it is the riskiest part: 
 
 **In the first release, one certificate belongs to one IIS site:**
 
-- Requesting a wildcard name already managed for another site is refused and explains why. Issuing a copy per site is not a workaround. Let's Encrypt allows 5 certificates per week for the same set of names, across all accounts, and SSLense's renewals count toward this because it cannot yet send the ARI `replaces` field.
+- Requesting a wildcard name already managed for another site by the same CA is refused and explains why. `--force` does not override this. Issuing a copy per site is not a workaround. Let's Encrypt allows 5 certificates per week for the same set of names, across all accounts, and SSLense's renewals count toward this because it cannot yet send the ARI `replaces` field.
 - **Hand-sharing is detected.** An administrator could bind the certificate to a second site in IIS. Renewal keeps the old certificate in that case, but only reports it as "another IIS binding uses it", and that site would then expire without warning. Renewal must name those sites in its result and notification, and the daily check must report them.
 
 **Planned for the sharing release:**
@@ -210,8 +210,8 @@ Must hold before merge:
 | Step | Contents | Ships |
 |---|---|---|
 | 1 | This design. **Done.** | Docs |
-| 2 | Core: data model and migrations, DNS challenges, Cloudflare and manual methods, CNAME following, propagation check, token storage, journal and recovery; `dns` commands and `issue --validation`. **Code done; needs a staging test on a real zone.** | CLI, staging |
-| 3 | Wildcards: `--names`, CAA checks, renewal, readiness and health checks, reminders for manual certificates, one-site rule, hand-sharing detection, diagnostics | CLI |
+| 2 | Core: data model and migrations, DNS challenges, Cloudflare and manual methods, CNAME following, propagation check, token storage, journal and recovery; `dns` commands and `issue --validation`. **Done.** Tested November 3, 2026 on Let's Encrypt staging with the real Cloudflare API: `dns add`, `dns test`, `issue --validation dns` and a forced `renew` from the CLI. The renewal reused the valid authorization, so it published no DNS records. | CLI, staging |
+| 3 | Wildcards: `--names`, CAA checks, renewal, readiness and health checks, reminders for manual certificates, one-site rule, hand-sharing detection, diagnostics. **Code done; needs a staging test of a wildcard on a real zone.** | CLI |
 | 4 | GUI, README, website, roadmap; manual acceptance; release as 0.13 | Both |
 | 5 | Sharing one certificate across several sites, after its design section; release as 0.14 | Both |
 | 6 | A script method, after its design section: the service runs as SYSTEM, so the design must cover who can configure a script and how the script file is protected | Both |

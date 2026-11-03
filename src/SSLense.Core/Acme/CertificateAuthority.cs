@@ -60,6 +60,9 @@ public static partial class CertificateAuthorities
         _ => authorityId
     };
 
+    /// <summary>The domain this CA looks for in CAA records, or null when SSLense does not know it.</summary>
+    public static string? CaaDomain(string authorityId) => IsBuiltIn(authorityId) ? "letsencrypt.org" : null;
+
     public static bool IsValidId(string id) => ValidId().IsMatch(id);
 
     [GeneratedRegex("^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$")]

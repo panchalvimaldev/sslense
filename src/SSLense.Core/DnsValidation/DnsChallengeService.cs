@@ -6,10 +6,14 @@ namespace SSLense.Core.DnsValidation;
 
 internal interface IDnsChallengeService
 {
-    /// <summary>Confirms, before an order is created, that every record can be published.</summary>
+    /// <summary>
+    /// Confirms, before an order is created, that every record can be published and that CAA records allow the CA to
+    /// issue. Changes nothing in DNS, so the daily readiness checks use it too.
+    /// </summary>
     Task CheckBeforeOrderAsync(
         ValidationMethod method,
         IReadOnlyList<string> certificateNames,
+        string authorityId,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -40,25 +44,80 @@ internal sealed class DnsChallengeService(
     public async Task CheckBeforeOrderAsync(
         ValidationMethod method,
         IReadOnlyList<string> certificateNames,
+        string authorityId,
         CancellationToken cancellationToken)
     {
-        if (method != ValidationMethod.Dns01Provider)
-        {
-            return;
-        }
-
-        var profiles = await GetProfilesAsync(cancellationToken).ConfigureAwait(false);
+        var profiles = method == ValidationMethod.Dns01Provider
+            ? await GetProfilesAsync(cancellationToken).ConfigureAwait(false)
+            : [];
         var selected = new Dictionary<string, DnsProviderProfile>(StringComparer.OrdinalIgnoreCase);
         foreach (var name in certificateNames)
         {
             var target = await lookup.ResolveCnameAsync(DnsNames.ChallengeRecord(name), cancellationToken).ConfigureAwait(false);
-            var profile = SelectProfile(profiles, target);
-            selected[profile.Name] = profile;
+            await EnsureHasNameServersAsync(target, cancellationToken).ConfigureAwait(false);
+            if (method == ValidationMethod.Dns01Provider)
+            {
+                var profile = SelectProfile(profiles, target);
+                selected[profile.Name] = profile;
+            }
         }
 
         foreach (var profile in selected.Values)
         {
             await GetProvider(profile).VerifyAccessAsync(profile, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (CertificateAuthorities.CaaDomain(authorityId) is { } caDomain)
+        {
+            foreach (var name in certificateNames)
+            {
+                await EnsureCaaAllowsAsync(name, caDomain, cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private async Task EnsureHasNameServersAsync(string recordName, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if ((await lookup.GetAuthoritativeServersAsync(recordName, cancellationToken).ConfigureAwait(false)).Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"No public name servers were found for '{recordName}'. A public certificate authority can only validate names in public DNS.");
+            }
+        }
+        catch (DnsLookupUnavailableException)
+        {
+            // Outbound DNS may be blocked on this server, which does not stop the CA from reading the record.
+        }
+    }
+
+    private async Task EnsureCaaAllowsAsync(string certificateName, string caDomain, CancellationToken cancellationToken)
+    {
+        var name = DnsNames.Normalize(certificateName);
+        var current = DnsNames.IsWildcard(name) ? name[2..] : name;
+        try
+        {
+            // The closest name with any CAA records decides, whether or not they mention this CA.
+            while (current.Contains('.'))
+            {
+                var records = await lookup.QueryCaaAsync(current, cancellationToken).ConfigureAwait(false);
+                if (records.Count > 0)
+                {
+                    if (CaaPolicy.FindProblem(name, current, records, caDomain) is { } problem)
+                    {
+                        throw new InvalidOperationException(problem);
+                    }
+
+                    return;
+                }
+
+                current = current[(current.IndexOf('.') + 1)..];
+            }
+        }
+        catch (DnsLookupUnavailableException)
+        {
+            // The CA checks CAA itself, so this only loses the early warning.
         }
     }
 

@@ -29,6 +29,8 @@ internal static class DnsNames
 
     public static string Normalize(string name) => name.Trim().TrimEnd('.').ToLowerInvariant();
 
+    public static bool IsWildcard(string certificateName) => certificateName.StartsWith("*.", StringComparison.Ordinal);
+
     /// <summary>The record a CA reads for a certificate name; a wildcard uses its base name's record.</summary>
     public static string ChallengeRecord(string certificateName)
     {
