@@ -397,33 +397,10 @@ internal sealed class RenewalService : IRenewalService
         string newThumbprint,
         CancellationToken cancellationToken)
     {
-        if (string.Equals(oldThumbprint, newThumbprint, StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
-
-        var sites = await _iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
-        var stillUsedBy = sites
-            .Where(value => value.Bindings.Any(binding =>
-                string.Equals(binding.CertificateThumbprint, oldThumbprint, StringComparison.OrdinalIgnoreCase)))
-            .Select(value => value.Name)
-            .ToArray();
-        if (stillUsedBy.Length > 0)
-        {
-            return "Renewed successfully; the old certificate was retained because an IIS binding still uses it on " +
-                   $"{string.Join(", ", stillUsedBy.Select(name => $"'{name}'"))}. SSLense does not update those bindings, " +
-                   "so they will keep the old certificate until it expires.";
-        }
-
-        try
-        {
-            await _certificateStore.RemoveAsync(oldThumbprint, cancellationToken).ConfigureAwait(false);
-            return null;
-        }
-        catch (Exception exception)
-        {
-            return $"Renewed successfully, but the unused old certificate could not be removed: {exception.Message}";
-        }
+        var message = await ReplacedCertificateCleanup
+            .RemoveIfUnusedAsync(_iisService, _certificateStore, oldThumbprint, newThumbprint, cancellationToken)
+            .ConfigureAwait(false);
+        return message is null ? null : $"Renewed successfully; {message}";
     }
 
     private static void ValidateRequest(RenewalRequest request)

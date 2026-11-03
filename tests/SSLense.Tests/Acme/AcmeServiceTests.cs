@@ -708,6 +708,97 @@ public sealed class AcmeServiceTests
             CancellationToken.None));
     }
 
+    [Theory]
+    [InlineData(ValidationMethod.Dns01Provider)]
+    [InlineData(ValidationMethod.Dns01Manual)]
+    public async Task IssueAsync_ReplacingAnAcmeCertificate_RemovesTheOldOne_AfterTheRecordIsSaved(ValidationMethod method)
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "AABBCC", "My", true));
+        harness.SetManaged(Previous());
+        var order = new List<string>();
+        harness.Managed.Setup(value => value.UpsertAsync(It.IsAny<ManagedCertificate>(), It.IsAny<CancellationToken>()))
+            .Callback(() => order.Add("saved"))
+            .Returns(Task.CompletedTask);
+        harness.Store.Setup(value => value.RemoveAsync("OLD", It.IsAny<CancellationToken>()))
+            .Callback(() => order.Add("removed"))
+            .Returns(Task.CompletedTask);
+
+        await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site",
+            ["example.com"],
+            "admin@example.com",
+            Force: true,
+            ExpectedCurrentThumbprint: "OLD",
+            ValidationMethod: method,
+            ConfirmManualDns: (_, _) => Task.FromResult(true)));
+
+        Assert.Equal(["saved", "removed"], order);
+    }
+
+    [Fact]
+    public async Task IssueAsync_TheOldCertificateIsStillBound_KeepsItAndNamesTheSite()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+        harness.SetManaged(Previous());
+        var lines = new List<string>();
+
+        await harness.Service.IssueAsync(
+            new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider),
+            new SynchronousProgress(value => lines.Add(value.Message)));
+
+        harness.Store.Verify(value => value.RemoveAsync("OLD", It.IsAny<CancellationToken>()), Times.Never);
+        Assert.Contains(lines, line => line.Contains("'My Site'", StringComparison.Ordinal) && line.Contains("retained", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task IssueAsync_AnImportedCertificateIsReplaced_IsNeverRemoved()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "AABBCC", "My", true));
+        harness.SetManaged(Previous() with { Source = CertificateSource.Imported });
+
+        await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider));
+
+        harness.Store.Verify(value => value.RemoveAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task IssueAsync_ACertificateOfAnotherSite_IsNeverRemoved()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "AABBCC", "My", true));
+        harness.SetManaged(Previous() with { SiteName = "Other Site" });
+
+        await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider));
+
+        harness.Store.Verify(value => value.RemoveAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task IssueAsync_RemovingTheOldCertificateFails_StillSucceedsAndSaysSo()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "AABBCC", "My", true));
+        harness.SetManaged(Previous());
+        harness.Store.Setup(value => value.RemoveAsync("OLD", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("store is locked"));
+        var lines = new List<string>();
+
+        var result = await harness.Service.IssueAsync(
+            new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider),
+            new SynchronousProgress(value => lines.Add(value.Message)));
+
+        Assert.Equal("AABBCC", result.CertificateThumbprint);
+        Assert.Contains(lines, line => line.Contains("store is locked", StringComparison.Ordinal));
+    }
+
+    private static ManagedCertificate Previous() => new(
+        "My Site", ["example.com"], "admin@example.com", "OLD", DateTimeOffset.UtcNow.AddDays(-60), DateTimeOffset.UtcNow.AddDays(4));
+
+    private sealed class SynchronousProgress(Action<ProgressEvent> report) : IProgress<ProgressEvent>
+    {
+        public void Report(ProgressEvent value) => report(value);
+    }
+
     private static DnsHarness WildcardHarness(params IisBinding[] bindings)
     {
         var harness = new DnsHarness(bindings.Length > 0
@@ -765,8 +856,7 @@ public sealed class AcmeServiceTests
             artifacts.Setup(value => value.SaveAsync(
                     It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateBundle>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new AcmeIssueResult("certificate.pem", null, ["example.com"]));
-            var certificateStore = new Mock<ICertificateStore>();
-            certificateStore.Setup(value => value.ImportPfxAsync(
+            Store.Setup(value => value.ImportPfxAsync(
                     It.IsAny<byte[]>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new InstalledCertificate("AABBCC", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(60), true));
             Service = new AcmeService(
@@ -775,7 +865,7 @@ public sealed class AcmeServiceTests
                 Mock.Of<IChallengeHandler>(MockBehavior.Strict),
                 Mock.Of<IChallengeProbe>(MockBehavior.Strict),
                 artifacts.Object,
-                certificateStore.Object,
+                Store.Object,
                 Managed.Object,
                 dnsChallenges: Dns);
         }
@@ -783,6 +873,8 @@ public sealed class AcmeServiceTests
         public List<string> Steps { get; } = [];
 
         public Mock<IIisService> Iis { get; } = new();
+
+        public Mock<ICertificateStore> Store { get; } = new();
 
         public void SetManaged(params ManagedCertificate[] records) =>
             Managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(records);

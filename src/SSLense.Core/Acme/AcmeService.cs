@@ -258,6 +258,7 @@ internal sealed class AcmeService : IAcmeService
                 throw;
             }
 
+            var replaced = await FindReplacedCertificateAsync(site.Name).ConfigureAwait(false);
             progress?.Report(new ProgressEvent("state", "Saving the managed certificate record."));
             await _managedCertificateStore.UpsertAsync(
                     pendingRecord,
@@ -270,6 +271,10 @@ internal sealed class AcmeService : IAcmeService
                 .ConfigureAwait(false);
             await _transactionJournal.CompleteAsync(transaction.Id, CancellationToken.None)
                 .ConfigureAwait(false);
+            if (replaced is not null)
+            {
+                await RemoveReplacedCertificateAsync(replaced, installedCertificate.Thumbprint, progress).ConfigureAwait(false);
+            }
 
             return artifacts with
             {
@@ -285,6 +290,46 @@ internal sealed class AcmeService : IAcmeService
             {
                 CryptographicOperations.ZeroMemory(bundle.PfxBytes);
             }
+        }
+    }
+
+    /// <summary>
+    /// The thumbprint of the ACME certificate this issue replaces. A certificate from another provider is never removed,
+    /// because the administrator paid for it and may want it back. The new certificate is already bound here, so a problem
+    /// only means the old one stays in the store.
+    /// </summary>
+    private async Task<string?> FindReplacedCertificateAsync(string siteName)
+    {
+        try
+        {
+            var records = await _managedCertificateStore.GetAllAsync(CancellationToken.None).ConfigureAwait(false);
+            return records.FirstOrDefault(value =>
+                    value.Source == CertificateSource.Acme &&
+                    string.Equals(value.SiteName, siteName, StringComparison.OrdinalIgnoreCase))
+                ?.Thumbprint;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private async Task RemoveReplacedCertificateAsync(string oldThumbprint, string newThumbprint, IProgress<ProgressEvent>? progress)
+    {
+        try
+        {
+            if (await ReplacedCertificateCleanup
+                    .RemoveIfUnusedAsync(_iisService, _certificateStore, oldThumbprint, newThumbprint, CancellationToken.None)
+                    .ConfigureAwait(false) is { } message)
+            {
+                progress?.Report(new ProgressEvent("cleanup", $"The new certificate is installed, but {message}"));
+            }
+        }
+        catch (Exception exception)
+        {
+            progress?.Report(new ProgressEvent(
+                "cleanup",
+                $"The new certificate is installed, but the old certificate could not be checked for removal: {exception.Message}"));
         }
     }
 

@@ -241,13 +241,28 @@ static RootCommand CreateRootCommand(IServiceProvider services)
 
     var preflightSiteOption = new Option<string>("--site") { Required = true, Description = "IIS site name." };
     var preflightHostsOption = new Option<string>("--hosts") { Required = true, Description = "Comma-separated host names." };
-    var preflightCommand = new Command("preflight", "Run IIS and HTTP-01 readiness checks.");
+    var preflightValidationOption = new Option<string>("--validation")
+    {
+        Description = "Which validation to check: http (the default), dns, or dns-manual. DNS checks change nothing in DNS.",
+        DefaultValueFactory = _ => "http"
+    };
+    preflightValidationOption.AcceptOnlyFromAmong("http", "dns", "dns-manual");
+    var preflightNamesOption = new Option<string?>("--names")
+    {
+        Description = "Comma-separated names for the certificate to cover, such as \"*.example.com,example.com\". Needs DNS validation."
+    };
+    var preflightCommand = new Command("preflight", "Run IIS, HTTP, and DNS readiness checks.");
     preflightCommand.Options.Add(preflightSiteOption);
     preflightCommand.Options.Add(preflightHostsOption);
+    preflightCommand.Options.Add(preflightValidationOption);
+    preflightCommand.Options.Add(preflightNamesOption);
     preflightCommand.SetAction((result, token) => PreflightAsync(
         services.GetRequiredService<IPreflightService>(),
         result.GetRequiredValue(preflightSiteOption),
-        result.GetRequiredValue(preflightHostsOption), token));
+        result.GetRequiredValue(preflightHostsOption),
+        result.GetRequiredValue(preflightValidationOption),
+        result.GetValue(preflightNamesOption),
+        token));
     rootCommand.Subcommands.Add(preflightCommand);
 
     var detailsSiteOption = new Option<string>("--site") { Required = true, Description = "Managed IIS site name." };
@@ -311,12 +326,27 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     return rootCommand;
 }
 
-static async Task<int> PreflightAsync(IPreflightService service, string site, string hostsValue, CancellationToken token)
+static async Task<int> PreflightAsync(IPreflightService service, string site, string hostsValue, string validation, string? namesValue, CancellationToken token)
 {
     try
     {
         var hosts = hostsValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var checks = await service.CheckAsync(site, hosts, token).ConfigureAwait(false);
+        if (validation == "http" && !string.IsNullOrWhiteSpace(namesValue))
+        {
+            throw new ArgumentException("--names needs --validation dns or dns-manual.");
+        }
+
+        // CAA checks are the same for staging and production, so the staging profile answers for both.
+        var checks = validation == "http"
+            ? await service.CheckAsync(site, hosts, token).ConfigureAwait(false)
+            : await service.CheckDnsAsync(
+                new DnsPreflightRequest(
+                    site,
+                    hosts,
+                    namesValue?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                    validation == "dns" ? ValidationMethod.Dns01Provider : ValidationMethod.Dns01Manual,
+                    CertificateAuthorities.LetsEncryptStagingId),
+                token).ConfigureAwait(false);
         foreach (var check in checks) Console.WriteLine($"{(check.Succeeded ? "PASS" : "FAIL")}: {check.Name} - {check.Message}");
         return checks.All(value => value.Succeeded) ? 0 : 1;
     }
@@ -696,6 +726,13 @@ static Command CreateDnsCommand(IServiceProvider services)
         Providers(), parseResult.GetRequiredValue(testNameOption), token));
     command.Subcommands.Add(testCommand);
 
+    var updateTokenNameOption = new Option<string>("--name") { Required = true, Description = "The DNS provider whose token to replace." };
+    var updateTokenCommand = new Command("update-token", "Replace a provider's API token, for one that expired or was rotated. The token is prompted without echo.");
+    updateTokenCommand.Options.Add(updateTokenNameOption);
+    updateTokenCommand.SetAction((parseResult, token) => UpdateDnsTokenAsync(
+        Providers(), parseResult.GetRequiredValue(updateTokenNameOption), token));
+    command.Subcommands.Add(updateTokenCommand);
+
     var removeNameOption = new Option<string>("--name") { Required = true, Description = "The DNS provider to remove." };
     var removeCommand = new Command("remove", "Remove a DNS provider that no certificate renews through. Revoke its token in the DNS service too.");
     removeCommand.Options.Add(removeNameOption);
@@ -763,6 +800,21 @@ static async Task<int> TestDnsProviderAsync(IDnsProviderService providers, strin
     catch (Exception exception)
     {
         return ReportDnsFailure(exception, "Failed to test a DNS provider");
+    }
+}
+
+static async Task<int> UpdateDnsTokenAsync(IDnsProviderService providers, string name, CancellationToken token)
+{
+    try
+    {
+        var apiToken = ReadHiddenValue("New API token: ");
+        await providers.UpdateTokenAsync(name, apiToken, token).ConfigureAwait(false);
+        Console.WriteLine($"Token replaced for DNS provider '{name}'. Revoke the old token in the DNS service.");
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        return ReportDnsFailure(exception, "Failed to replace a DNS provider token");
     }
 }
 

@@ -77,6 +77,7 @@ public partial class SettingsViewModel : ObservableObject
         AddDnsProviderCommand = Command(AddDnsProviderAsync);
         TestDnsProviderCommand = Command(TestDnsProviderAsync);
         RemoveDnsProviderCommand = Command(RemoveDnsProviderAsync);
+        ReplaceDnsTokenCommand = Command(ReplaceDnsTokenAsync);
         _reminderService = reminderService;
         _settingsService = settingsService;
         _notificationSettingsService = notificationSettingsService;
@@ -111,6 +112,7 @@ public partial class SettingsViewModel : ObservableObject
     public IAsyncRelayCommand AddDnsProviderCommand { get; }
     public IAsyncRelayCommand TestDnsProviderCommand { get; }
     public IAsyncRelayCommand RemoveDnsProviderCommand { get; }
+    public IAsyncRelayCommand ReplaceDnsTokenCommand { get; }
     public ObservableCollection<DnsProviderOverview> DnsProviders { get; } = [];
 
     public IReadOnlyList<EmailPreset> EmailPresets => EmailPreset.All;
@@ -188,6 +190,21 @@ public partial class SettingsViewModel : ObservableObject
         }
 
         ResultMessage = await _dnsProviders.TestAsync(provider.Name, ct).ConfigureAwait(true);
+    }, token);
+
+    private Task ReplaceDnsTokenAsync(CancellationToken token) => RunAsync(async ct =>
+    {
+        if (SelectedDnsProvider is not { } provider)
+        {
+            ErrorMessage = "Select a DNS provider, and enter its new token under API token.";
+            return;
+        }
+
+        await _dnsProviders.UpdateTokenAsync(provider.Name, NewDnsToken, ct).ConfigureAwait(true);
+
+        // Secrets are cleared from memory as soon as they are saved.
+        NewDnsToken = string.Empty;
+        ResultMessage = $"Token replaced for DNS provider '{provider.Name}'. Delete the old token in your DNS service.";
     }, token);
 
     private Task RemoveDnsProviderAsync(CancellationToken token) => RunAsync(async ct =>
@@ -370,7 +387,8 @@ public partial class SettingsViewModel : ObservableObject
         (AsyncRelayCommand)RefreshServiceCommand, (AsyncRelayCommand)RestartServiceCommand,
         (AsyncRelayCommand)StartServiceCommand, (AsyncRelayCommand)StopServiceCommand,
         (AsyncRelayCommand)SaveRemindersCommand, (AsyncRelayCommand)SendSampleReminderCommand,
-        (AsyncRelayCommand)AddDnsProviderCommand, (AsyncRelayCommand)TestDnsProviderCommand, (AsyncRelayCommand)RemoveDnsProviderCommand
+        (AsyncRelayCommand)AddDnsProviderCommand, (AsyncRelayCommand)TestDnsProviderCommand, (AsyncRelayCommand)RemoveDnsProviderCommand,
+        (AsyncRelayCommand)ReplaceDnsTokenCommand
     ];
 }
 

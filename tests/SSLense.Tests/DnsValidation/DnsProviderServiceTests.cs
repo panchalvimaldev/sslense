@@ -102,6 +102,68 @@ public sealed class DnsProviderServiceTests
     }
 
     [Fact]
+    public async Task UpdateToken_VerifiesTheNewToken_ThenSavesItEncrypted_AndKeepsTheRest()
+    {
+        await Service().AddAsync(Request());
+        var before = Assert.Single(_config.Config.DnsProviders);
+        _provider.Calls.Clear();
+
+        await Service().UpdateTokenAsync("main", " new-token ");
+
+        var after = Assert.Single(_config.Config.DnsProviders);
+        Assert.NotEqual(before.ProtectedToken, after.ProtectedToken);
+        Assert.Equal(before with { ProtectedToken = after.ProtectedToken }, after);
+        Assert.DoesNotContain("new-token", Encoding.UTF8.GetString(Convert.FromBase64String(after.ProtectedToken)), StringComparison.Ordinal);
+        Assert.Equal(["verify Main"], _provider.Calls);
+    }
+
+    [Fact]
+    public async Task UpdateToken_Rejected_KeepsTheOldToken()
+    {
+        await Service().AddAsync(Request());
+        var before = Assert.Single(_config.Config.DnsProviders);
+        _provider.FailVerify = new InvalidOperationException("rejected");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().UpdateTokenAsync("Main", "bad-token"));
+
+        Assert.Equal(before, Assert.Single(_config.Config.DnsProviders));
+    }
+
+    [Fact]
+    public async Task UpdateToken_WorksWhileACertificateRenewsThroughTheProvider()
+    {
+        await Service().AddAsync(Request());
+        Managed(Certificate(ValidationMethod.Dns01Provider));
+
+        await Service().UpdateTokenAsync("Main", "new-token");
+
+        Assert.Single(_config.Config.DnsProviders);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task UpdateToken_Empty_IsRefusedBeforeContactingTheProvider(string token)
+    {
+        await Service().AddAsync(Request());
+        _provider.Calls.Clear();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => Service().UpdateTokenAsync("Main", token));
+
+        Assert.Empty(_provider.Calls);
+    }
+
+    [Fact]
+    public async Task UpdateToken_UnknownProvider_ListsTheAvailableOnes()
+    {
+        await Service().AddAsync(Request());
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => Service().UpdateTokenAsync("Nope", "new-token"));
+
+        Assert.Contains("Available: Main", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Remove_Unused_Removes()
     {
         await Service().AddAsync(Request());

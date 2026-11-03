@@ -34,6 +34,7 @@
     </Border>
     <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
      <Button Content="Test selected" Command="{Binding TestDnsProviderCommand}" Margin="0,0,8,0" ToolTip="Adds a temporary TXT record at _sslense-test in the zone, then removes it."/>
+     <Button Content="Replace token" Command="{Binding ReplaceDnsTokenCommand}" Margin="0,0,8,0" ToolTip="Enter the new token under API token below, then click this. Certificates keep renewing through this provider."/>
      <Button Content="Remove selected" Command="{Binding RemoveDnsProviderCommand}" Style="{StaticResource DangerButton}"/>
     </StackPanel>
     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>

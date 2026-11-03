@@ -24,6 +24,12 @@ public interface IDnsProviderService
     /// </summary>
     Task<string> TestAsync(string name, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Replaces a provider's token, for one that expired or was rotated. The new token is checked first, so a rejected
+    /// one leaves the old one in place. Certificates keep renewing through the provider.
+    /// </summary>
+    Task UpdateTokenAsync(string name, string token, CancellationToken cancellationToken = default);
+
     /// <summary>Removes a provider, unless a certificate renews through it.</summary>
     Task RemoveAsync(string name, CancellationToken cancellationToken = default);
 }
@@ -101,6 +107,31 @@ internal sealed class DnsProviderService(
         return $"The token can change the zone {profile.ZoneName}: a temporary TXT record at '{recordName}' was added and removed.";
     }
 
+    public async Task UpdateTokenAsync(string name, string token, CancellationToken cancellationToken = default)
+    {
+        var trimmed = token?.Trim() ?? string.Empty;
+        if (trimmed.Length == 0)
+        {
+            throw new ArgumentException("Enter the API token.");
+        }
+
+        var profile = await FindAsync(name, cancellationToken).ConfigureAwait(false);
+        var updated = profile with { ProtectedToken = Protect(trimmed) };
+        await GetProvider(updated).VerifyAccessAsync(updated, cancellationToken).ConfigureAwait(false);
+
+        // Read again, so a change made while the provider was contacted is not overwritten.
+        var config = await configStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+        if (!config.DnsProviders.Any(value => value.Name == profile.Name))
+        {
+            throw new InvalidOperationException($"DNS provider '{profile.Name}' was removed while its token was being checked.");
+        }
+
+        await configStore.SaveAsync(
+                config with { DnsProviders = config.DnsProviders.Select(value => value.Name == profile.Name ? updated : value).ToArray() },
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public async Task RemoveAsync(string name, CancellationToken cancellationToken = default)
     {
         var profile = await FindAsync(name, cancellationToken).ConfigureAwait(false);
@@ -127,7 +158,8 @@ internal sealed class DnsProviderService(
         if (users.Count > 0)
         {
             throw new InvalidOperationException(
-                $"DNS provider '{profile.Name}' cannot be removed, because these certificates renew through it: {string.Join(", ", users)}.");
+                $"DNS provider '{profile.Name}' cannot be removed, because these certificates renew through it: {string.Join(", ", users)}. " +
+                "To change its token, replace the token instead.");
         }
 
         await configStore.SaveAsync(
