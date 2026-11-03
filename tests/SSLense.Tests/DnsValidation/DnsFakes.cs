@@ -1,3 +1,5 @@
+using SSLense.Core;
+using SSLense.Core.Acme;
 using SSLense.Core.Config;
 using SSLense.Core.DnsValidation;
 
@@ -115,6 +117,31 @@ internal sealed class FakeDnsChallengeJournal : IDnsChallengeJournal
 
     public Task<IReadOnlyList<DnsChallengeEntry>> GetAbandonedAsync(CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<DnsChallengeEntry>>(Abandoned.ToArray());
+}
+
+/// <summary>For code that only checks DNS: publishing or cleaning up fails the test.</summary>
+internal sealed class FakeDnsChecks : IDnsChallengeService
+{
+    public List<string> Checked { get; } = [];
+
+    public Exception? Fail { get; set; }
+
+    public Task CheckBeforeOrderAsync(ValidationMethod method, IReadOnlyList<string> certificateNames, string authorityId, CancellationToken cancellationToken)
+    {
+        Checked.Add($"{method} {string.Join(",", certificateNames)} {authorityId}");
+        return Fail is null ? Task.CompletedTask : Task.FromException(Fail);
+    }
+
+    public Task<IAsyncDisposable> PublishAsync(
+        ValidationMethod method,
+        IReadOnlyList<AcmeDnsChallenge> challenges,
+        ManualDnsConfirmation? confirmManual,
+        IProgress<ProgressEvent>? progress,
+        CancellationToken cancellationToken) =>
+        throw new InvalidOperationException("A check must not change DNS.");
+
+    public Task<IReadOnlyList<string>> CleanUpAbandonedAsync(CancellationToken cancellationToken) =>
+        throw new InvalidOperationException("A check must not change DNS.");
 }
 
 internal sealed class FakeConfigStore(AppConfig? config = null) : IConfigStore

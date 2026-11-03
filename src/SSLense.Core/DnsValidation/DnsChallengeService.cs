@@ -255,7 +255,7 @@ internal sealed class DnsChallengeService(
     private static DnsProviderProfile SelectProfile(IReadOnlyList<DnsProviderProfile> profiles, string recordName) =>
         DnsNames.SelectProfile(profiles, recordName)
         ?? throw new InvalidOperationException(
-            $"No DNS provider manages '{recordName}'. Add one with 'SSLense.Cli dns add', delegate the record with a CNAME, " +
+            $"No DNS provider manages '{recordName}'. Add one in Settings or with 'SSLense.Cli dns add', delegate the record with a CNAME, " +
             "or use manual DNS validation.");
 
     private IDnsProvider GetProvider(DnsProviderProfile profile) =>

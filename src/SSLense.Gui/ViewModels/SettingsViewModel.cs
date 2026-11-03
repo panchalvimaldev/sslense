@@ -4,6 +4,7 @@ using System.IO;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using SSLense.Core.Config;
+using SSLense.Core.DnsValidation;
 using SSLense.Core.Notifications;
 using SSLense.Core.Reminders;
 using SSLense.Core.WindowsServices;
@@ -17,10 +18,17 @@ public partial class SettingsViewModel : ObservableObject
     private readonly INotifier _notifier;
     private readonly IWindowsServiceManager _serviceManager;
     private readonly IReminderService _reminderService;
+    private readonly IDnsProviderService _dnsProviders;
     private readonly ILogger<SettingsViewModel> _logger;
 
     [ObservableProperty] private string defaultEmail = string.Empty;
     [ObservableProperty] private int renewalThresholdDays = 30;
+
+    [ObservableProperty] private DnsProviderOverview? selectedDnsProvider;
+    [ObservableProperty] private string newDnsName = string.Empty;
+    [ObservableProperty] private string newDnsZone = string.Empty;
+    [ObservableProperty] private string newDnsZoneId = string.Empty;
+    [ObservableProperty] private string newDnsToken = string.Empty;
 
     [ObservableProperty] private EmailPreset? selectedPreset;
     [ObservableProperty] private string emailHost = string.Empty;
@@ -62,8 +70,13 @@ public partial class SettingsViewModel : ObservableObject
         INotifier notifier,
         IWindowsServiceManager serviceManager,
         IReminderService reminderService,
+        IDnsProviderService dnsProviders,
         ILogger<SettingsViewModel> logger)
     {
+        _dnsProviders = dnsProviders;
+        AddDnsProviderCommand = Command(AddDnsProviderAsync);
+        TestDnsProviderCommand = Command(TestDnsProviderAsync);
+        RemoveDnsProviderCommand = Command(RemoveDnsProviderAsync);
         _reminderService = reminderService;
         _settingsService = settingsService;
         _notificationSettingsService = notificationSettingsService;
@@ -95,6 +108,10 @@ public partial class SettingsViewModel : ObservableObject
     public IReadOnlyList<string> WeeklySummaryOptions { get; } = ["Off", .. Enum.GetNames<DayOfWeek>()];
     public IAsyncRelayCommand SaveRemindersCommand { get; }
     public IAsyncRelayCommand SendSampleReminderCommand { get; }
+    public IAsyncRelayCommand AddDnsProviderCommand { get; }
+    public IAsyncRelayCommand TestDnsProviderCommand { get; }
+    public IAsyncRelayCommand RemoveDnsProviderCommand { get; }
+    public ObservableCollection<DnsProviderOverview> DnsProviders { get; } = [];
 
     public IReadOnlyList<EmailPreset> EmailPresets => EmailPreset.All;
     public IReadOnlyList<SmtpSecurity> SecurityOptions { get; } = Enum.GetValues<SmtpSecurity>();
@@ -134,11 +151,57 @@ public partial class SettingsViewModel : ObservableObject
             RepeatAutomaticReminders = reminders.RepeatAutomaticReminders;
             ProactiveChecks = reminders.ProactiveChecks;
             WeeklySummary = reminders.WeeklySummaryDay?.ToString() ?? "Off";
+            await LoadDnsProvidersAsync(token).ConfigureAwait(true);
             await LoadNotificationsAsync(token).ConfigureAwait(true);
             await RefreshServiceCoreAsync(token).ConfigureAwait(true);
             await LoadReminderOutlookAsync(token).ConfigureAwait(true);
         }, CancellationToken.None);
     }
+
+    private async Task LoadDnsProvidersAsync(CancellationToken token)
+    {
+        var providers = await _dnsProviders.ListAsync(token).ConfigureAwait(true);
+        DnsProviders.Clear();
+        foreach (var provider in providers) DnsProviders.Add(provider);
+    }
+
+    private Task AddDnsProviderAsync(CancellationToken token) => RunAsync(async ct =>
+    {
+        await _dnsProviders.AddAsync(
+                new DnsProviderRequest(NewDnsName, DnsProviderType.Cloudflare, NewDnsZone, NewDnsZoneId, NewDnsToken),
+                ct)
+            .ConfigureAwait(true);
+        var name = NewDnsName.Trim();
+
+        // Secrets are cleared from memory as soon as they are saved.
+        NewDnsToken = string.Empty; NewDnsName = string.Empty; NewDnsZone = string.Empty; NewDnsZoneId = string.Empty;
+        await LoadDnsProvidersAsync(ct).ConfigureAwait(true);
+        ResultMessage = $"DNS provider '{name}' added. Use Test to confirm the token can change the zone.";
+    }, token);
+
+    private Task TestDnsProviderAsync(CancellationToken token) => RunAsync(async ct =>
+    {
+        if (SelectedDnsProvider is not { } provider)
+        {
+            ErrorMessage = "Select a DNS provider to test.";
+            return;
+        }
+
+        ResultMessage = await _dnsProviders.TestAsync(provider.Name, ct).ConfigureAwait(true);
+    }, token);
+
+    private Task RemoveDnsProviderAsync(CancellationToken token) => RunAsync(async ct =>
+    {
+        if (SelectedDnsProvider is not { } provider)
+        {
+            ErrorMessage = "Select a DNS provider to remove.";
+            return;
+        }
+
+        await _dnsProviders.RemoveAsync(provider.Name, ct).ConfigureAwait(true);
+        await LoadDnsProvidersAsync(ct).ConfigureAwait(true);
+        ResultMessage = $"DNS provider '{provider.Name}' removed. Delete its token in your DNS service too.";
+    }, token);
 
     private async Task LoadReminderOutlookAsync(CancellationToken token)
     {
@@ -306,7 +369,8 @@ public partial class SettingsViewModel : ObservableObject
         (AsyncRelayCommand)RemoveHeartbeatCommand, (AsyncRelayCommand)SaveOptionsCommand, (AsyncRelayCommand)TestNotificationCommand,
         (AsyncRelayCommand)RefreshServiceCommand, (AsyncRelayCommand)RestartServiceCommand,
         (AsyncRelayCommand)StartServiceCommand, (AsyncRelayCommand)StopServiceCommand,
-        (AsyncRelayCommand)SaveRemindersCommand, (AsyncRelayCommand)SendSampleReminderCommand
+        (AsyncRelayCommand)SaveRemindersCommand, (AsyncRelayCommand)SendSampleReminderCommand,
+        (AsyncRelayCommand)AddDnsProviderCommand, (AsyncRelayCommand)TestDnsProviderCommand, (AsyncRelayCommand)RemoveDnsProviderCommand
     ];
 }
 

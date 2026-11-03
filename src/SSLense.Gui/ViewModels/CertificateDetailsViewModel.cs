@@ -35,6 +35,9 @@ public partial class CertificateDetailsViewModel : ObservableObject
     [ObservableProperty] private string resultMessage = string.Empty;
     [ObservableProperty] private string environment = string.Empty;
     [ObservableProperty] private bool isImported;
+    [ObservableProperty] private bool isManualDns;
+    [ObservableProperty] private string validation = string.Empty;
+    [ObservableProperty] private string certificateNames = string.Empty;
     [ObservableProperty] private ReminderChoice? selectedReminderChoice;
     [ObservableProperty] private string reminderState = string.Empty;
     [ObservableProperty] private string lastReminded = string.Empty;
@@ -54,9 +57,13 @@ public partial class CertificateDetailsViewModel : ObservableObject
         _navigation = navigation;
         OrderReplacementCommand = new RelayCommand(() => _navigation.Navigate("Other Providers", SelectedSite), () => !IsBusy && IsImported);
         _refreshCommand = new AsyncRelayCommand(RefreshAsync, CanOperate);
-        _renewCommand = new AsyncRelayCommand(RenewAsync, () => CanOperate() && !IsImported);
+        _renewCommand = new AsyncRelayCommand(RenewAsync, () => CanOperate() && !IsImported && !IsManualDns);
         _removeCommand = new AsyncRelayCommand(RemoveAsync, CanOperate);
+        RenewByHandCommand = new RelayCommand(() => _navigation.Navigate("Issue", SelectedSite), () => !IsBusy && IsManualDns);
     }
+
+    /// <summary>Each manual DNS renewal needs new records, so it goes through the wizard, which shows them.</summary>
+    public IRelayCommand RenewByHandCommand { get; }
 
     public ObservableCollection<string> Sites { get; } = [];
     public ObservableCollection<string> RecentLogLines { get; } = [];
@@ -132,6 +139,16 @@ public partial class CertificateDetailsViewModel : ObservableObject
         var record = overview.Certificates.FirstOrDefault(value =>
             string.Equals(value.SiteName, SelectedSite, StringComparison.OrdinalIgnoreCase));
         if (record is null) return;
+        IsManualDns = record.Source == CertificateSource.Acme && record.ValidationMethod == ValidationMethod.Dns01Manual;
+        Validation = record.Source == CertificateSource.Imported
+            ? "Validated by the provider"
+            : record.ValidationMethod switch
+            {
+                ValidationMethod.Dns01Provider => "DNS provider; renews automatically",
+                ValidationMethod.Dns01Manual => "Manual DNS; renew it by hand",
+                _ => "HTTP (port 80); renews automatically"
+            };
+        CertificateNames = string.Join(", ", record.CertificateNames ?? record.Hosts);
         ReminderState = record.Reminders switch
         {
             ReminderMode.Snoozed when record.SnoozedUntil is { } until && until > DateTimeOffset.UtcNow =>
@@ -199,8 +216,10 @@ public partial class CertificateDetailsViewModel : ObservableObject
 
     private bool CanOperate() => !IsBusy && SelectedSite is not null;
     partial void OnIsImportedChanged(bool value) => NotifyCommands();
+    partial void OnIsManualDnsChanged(bool value) => NotifyCommands();
     private void NotifyCommands()
     {
+        (RenewByHandCommand as RelayCommand)?.NotifyCanExecuteChanged();
         _refreshCommand.NotifyCanExecuteChanged(); _renewCommand.NotifyCanExecuteChanged(); _removeCommand.NotifyCanExecuteChanged();
         (OrderReplacementCommand as RelayCommand)?.NotifyCanExecuteChanged();
         _applyReminderCommand?.NotifyCanExecuteChanged();

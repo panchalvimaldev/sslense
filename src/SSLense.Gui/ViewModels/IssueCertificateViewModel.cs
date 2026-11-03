@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -7,6 +8,7 @@ using SSLense.Core;
 using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
+using SSLense.Core.DnsValidation;
 using SSLense.Core.Iis;
 using SSLense.Core.Validation;
 
@@ -19,9 +21,12 @@ public partial class IssueCertificateViewModel : ObservableObject
     private readonly IAcmeService _acmeService;
     private readonly ISettingsService _settingsService;
     private readonly IImportedCertificateService _certificates;
+    private readonly IManagedCertificateStore _managedStore;
     private readonly ILogger<IssueCertificateViewModel> _logger;
     private readonly AsyncRelayCommand _preflightCommand;
     private readonly AsyncRelayCommand _issueCommand;
+    private TaskCompletionSource<bool>? _manualAnswer;
+    private ManagedCertificate? _renewing;
 
     [ObservableProperty] private IisSiteOption? selectedSite;
     [ObservableProperty] private int currentStep = 1;
@@ -32,6 +37,11 @@ public partial class IssueCertificateViewModel : ObservableObject
     [ObservableProperty] private string resultMessage = string.Empty;
     [ObservableProperty] private bool useProduction;
     [ObservableProperty] private bool productionRiskAccepted;
+    [ObservableProperty] private ValidationMethod selectedValidation = ValidationMethod.Http01;
+    [ObservableProperty] private string certificateNames = string.Empty;
+    [ObservableProperty] private bool replaceExisting;
+    [ObservableProperty] private bool isWaitingForManualDns;
+    [ObservableProperty] private string renewalNotice = string.Empty;
 
     public IssueCertificateViewModel(
         IIisService iisService,
@@ -39,8 +49,10 @@ public partial class IssueCertificateViewModel : ObservableObject
         IAcmeService acmeService,
         ISettingsService settingsService,
         IImportedCertificateService certificates,
+        IManagedCertificateStore managedStore,
         ILogger<IssueCertificateViewModel> logger)
     {
+        _managedStore = managedStore;
         _iisService = iisService;
         _preflightService = preflightService;
         _acmeService = acmeService;
@@ -53,7 +65,46 @@ public partial class IssueCertificateViewModel : ObservableObject
         _issueCommand = new AsyncRelayCommand(IssueAsync, CanIssue);
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         StartOverCommand = new RelayCommand(StartOver, () => !IsBusy);
+        ConfirmManualRecordsCommand = new RelayCommand(() => _manualAnswer?.TrySetResult(true), () => IsWaitingForManualDns);
     }
+
+    public ObservableCollection<DnsTxtRecord> ManualRecords { get; } = [];
+    public IRelayCommand ConfirmManualRecordsCommand { get; }
+
+    // A radio button clears itself by setting false, which says nothing about which method was chosen.
+    public bool UseHttpValidation
+    {
+        get => SelectedValidation == ValidationMethod.Http01;
+        set { if (value) SelectedValidation = ValidationMethod.Http01; }
+    }
+
+    public bool UseDnsProvider
+    {
+        get => SelectedValidation == ValidationMethod.Dns01Provider;
+        set { if (value) SelectedValidation = ValidationMethod.Dns01Provider; }
+    }
+
+    public bool UseDnsManual
+    {
+        get => SelectedValidation == ValidationMethod.Dns01Manual;
+        set { if (value) SelectedValidation = ValidationMethod.Dns01Manual; }
+    }
+
+    public bool UsesDns => SelectedValidation != ValidationMethod.Http01;
+    public bool IsRenewingByHand => _renewing is not null;
+
+    public string ValidationHint => SelectedValidation switch
+    {
+        ValidationMethod.Dns01Provider =>
+            "SSLense adds a temporary DNS record through a provider set up in Settings, and renews automatically. Port 80 is not needed.",
+        ValidationMethod.Dns01Manual =>
+            "You create the DNS records yourself, with any DNS service. Port 80 is not needed.",
+        _ => "Let's Encrypt checks the site over port 80, and SSLense renews automatically. This cannot issue wildcard certificates."
+    };
+
+    public string PreflightSubtitle => UsesDns
+        ? "SSLense checks the bindings, certificate names, and DNS before contacting Let's Encrypt. Nothing in DNS changes yet."
+        : "SSLense checks access, bindings, and challenge-folder permissions before contacting Let's Encrypt.";
 
     public ObservableCollection<IisSiteOption> Sites { get; } = [];
     public ObservableCollection<HostOptionViewModel> Hosts { get; } = [];
@@ -75,30 +126,74 @@ public partial class IssueCertificateViewModel : ObservableObject
     }
     public string StepTitle => $"Step {CurrentStep} of 3";
 
-    public async Task InitializeAsync()
+    /// <param name="renewSite">A site whose manual DNS certificate is being renewed by hand; the wizard is filled in from its record.</param>
+    public async Task InitializeAsync(string? renewSite = null)
     {
-        if (Sites.Count > 0)
+        if (Sites.Count > 0 && renewSite is null)
         {
             return;
         }
 
         try
         {
-            var config = await _settingsService.GetAsync();
-            Email = config.DefaultEmail ?? string.Empty;
-            var sites = await _iisService.GetSitesAsync();
-            var https = await DescribeHttpsAsync();
-            foreach (var site in sites)
+            if (Sites.Count == 0)
             {
-                Sites.Add(new IisSiteOption(site.Name, site, https.GetValueOrDefault(site.Name)));
+                var config = await _settingsService.GetAsync();
+                Email = config.DefaultEmail ?? string.Empty;
+                var sites = await _iisService.GetSitesAsync();
+                var https = await DescribeHttpsAsync();
+                foreach (var site in sites)
+                {
+                    Sites.Add(new IisSiteOption(site.Name, site, https.GetValueOrDefault(site.Name)));
+                }
+                SelectedSite = Sites.FirstOrDefault();
             }
-            SelectedSite = Sites.FirstOrDefault();
+
+            if (renewSite is not null && !IsBusy)
+            {
+                await PrepareRenewalAsync(renewSite);
+            }
         }
         catch (Exception exception)
         {
             _logger.LogError(exception, "Could not initialize the issue wizard");
             ErrorMessage = exception.Message;
         }
+    }
+
+    private async Task PrepareRenewalAsync(string siteName)
+    {
+        var records = await _managedStore.GetAllAsync();
+        var record = records.FirstOrDefault(value => string.Equals(value.SiteName, siteName, StringComparison.OrdinalIgnoreCase));
+        var site = Sites.FirstOrDefault(value => string.Equals(value.Name, siteName, StringComparison.OrdinalIgnoreCase));
+        if (record is null || site is null)
+        {
+            ErrorMessage = $"The certificate or IIS site for '{siteName}' was not found.";
+            return;
+        }
+
+        StartOver();
+        SelectedSite = site;
+        SelectedValidation = record.ValidationMethod;
+        foreach (var host in Hosts)
+        {
+            host.IsSelected = record.Hosts.Contains(host.Host, StringComparer.OrdinalIgnoreCase);
+        }
+
+        CertificateNames = record.CertificateNames is { } names ? string.Join(", ", names) : string.Empty;
+        Email = record.Email;
+        UseProduction = record.AuthorityId == CertificateAuthorities.LetsEncryptId;
+        SetRenewing(record);
+        Next();
+    }
+
+    private void SetRenewing(ManagedCertificate? record)
+    {
+        _renewing = record;
+        RenewalNotice = record is null
+            ? string.Empty
+            : $"Renewing the certificate for '{record.SiteName}' by hand. The current certificate stays in place until the new one is ready.";
+        OnPropertyChanged(nameof(IsRenewingByHand));
     }
 
     /// <summary>
@@ -131,6 +226,8 @@ public partial class IssueCertificateViewModel : ObservableObject
 
     partial void OnSelectedSiteChanged(IisSiteOption? value)
     {
+        SetRenewing(null);
+        ReplaceExisting = false;
         foreach (var host in Hosts)
         {
             host.PropertyChanged -= OnHostPropertyChanged;
@@ -145,13 +242,43 @@ public partial class IssueCertificateViewModel : ObservableObject
                 var ready = value.Site.Bindings.Any(binding =>
                     string.Equals(binding.Protocol, "http", StringComparison.OrdinalIgnoreCase) &&
                     binding.Port == 80 && string.Equals(binding.HostName, name, StringComparison.OrdinalIgnoreCase));
-                var option = new HostOptionViewModel(name, ready);
+                var dnsReady = !name.Contains('*') && value.Site.Bindings.Any(binding =>
+                    binding.Protocol is "http" or "https" &&
+                    string.Equals(binding.HostName, name, StringComparison.OrdinalIgnoreCase));
+                var option = new HostOptionViewModel(name, ready, dnsReady) { UsesDns = UsesDns };
+                option.IsSelected = option.IsReady;
                 option.PropertyChanged += OnHostPropertyChanged;
                 Hosts.Add(option);
             }
         }
         NotifyCommands();
     }
+
+    partial void OnSelectedValidationChanged(ValidationMethod value)
+    {
+        OnPropertyChanged(nameof(UseHttpValidation));
+        OnPropertyChanged(nameof(UseDnsProvider));
+        OnPropertyChanged(nameof(UseDnsManual));
+        OnPropertyChanged(nameof(UsesDns));
+        OnPropertyChanged(nameof(ValidationHint));
+        OnPropertyChanged(nameof(PreflightSubtitle));
+        foreach (var host in Hosts)
+        {
+            host.UsesDns = UsesDns;
+            host.IsSelected = host.IsReady;
+        }
+
+        PreflightPassed = false;
+        NotifyCommands();
+    }
+
+    partial void OnCertificateNamesChanged(string value)
+    {
+        PreflightPassed = false;
+        NotifyCommands();
+    }
+
+    partial void OnIsWaitingForManualDnsChanged(bool value) => NotifyCommands();
 
     partial void OnCurrentStepChanged(int value)
     {
@@ -200,8 +327,11 @@ public partial class IssueCertificateViewModel : ObservableObject
         await RunBusyAsync(async token =>
         {
             PreflightChecks.Clear();
-            var checks = await _preflightService.CheckAsync(
-                SelectedSite!.Name, SelectedHosts(), token).ConfigureAwait(true);
+            var checks = UsesDns
+                ? await _preflightService.CheckDnsAsync(
+                    new DnsPreflightRequest(SelectedSite!.Name, SelectedHosts(), SelectedNames(), SelectedValidation, SelectedAuthorityId()),
+                    token).ConfigureAwait(true)
+                : await _preflightService.CheckAsync(SelectedSite!.Name, SelectedHosts(), token).ConfigureAwait(true);
             foreach (var check in checks)
             {
                 PreflightChecks.Add(new PreflightCheckViewModel(check));
@@ -216,6 +346,7 @@ public partial class IssueCertificateViewModel : ObservableObject
         CurrentStep = 3;
         ProgressLines.Clear();
         ResultMessage = string.Empty;
+        ManualRecords.Clear();
         await RunBusyAsync(async token =>
         {
             var result = await _acmeService.IssueAsync(
@@ -223,14 +354,47 @@ public partial class IssueCertificateViewModel : ObservableObject
                     SelectedSite!.Name,
                     SelectedHosts(),
                     Email,
-                    Force: false,
-                    AuthorityId: UseProduction ? CertificateAuthorities.LetsEncryptId : CertificateAuthorities.LetsEncryptStagingId),
+                    OutputDirectory: _renewing?.OutputDirectory,
+                    Force: ReplaceExisting || _renewing is not null,
+                    AuthorityId: SelectedAuthorityId(),
+                    ExpectedCurrentThumbprint: _renewing?.Thumbprint,
+                    ValidationMethod: SelectedValidation,
+                    ConfirmManualDns: SelectedValidation == ValidationMethod.Dns01Manual ? ConfirmManualDnsAsync : null,
+                    CertificateNames: UsesDns ? SelectedNames() : null),
                 new Progress<ProgressEvent>(value =>
                     ProgressLines.Add($"[{DateTime.Now:HH:mm:ss}] [{value.Step}] {value.Message}")),
                 token).ConfigureAwait(true);
             var environment = UseProduction ? "Production" : "Staging";
-            ResultMessage = $"{environment} certificate installed successfully. Thumbprint: {result.CertificateThumbprint}";
+            ResultMessage = $"{environment} certificate installed successfully. Thumbprint: {result.CertificateThumbprint}" +
+                            (SelectedValidation == ValidationMethod.Dns01Manual ? " You can now delete the TXT records you created." : string.Empty);
         }, cancellationToken);
+    }
+
+    private Task<bool> ConfirmManualDnsAsync(IReadOnlyList<DnsTxtRecord> records, CancellationToken token) =>
+        // Core continues on a pool thread, and the records and commands belong to the UI thread.
+        Application.Current.Dispatcher.InvokeAsync(() => ShowManualRecordsAsync(records, token)).Task.Unwrap();
+
+    private async Task<bool> ShowManualRecordsAsync(IReadOnlyList<DnsTxtRecord> records, CancellationToken token)
+    {
+        var answer = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _manualAnswer = answer;
+        ManualRecords.Clear();
+        foreach (var record in records)
+        {
+            ManualRecords.Add(record);
+        }
+
+        IsWaitingForManualDns = true;
+        await using var cancellation = token.Register(() => answer.TrySetCanceled(token));
+        try
+        {
+            return await answer.Task.ConfigureAwait(true);
+        }
+        finally
+        {
+            _manualAnswer = null;
+            IsWaitingForManualDns = false;
+        }
     }
 
     private async Task RunBusyAsync(Func<CancellationToken, Task> action, CancellationToken cancellationToken)
@@ -248,12 +412,15 @@ public partial class IssueCertificateViewModel : ObservableObject
     }
 
     private IReadOnlyList<string> SelectedHosts() => Hosts.Where(value => value.IsSelected).Select(value => value.Host).ToArray();
+    private string SelectedAuthorityId() => UseProduction ? CertificateAuthorities.LetsEncryptId : CertificateAuthorities.LetsEncryptStagingId;
+    private IReadOnlyList<string>? SelectedNames() =>
+        CertificateNames.Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) is { Length: > 0 } names ? names : null;
     private bool CanNext() => !IsBusy && CurrentStep == 1 && SelectedSite is not null && Hosts.Any(value => value.IsSelected);
     private bool CanRunPreflight() => !IsBusy && CurrentStep == 2 && SelectedSite is not null && !string.IsNullOrWhiteSpace(Email);
     private bool CanIssue() =>
         !IsBusy && CurrentStep == 2 && PreflightPassed && (!UseProduction || ProductionRiskAccepted);
     private void Cancel() { _preflightCommand.Cancel(); _issueCommand.Cancel(); }
-    private void StartOver() { CurrentStep = 1; PreflightPassed = false; ProductionRiskAccepted = false; PreflightChecks.Clear(); ProgressLines.Clear(); ErrorMessage = null; ResultMessage = string.Empty; }
+    private void StartOver() { CurrentStep = 1; PreflightPassed = false; ProductionRiskAccepted = false; ReplaceExisting = false; CertificateNames = string.Empty; SetRenewing(null); PreflightChecks.Clear(); ProgressLines.Clear(); ManualRecords.Clear(); ErrorMessage = null; ResultMessage = string.Empty; }
     private void NotifyCommands()
     {
         (NextCommand as RelayCommand)?.NotifyCanExecuteChanged();
@@ -262,5 +429,6 @@ public partial class IssueCertificateViewModel : ObservableObject
         _issueCommand.NotifyCanExecuteChanged();
         (CancelCommand as RelayCommand)?.NotifyCanExecuteChanged();
         (StartOverCommand as RelayCommand)?.NotifyCanExecuteChanged();
+        (ConfirmManualRecordsCommand as RelayCommand)?.NotifyCanExecuteChanged();
     }
 }

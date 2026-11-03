@@ -1,11 +1,9 @@
 using Moq;
-using SSLense.Core;
-using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
-using SSLense.Core.DnsValidation;
 using SSLense.Core.Reminders;
 using SSLense.Core.Validation;
+using SSLense.Tests.DnsValidation;
 using Xunit;
 
 namespace SSLense.Tests.Reminders;
@@ -158,28 +156,4 @@ public sealed class RenewalReadinessCheckTests
 
     private static ManagedCertificate Automatic() => new(
         "Api", ["api.example.com"], "admin@example.com", "CCDD", Now.AddDays(-50), Now.AddDays(40));
-
-    private sealed class FakeDnsChecks : IDnsChallengeService
-    {
-        public List<string> Checked { get; } = [];
-
-        public Exception? Fail { get; set; }
-
-        public Task CheckBeforeOrderAsync(ValidationMethod method, IReadOnlyList<string> certificateNames, string authorityId, CancellationToken cancellationToken)
-        {
-            Checked.Add($"{method} {string.Join(",", certificateNames)} {authorityId}");
-            return Fail is null ? Task.CompletedTask : Task.FromException(Fail);
-        }
-
-        public Task<IAsyncDisposable> PublishAsync(
-            ValidationMethod method,
-            IReadOnlyList<AcmeDnsChallenge> challenges,
-            ManualDnsConfirmation? confirmManual,
-            IProgress<ProgressEvent>? progress,
-            CancellationToken cancellationToken) =>
-            throw new InvalidOperationException("The daily checks must not change DNS.");
-
-        public Task<IReadOnlyList<string>> CleanUpAbandonedAsync(CancellationToken cancellationToken) =>
-            throw new InvalidOperationException("The daily checks must not change DNS.");
-    }
 }

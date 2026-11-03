@@ -512,7 +512,7 @@ internal sealed class AcmeService : IAcmeService
     }
 
     /// <summary>Null when the request lists no names, so the certificate covers the hosts.</summary>
-    private static IReadOnlyList<string>? NormalizeCertificateNames(IReadOnlyList<string>? requestedNames, bool usesDns)
+    internal static IReadOnlyList<string>? NormalizeCertificateNames(IReadOnlyList<string>? requestedNames, bool usesDns)
     {
         var names = (requestedNames ?? [])
             .Select(NormalizeHost)

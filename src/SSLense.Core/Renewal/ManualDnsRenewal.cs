@@ -14,9 +14,10 @@ internal static class ManualDnsRenewal
 
         // Always listed: without them, issue would use every named binding on the site.
         var hosts = $" --hosts \"{string.Join(",", certificate.Hosts)}\"";
+        var output = certificate.OutputDirectory is { } directory ? $" --output \"{directory}\"" : string.Empty;
         var production = certificate.AuthorityId == CertificateAuthorities.LetsEncryptId
             ? " --production --accept-production-risk"
             : string.Empty;
-        return $"SSLense.Cli issue --site \"{certificate.SiteName}\" --email {certificate.Email} --validation dns-manual --force{names}{hosts}{production}";
+        return $"SSLense.Cli issue --site \"{certificate.SiteName}\" --email {certificate.Email} --validation dns-manual --force{names}{hosts}{output}{production}";
     }
 }
