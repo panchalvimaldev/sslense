@@ -98,7 +98,7 @@ internal sealed class ImportedCertificateService(
                     certificate?.IssuerName,
                     certificate?.NotAfter,
                     managed.Any(record =>
-                        string.Equals(record.SiteName, site.Name, StringComparison.OrdinalIgnoreCase) &&
+                        record.ManagesSite(site.Name) &&
                         string.Equals(record.Thumbprint, binding.CertificateThumbprint, StringComparison.OrdinalIgnoreCase))));
             }
         }
@@ -112,6 +112,7 @@ internal sealed class ImportedCertificateService(
         CancellationToken cancellationToken = default)
     {
         var site = await FindSiteAsync(siteName, cancellationToken).ConfigureAwait(false);
+        await ThrowIfAdditionalSiteAsync(site.Name, cancellationToken).ConfigureAwait(false);
         await using var siteLock = await operationLock.AcquireAsync(site.Name, cancellationToken).ConfigureAwait(false);
         if (await FindRecordAsync(site.Name, cancellationToken).ConfigureAwait(false) is { } existing)
         {
@@ -188,6 +189,7 @@ internal sealed class ImportedCertificateService(
         CancellationToken cancellationToken = default)
     {
         var site = await FindSiteAsync(siteName, cancellationToken).ConfigureAwait(false);
+        await ThrowIfAdditionalSiteAsync(site.Name, cancellationToken).ConfigureAwait(false);
         var normalizedHosts = NormalizeHosts(hosts);
         if (!PrivateKeyTypes.All.Contains(keyType))
         {
@@ -269,6 +271,7 @@ internal sealed class ImportedCertificateService(
     {
         ArgumentNullException.ThrowIfNull(certificateFile);
         var site = await FindSiteAsync(siteName, cancellationToken).ConfigureAwait(false);
+        await ThrowIfAdditionalSiteAsync(site.Name, cancellationToken).ConfigureAwait(false);
 
         // Held for the whole completion, so the request and its key cannot be replaced or cancelled meanwhile.
         await using var siteLock = await operationLock.AcquireAsync(site.Name, cancellationToken).ConfigureAwait(false);
@@ -371,6 +374,7 @@ internal sealed class ImportedCertificateService(
             }
 
             ThrowIfInvalid(leaf, targetHosts, intermediates);
+            await ThrowIfAdditionalSiteAsync(site.Name, cancellationToken).ConfigureAwait(false);
             await using var siteLock = await operationLock.AcquireAsync(site.Name, cancellationToken).ConfigureAwait(false);
             return await InstallAsync(
                     site,
@@ -591,6 +595,11 @@ internal sealed class ImportedCertificateService(
             ?? throw new InvalidOperationException(
                 $"IIS site '{siteName}' was not found. Run 'list-sites' to see the site names.");
     }
+
+    private async Task ThrowIfAdditionalSiteAsync(string siteName, CancellationToken cancellationToken) =>
+        ManagedCertificateTargets.ThrowIfAdditionalSite(
+            await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false),
+            siteName);
 
     private async Task<ManagedCertificate?> FindRecordAsync(string siteName, CancellationToken cancellationToken) =>
         (await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false))

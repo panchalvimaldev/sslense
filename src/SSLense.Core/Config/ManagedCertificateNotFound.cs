@@ -9,7 +9,7 @@ internal static class ManagedCertificateNotFound
     public static InvalidOperationException Create(string siteName, IReadOnlyList<ManagedCertificate> records)
     {
         var message = $"No managed certificate was found for IIS site '{siteName}'.";
-        var byHost = records.FirstOrDefault(record => record.Hosts.Any(host =>
+        var byHost = records.FirstOrDefault(record => record.AllTargets().SelectMany(target => target.Hosts).Any(host =>
             string.Equals(host.TrimEnd('.'), siteName.Trim().TrimEnd('.'), StringComparison.OrdinalIgnoreCase)));
         if (byHost is not null)
         {

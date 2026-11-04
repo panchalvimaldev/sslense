@@ -1,6 +1,7 @@
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
 using SSLense.Core.DnsValidation;
+using SSLense.Core.Iis;
 using SSLense.Core.Validation;
 
 namespace SSLense.Core.Reminders;
@@ -23,7 +24,8 @@ public interface IRenewalReadinessCheck
 internal sealed class RenewalReadinessCheck(
     IPreflightService preflight,
     ICertificateOperationLock operationLock,
-    IDnsChallengeService dnsChallenges) : IRenewalReadinessCheck
+    IDnsChallengeService dnsChallenges,
+    IIisService? iisService = null) : IRenewalReadinessCheck
 {
     /// <summary>Checks start this long before the scheduled renewal, so a certificate far from it causes no daily emails.</summary>
     internal static readonly TimeSpan Window = TimeSpan.FromDays(30);
@@ -48,7 +50,7 @@ internal sealed class RenewalReadinessCheck(
             }
 
             // An operation in progress changes bindings and challenge files; this site is looked at again tomorrow.
-            await using var siteLock = operationLock.TryAcquire(certificate.SiteName);
+            await using var siteLock = operationLock.TryAcquireAll(certificate.AllSiteNames());
             if (siteLock is null)
             {
                 continue;
@@ -61,7 +63,10 @@ internal sealed class RenewalReadinessCheck(
                         .Where(check => !check.Succeeded)
                         .Select(check => $"'{check.Name}' failed: {check.Message}")
                         .ToArray()
-                    : await CheckDnsAsync(certificate, cancellationToken).ConfigureAwait(false);
+                    : [
+                        .. await CheckDnsAsync(certificate, cancellationToken).ConfigureAwait(false),
+                        .. await CheckSharedSitesAsync(certificate, cancellationToken).ConfigureAwait(false)
+                    ];
                 if (failed.Length == 0)
                 {
                     passed.Add(certificate.SiteName);
@@ -78,6 +83,33 @@ internal sealed class RenewalReadinessCheck(
         }
 
         return new ProactiveCheckResult(problems, passed, errors);
+    }
+
+    /// <summary>The site problems that would hold back or leave out a site at renewal (docs/design/shared-certificates.md, section 6).</summary>
+    private async Task<string[]> CheckSharedSitesAsync(ManagedCertificate certificate, CancellationToken cancellationToken)
+    {
+        if (iisService is null || !certificate.IsShared())
+        {
+            return [];
+        }
+
+        var sites = await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
+        var failed = new List<string>();
+        foreach (var target in certificate.AllTargets())
+        {
+            var site = sites.FirstOrDefault(value => string.Equals(value.Name, target.SiteName, StringComparison.OrdinalIgnoreCase));
+            if (site is null)
+            {
+                failed.Add($"IIS site '{target.SiteName}' no longer exists, so it will be left out.");
+            }
+            else if (site.State == ServedCertificateCheck.StartedState &&
+                     await iisService.GetHttpsProblemAsync(site, target.Hosts, cancellationToken).ConfigureAwait(false) is { } problem)
+            {
+                failed.Add($"IIS site '{target.SiteName}' would hold back the renewal: {problem}");
+            }
+        }
+
+        return [.. failed];
     }
 
     /// <summary>Changes nothing in DNS. Anything other than a finding, such as a network failure, means the check could not run.</summary>

@@ -69,6 +69,7 @@ public sealed class AcmeServiceTests
                 It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
         var managedStore = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managedStore.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([]);
         managedStore.Setup(value => value.UpsertAsync(
                 It.Is<ManagedCertificate>(record =>
                     record.SiteName == "My Site" &&
@@ -115,7 +116,7 @@ public sealed class AcmeServiceTests
             Mock.Of<IChallengeProbe>(),
             Mock.Of<ICertificateArtifactStore>(),
             Mock.Of<ICertificateStore>(),
-            Mock.Of<IManagedCertificateStore>());
+            EmptyManagedStore());
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.IssueAsync(
             new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com")));
@@ -157,7 +158,7 @@ public sealed class AcmeServiceTests
             probe.Object,
             Mock.Of<ICertificateArtifactStore>(),
             Mock.Of<ICertificateStore>(),
-            Mock.Of<IManagedCertificateStore>());
+            EmptyManagedStore());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.IssueAsync(
             new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com")));
@@ -192,7 +193,7 @@ public sealed class AcmeServiceTests
             Mock.Of<IChallengeProbe>(),
             Mock.Of<ICertificateArtifactStore>(),
             certificateStore.Object,
-            Mock.Of<IManagedCertificateStore>());
+            EmptyManagedStore());
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.IssueAsync(
             new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com")));
@@ -397,7 +398,7 @@ public sealed class AcmeServiceTests
             probe.Object,
             artifacts.Object,
             certificateStore.Object,
-            Mock.Of<IManagedCertificateStore>());
+            EmptyManagedStore());
 
         await Assert.ThrowsAsync<IisBindingException>(() => service.IssueAsync(
             new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com")));
@@ -685,7 +686,7 @@ public sealed class AcmeServiceTests
         if (refused)
         {
             var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(request));
-            Assert.Contains("only one site", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("share add", exception.Message, StringComparison.Ordinal);
             Assert.Empty(harness.Steps);
         }
         else
@@ -883,7 +884,7 @@ public sealed class AcmeServiceTests
 
         public Mock<IAcmeProtocolClient> Protocol { get; } = new();
 
-        public Mock<IManagedCertificateStore> Managed { get; } = new();
+        public Mock<IManagedCertificateStore> Managed { get; } = EmptyManagedStoreMock();
 
         public FakeDnsChallengeService Dns { get; }
 
@@ -935,6 +936,15 @@ public sealed class AcmeServiceTests
             return ValueTask.CompletedTask;
         }
     }
+
+    private static Mock<IManagedCertificateStore> EmptyManagedStoreMock()
+    {
+        var managed = new Mock<IManagedCertificateStore>();
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([]);
+        return managed;
+    }
+
+    private static IManagedCertificateStore EmptyManagedStore() => EmptyManagedStoreMock().Object;
 
     private static Mock<IIisService> MockIis(IisSite site)
     {

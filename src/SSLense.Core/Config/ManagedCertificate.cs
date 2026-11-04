@@ -14,6 +14,8 @@ namespace SSLense.Core.Config;
 /// <param name="UpcomingNoticeSent">Whether the one upcoming-renewal notice was sent for this certificate.</param>
 /// <param name="ValidationMethod">How the certificate authority checks control of the names.</param>
 /// <param name="CertificateNames">The names on the certificate, when they differ from the IIS hosts in <paramref name="Hosts"/>, as with a wildcard.</param>
+/// <param name="AdditionalTargets">Other IIS sites using this certificate. <paramref name="SiteName"/> and <paramref name="Hosts"/> stay the first site. See docs/design/shared-certificates.md.</param>
+/// <param name="SitePendingSince">When the first site was left on its previous certificate; see <see cref="CertificateTarget.PendingSince"/>.</param>
 /// <remarks>
 /// The reminder fields belong to the record, not to a certificate: <see cref="IManagedCertificateStore.UpsertAsync"/> keeps
 /// them across installs and resets them when the thumbprint changes (except <see cref="ReminderMode.Off"/>).
@@ -40,7 +42,13 @@ public sealed record ManagedCertificate(
     DateTimeOffset? LastRemindedAt = null,
     bool UpcomingNoticeSent = false,
     ValidationMethod ValidationMethod = ValidationMethod.Http01,
-    IReadOnlyList<string>? CertificateNames = null);
+    IReadOnlyList<string>? CertificateNames = null,
+    IReadOnlyList<CertificateTarget>? AdditionalTargets = null,
+    DateTimeOffset? SitePendingSince = null);
+
+/// <summary>An IIS site and the hosts on it that use a certificate.</summary>
+/// <param name="PendingSince">When this site was left on its previous certificate because it had a problem during a renewal. Null when it uses the record's certificate.</param>
+public sealed record CertificateTarget(string SiteName, IReadOnlyList<string> Hosts, DateTimeOffset? PendingSince = null);
 
 public enum ValidationMethod
 {

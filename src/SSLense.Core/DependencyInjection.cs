@@ -44,6 +44,7 @@ public static class DependencyInjection
         services.AddTransient<IAcmeService, AcmeService>();
         services.AddSingleton<ITlsBindingProbe, TlsBindingProbe>();
         services.AddTransient<IIisService, IisService>();
+        services.AddTransient<ICertificateSharingService, CertificateSharingService>();
         services.AddTransient<IRenewalService, RenewalService>();
         services.AddTransient<IReminderService, ReminderService>();
         services.AddTransient<IOutsideRenewalDetector, OutsideRenewalDetector>();

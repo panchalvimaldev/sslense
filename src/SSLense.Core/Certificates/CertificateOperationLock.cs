@@ -37,3 +37,68 @@ internal sealed class NoOpCertificateOperationLock : ICertificateOperationLock
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }
+
+internal static class CertificateOperationLockExtensions
+{
+    /// <summary>
+    /// Takes every site's lock in one sorted order, so two processes working on overlapping sites cannot deadlock.
+    /// </summary>
+    public static async Task<IAsyncDisposable> AcquireAllAsync(
+        this ICertificateOperationLock operationLock,
+        IEnumerable<string> siteNames,
+        CancellationToken cancellationToken = default)
+    {
+        var held = new List<IAsyncDisposable>();
+        try
+        {
+            foreach (var siteName in InLockOrder(siteNames))
+            {
+                held.Add(await operationLock.AcquireAsync(siteName, cancellationToken).ConfigureAwait(false));
+            }
+
+            return new AllLocks(held);
+        }
+        catch
+        {
+            await new AllLocks(held).DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    /// <summary>Returns null, holding nothing, when another process holds any of the locks.</summary>
+    public static IAsyncDisposable? TryAcquireAll(this ICertificateOperationLock operationLock, IEnumerable<string> siteNames)
+    {
+        var held = new List<IAsyncDisposable>();
+        foreach (var siteName in InLockOrder(siteNames))
+        {
+            if (operationLock.TryAcquire(siteName) is not { } siteLock)
+            {
+                // Each lock is a file handle, released as soon as it is disposed.
+                new AllLocks(held).DisposeAsync().AsTask().GetAwaiter().GetResult();
+                return null;
+            }
+
+            held.Add(siteLock);
+        }
+
+        return new AllLocks(held);
+    }
+
+    private static IEnumerable<string> InLockOrder(IEnumerable<string> siteNames) =>
+        siteNames
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(siteName => siteName.Trim().ToUpperInvariant(), StringComparer.Ordinal);
+
+    private sealed class AllLocks(List<IAsyncDisposable> held) : IAsyncDisposable
+    {
+        public async ValueTask DisposeAsync()
+        {
+            for (var index = held.Count - 1; index >= 0; index--)
+            {
+                await held[index].DisposeAsync().ConfigureAwait(false);
+            }
+
+            held.Clear();
+        }
+    }
+}

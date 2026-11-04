@@ -211,7 +211,12 @@ public sealed record ReminderDigest(
             : attention.Count > 0 ? NotificationSeverity.Warning : NotificationSeverity.Information;
 
     internal static string Name(ManagedCertificate certificate) =>
-        certificate.Hosts.Count == 0 ? certificate.SiteName : $"{certificate.Hosts[0]}{(certificate.Hosts.Count > 1 ? $" (+{certificate.Hosts.Count - 1})" : string.Empty)} on site '{certificate.SiteName}'";
+        certificate.Hosts.Count == 0 ? certificate.SiteName : $"{certificate.Hosts[0]}{(certificate.Hosts.Count > 1 ? $" (+{certificate.Hosts.Count - 1})" : string.Empty)} on site '{certificate.SiteName}'{OtherSites(certificate)}";
+
+    private static string OtherSites(ManagedCertificate certificate) =>
+        certificate.AdditionalTargets is { Count: > 0 } others
+            ? $" and {string.Join(", ", others.Select(target => $"'{target.SiteName}'"))}"
+            : string.Empty;
 
     private string Date(DateTimeOffset? value) => value is { } date ? date.ToOffset(BuiltAt.Offset).ToString("dd MMM yyyy") : "an unknown date";
 

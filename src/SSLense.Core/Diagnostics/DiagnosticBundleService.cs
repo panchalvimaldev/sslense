@@ -99,8 +99,12 @@ internal sealed class DiagnosticBundleService(
             var records = await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
             foreach (var record in records)
             {
-                names.Add(record.SiteName);
-                names.UnionWith(record.Hosts);
+                foreach (var target in record.AllTargets())
+                {
+                    names.Add(target.SiteName);
+                    names.UnionWith(target.Hosts);
+                }
+
                 foreach (var name in record.CertificateNames ?? record.Hosts)
                 {
                     names.Add(name);

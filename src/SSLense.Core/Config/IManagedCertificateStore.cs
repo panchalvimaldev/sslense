@@ -14,6 +14,12 @@ public interface IManagedCertificateStore
         ManagedCertificate certificate,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Swaps a record for one that may have a different first site, in one write, keeping its reminder state.</summary>
+    Task ReplaceAsync(
+        string existingSiteName,
+        ManagedCertificate certificate,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Records a failed attempt, increments the consecutive-failure count, and stores the next retry time.
     /// Returns the updated record, or null when the site is no longer managed.

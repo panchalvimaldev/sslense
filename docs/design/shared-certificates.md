@@ -99,6 +99,7 @@ Tested November 4, 2026 on Windows 11 and IIS 10, with three test sites and self
 | Trial with a bad certificate | Refused by both a stopped IIS site and `netsh`, with real sites unaffected. A good certificate was accepted |
 | Stopped site | The commit applies. It still answered TLS with the right certificate because other sites were listening on port 443, so the comment in `IisService` that it has no listener is not always true |
 | Sites left on different certificates | Works; each site serves its own certificate |
+| A binding that lost its HTTP.sys entry | IIS reports no certificate for it, so it looks unused. Binding it again to any certificate in the store brings it back. Found November 4, 2026, in the staging tests |
 
 `netsh` is chosen for the trial over a stopped IIS site because it changes nothing in IIS, and an interrupted trial leaves nothing an administrator would see in IIS Manager.
 
@@ -119,7 +120,7 @@ SSLense checks every site **before ordering**, and again when it binds:
 "7 days" means the days left on the certificate in use. It applies however the renewal was started.
 
 - **The pre-order check saves certificates.** A site that is already broken is found before anything is ordered. A failure after the swap has used one of the 5 weekly certificates, which is why it waits at least 24 hours, not the usual 1 to 6.
-- **A site left out keeps its working binding** on the old certificate, which is not removed while that binding uses it. Its target gets `PendingSince`.
+- **A site left out keeps its working binding** on the old certificate, which stays in the store while any site is left out, even if that site's binding shows no certificate (section 5.1). Its target gets `PendingSince`.
 - **Catching up needs no new certificate.** Each service cycle tries to bind pending sites to the current certificate, with the same live check. A success clears `PendingSince`. A manual `renew --site` also tries, whichever site is named.
 - **It is reported loudly.** Each result, notification, and digest names the site and its expiry date. Failure notifications for a site with a pending binding are sent whatever the normal failure count, because the renewal itself may look successful.
 - **A deleted site stays in the record** until `share remove`, because a rename looks the same as a delete and SSLense should not guess. Its reminder tells the administrator to choose.
@@ -135,7 +136,7 @@ SSLense checks every site **before ordering**, and again when it binds:
 | Served-certificate check | Checks every site. A site pending or left out is reported with its own expiry |
 | Hand-sharing warning | Sites in the record no longer count. The message for others now suggests `share add` |
 | Readiness check | Adds the site states above, changing nothing |
-| Outside-renewal detector | Accepts a replaced certificate only when every site moved to it. Otherwise it reports the difference and changes nothing |
+| Outside-renewal detector | No change: it only looks at imported certificates, which cannot be shared (decision 1). A site moved to another certificate by hand is reported by the served-certificate check |
 | Manual DNS certificates | Can be shared. The renewal command uses the first site, and the reminder names them all |
 | Diagnostic bundles | `--redact-hosts` also covers additional sites' host names |
 
@@ -158,7 +159,7 @@ Must hold before merge:
 |---|---|---|
 | 1 | This design | Docs |
 | 2 | Spike on real IIS. **Done** November 4, 2026. One commit is not atomic, so section 5 changed (section 5.1). | Nothing |
-| 3 | Core: model, migrations, locks, binding transaction, recovery, site-problem rules, catching up; `share` commands; updated checks and notifications | CLI |
+| 3 | Core: model, migrations, locks, binding transaction, recovery, site-problem rules, catching up; `share` commands; updated checks and notifications. **Built and accepted** November 4, 2026, on Windows 11 and IIS 10 with Let's Encrypt staging: 55 checks on real IIS and 127 with the real commands. The run through the commands found one bug, now fixed (section 5.1, last row). | CLI |
 | 4 | GUI, README, website, roadmap; manual acceptance; release as 0.14 | Both |
 
 Unit tests use fake IIS and locks. They cover each row of the table in section 6, lock ordering, a site list changing while waiting, a crash at each journal stage, and migration from real version 4 files.
@@ -175,6 +176,8 @@ Manual acceptance on this machine, with Let's Encrypt staging and three local si
 - A certificate refused in the trial, and a site whose restore needs the second attempt
 
 The findings in section 5.1 must also be repeated on Windows Server before release, because that is where SSLense runs in production.
+
+Done for step 3, November 4, 2026, except the GUI. Three things are still open: a live-check failure was simulated, because real IIS cannot be made to fail on demand; catching up ran through `renew`, not a real service cycle; and HTTP-01 was covered only by unit tests.
 
 A production test on real sites stays a separate test that the maintainer runs.
 
