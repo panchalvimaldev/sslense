@@ -205,7 +205,7 @@ internal sealed class CertificateSharingService(
         {
             throw new InvalidOperationException(
                 $"The certificate for IIS site '{owner.SiteName}' uses HTTP validation. Sharing needs DNS validation, because HTTP validation would have to reach every site. " +
-                "Issue the certificate again with --validation dns.");
+                "Issue the certificate again with DNS validation.");
         }
     }
 

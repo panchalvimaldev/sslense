@@ -11,11 +11,25 @@ public partial class CertificateDetailsView : UserControl
     private async void OnRemoveClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is not CertificateDetailsViewModel viewModel || viewModel.SelectedSite is null) return;
+        var sites = string.Join(", ", viewModel.SharedSites.Select(row => $"'{row.SiteName}'"));
         var answer = MessageBox.Show(
-            $"Remove the managed certificate and matching HTTPS bindings for '{viewModel.SelectedSite}'?",
+            viewModel.SharedSites.Count > 1
+                ? $"Remove the managed certificate and its HTTPS bindings on every site using it: {sites}?"
+                : $"Remove the managed certificate and matching HTTPS bindings for '{viewModel.SelectedSite}'?",
             "Confirm certificate removal",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning);
         if (answer == MessageBoxResult.Yes) await viewModel.RemoveCommand.ExecuteAsync(null);
+    }
+
+    private async void OnStopManagingClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not CertificateDetailsViewModel viewModel || sender is not FrameworkElement { DataContext: SharedSiteRow row }) return;
+        var answer = MessageBox.Show(
+            $"Stop managing '{row.SiteName}'? Its binding stays as it is, so the site keeps working until this certificate expires, but SSLense will no longer renew it.",
+            "Confirm stop managing",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (answer == MessageBoxResult.Yes) await viewModel.StopManagingCommand.ExecuteAsync(row);
     }
 }
