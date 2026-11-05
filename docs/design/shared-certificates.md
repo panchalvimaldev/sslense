@@ -160,7 +160,7 @@ Must hold before merge:
 | 1 | This design | Docs |
 | 2 | Spike on real IIS. **Done** November 4, 2026. One commit is not atomic, so section 5 changed (section 5.1). | Nothing |
 | 3 | Core: model, migrations, locks, binding transaction, recovery, site-problem rules, catching up; `share` commands; updated checks and notifications. **Built and accepted** November 4, 2026, on Windows 11 and IIS 10 with Let's Encrypt staging: 55 checks on real IIS and 127 with the real commands. The run through the commands found one bug, now fixed (section 5.1, last row). | CLI |
-| 4 | GUI, README, website, roadmap; manual acceptance; release as 0.14. **GUI and documents built** November 4, 2026; not yet tried by hand | Both |
+| 4 | GUI, README, website, roadmap; manual acceptance; release as 0.14. **GUI and documents built** November 4, 2026. The maintainer tried them by hand on November 5, 2026, on Let's Encrypt staging, and every step matched. Still to do before release: Windows Server, a real service cycle, and HTTP validation on real IIS | Both |
 
 Unit tests use fake IIS and locks. They cover each row of the table in section 6, lock ordering, a site list changing while waiting, a crash at each journal stage, and migration from real version 4 files.
 

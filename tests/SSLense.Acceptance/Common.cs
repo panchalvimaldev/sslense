@@ -17,7 +17,8 @@ internal static class Report
 
     public static void Open(string path)
     {
-        _file = new StreamWriter(path, append: false) { AutoFlush = true };
+        // Appended, so a second attempt cannot hide why the first one failed.
+        _file = new StreamWriter(path, append: true) { AutoFlush = true };
         Info($"Started {DateTimeOffset.Now:o}");
     }
 

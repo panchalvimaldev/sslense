@@ -110,15 +110,29 @@ internal static class PartB
         _email = Console.ReadLine()?.Trim() ?? "";
         Report.Scrub = _email;
         TakeBackup(StopService());
-        CleanupTestObjects();
-        await AddDnsProviderAsync();
-        foreach (var (site, host) in new[] { (A, HostA), (B, HostB), (C, HostC) })
+        try
         {
-            Iis.EnsureSite(site, host);
+            CleanupTestObjects();
+            await AddDnsProviderAsync();
+            foreach (var (site, host) in new[] { (A, HostA), (B, HostB), (C, HostC) })
+            {
+                Iis.EnsureSite(site, host);
+            }
+
+            var result = await Run(Cli, "issue", "--site", A, "--email", _email, "--validation", "dns", "--staging", "--names", $"*.{Domain}", "--hosts", HostA);
+            if (!Report.Check("Certificate issued", result.ExitCode == 0, $"exit {result.ExitCode}"))
+            {
+                throw new InvalidOperationException("The certificate was not issued, so there is nothing to try in the app.");
+            }
+        }
+        catch (Exception exception)
+        {
+            // Nothing can be tried, so this machine should not stay with its service stopped.
+            Report.Check("Setup finished", false, exception.Message);
+            await RestoreAsync();
+            return;
         }
 
-        var result = await Run(Cli, "issue", "--site", A, "--email", _email, "--validation", "dns", "--staging", "--names", $"*.{Domain}", "--hosts", HostA);
-        Report.Check("Certificate issued", result.ExitCode == 0, $"exit {result.ExitCode}");
         Report.Info($"Ready: {A} has the certificate; {B} ({HostB}) and {C} ({HostC}) can be added to it.");
         Report.Info("Run the app from the same build. When finished, close it and run this program with 'restore'.");
     }
@@ -197,22 +211,34 @@ internal static class PartB
             .FirstOrDefault(match => match.Success);
         string name;
         int exitCode;
+        string errors;
         if (existing is not null)
         {
             name = existing.Groups[1].Value;
             Console.WriteLine($"Paste the new Cloudflare token for provider '{name}'. It is not shown, and it goes straight to SSLense.");
-            exitCode = await Interactive("dns", "update-token", "--name", name);
+            (exitCode, errors) = await Interactive("dns", "update-token", "--name", name);
         }
         else
         {
             name = "acceptance";
-            Console.Write($"Cloudflare zone ID for {Zone} (from the domain's Overview page): ");
-            var zoneId = Console.ReadLine()?.Trim() ?? "";
+            string zoneId;
+            do
+            {
+                // Asked again here, because SSLense only checks the format after the token has been pasted.
+                Console.Write($"Cloudflare zone ID for {Zone}: 32 hexadecimal characters, from the domain's Overview page: ");
+                zoneId = Console.ReadLine()?.Trim() ?? "";
+            }
+            while (!Regex.IsMatch(zoneId, "^[0-9a-fA-F]{32}$"));
+
             Console.WriteLine("Paste the new Cloudflare token. It is not shown, and it goes straight to SSLense.");
-            exitCode = await Interactive("dns", "add", "--provider", "cloudflare", "--name", name, "--zone", Zone, "--zone-id", zoneId);
+            (exitCode, errors) = await Interactive("dns", "add", "--provider", "cloudflare", "--name", name, "--zone", Zone, "--zone-id", zoneId);
         }
 
-        Report.Check("DNS provider saved", exitCode == 0, $"exit {exitCode}");
+        if (!Report.Check("DNS provider saved", exitCode == 0, $"exit {exitCode}: {errors.Trim()}"))
+        {
+            throw new InvalidOperationException("The DNS provider was not saved, so the staging tests were not run.");
+        }
+
         var test = await Run(Cli, "dns", "test", "--name", name);
         if (!Report.Check("Token can change the zone", test.ExitCode == 0, test.Output.Trim()))
         {
@@ -688,18 +714,19 @@ internal static class PartB
         return (process.ExitCode, output.ToString(), killed);
     }
 
-    /// <summary>Uses this console, so SSLense reads the token itself and this program never sees it.</summary>
-    private static async Task<int> Interactive(params string[] arguments)
+    /// <summary>Uses this console for input, so SSLense reads the token itself and this program never sees it. Only error text is captured.</summary>
+    private static async Task<(int ExitCode, string Errors)> Interactive(params string[] arguments)
     {
-        var info = new ProcessStartInfo(Cli) { UseShellExecute = false };
+        var info = new ProcessStartInfo(Cli) { UseShellExecute = false, RedirectStandardError = true };
         foreach (var argument in arguments)
         {
             info.ArgumentList.Add(argument);
         }
 
         using var process = Process.Start(info)!;
+        var errors = await process.StandardError.ReadToEndAsync();
         await process.WaitForExitAsync();
-        return process.ExitCode;
+        return (process.ExitCode, errors);
     }
 
     private static bool ServiceExists() => ServiceController.GetServices().Any(service => service.ServiceName == Service);
