@@ -15,6 +15,10 @@ internal static class SharedBindingTransaction
     /// Whether a site that fails stays behind while the others continue, for the last days before expiry. Otherwise the first
     /// failure puts back every site changed so far.
     /// </param>
+    /// <param name="recordLeftOut">
+    /// Called with every site left behind so far, each time one is added and before the next site changes, so recovery after a
+    /// stop leaves the same sites out instead of retrying them.
+    /// </param>
     /// <returns>The sites left behind; always empty unless <paramref name="leaveOutFailures"/> is set.</returns>
     /// <exception cref="IisBindingException">No site moved. <see cref="IisBindingException.PreviousBindingsRestored"/> says whether every site is back as it was.</exception>
     public static async Task<IReadOnlyList<LeftOutSite>> ApplyAsync(
@@ -23,7 +27,8 @@ internal static class SharedBindingTransaction
         string thumbprint,
         bool leaveOutFailures,
         IProgress<ProgressEvent>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<IReadOnlyList<LeftOutSite>, Task>? recordLeftOut = null)
     {
         await iisService.TryCertificateAsync(thumbprint, "My", cancellationToken).ConfigureAwait(false);
 
@@ -38,15 +43,30 @@ internal static class SharedBindingTransaction
                 changed.Add(await iisService
                     .SwitchHttpsBindingsAsync(target.SiteName, target.Hosts, thumbprint, "My", cancellationToken)
                     .ConfigureAwait(false));
+                continue;
             }
-            catch (IisBindingException exception) when (leaveOutFailures)
+            catch (IisBindingException exception) when (leaveOutFailures && exception.PreviousBindingsRestored)
             {
+                // Only a site confirmed back on its previous certificate can stay behind. One whose restore is uncertain may
+                // depend on the new certificate, so it falls through to putting every site back, which keeps that certificate.
                 progress?.Report(new ProgressEvent("binding", $"IIS site '{target.SiteName}' was left on its previous certificate: {exception.Message}"));
                 leftOut.Add(new LeftOutSite(target.SiteName, exception.Message));
             }
             catch (Exception exception)
             {
                 throw await PutBackAsync(iisService, changed, target.SiteName, exception, progress).ConfigureAwait(false);
+            }
+
+            if (recordLeftOut is not null)
+            {
+                try
+                {
+                    await recordLeftOut(leftOut.ToArray()).ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    throw await PutBackAsync(iisService, changed, target.SiteName, exception, progress).ConfigureAwait(false);
+                }
             }
         }
 

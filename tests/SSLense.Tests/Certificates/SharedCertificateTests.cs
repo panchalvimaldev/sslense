@@ -161,6 +161,57 @@ public sealed class SharedCertificateTests
         iis.Verify(value => value.UndoHttpsBindingsAsync(It.IsAny<HttpsBindingUndo>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [Fact]
+    public async Task Transaction_LastDays_SiteNotConfirmedRestored_IsNotLeftOut_AndEverySiteGoesBack()
+    {
+        var iis = TransactionIis(Failure(false));
+
+        var exception = await Assert.ThrowsAsync<IisBindingException>(() =>
+            SharedBindingTransaction.ApplyAsync(iis.Object, TwoTargets(), New, true, null, CancellationToken.None));
+
+        Assert.False(exception.PreviousBindingsRestored);
+        Assert.Contains("'Blog'", exception.Message, StringComparison.Ordinal);
+        iis.Verify(value => value.UndoHttpsBindingsAsync(It.Is<HttpsBindingUndo>(undo => undo.SiteName == "Shop"), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Transaction_LastDays_RecordsASiteLeftOut_BeforeTheNextSiteChanges()
+    {
+        var steps = new List<string>();
+        var iis = TransactionIis(Failure());
+        iis.Setup(value => value.SwitchHttpsBindingsAsync("Shop", It.IsAny<IReadOnlyList<string>>(), New, "My", It.IsAny<CancellationToken>()))
+            .Callback(() => steps.Add("switch Shop"))
+            .ReturnsAsync(Undo("Shop"));
+        CertificateTarget[] blogFirst = [new("Blog", ["blog.example.com"]), new("Shop", ["shop.example.com"])];
+
+        await SharedBindingTransaction.ApplyAsync(
+            iis.Object,
+            blogFirst,
+            New,
+            true,
+            null,
+            CancellationToken.None,
+            sites =>
+            {
+                steps.Add($"record {string.Join(",", sites.Select(site => site.SiteName))}");
+                return Task.CompletedTask;
+            });
+
+        Assert.Equal(["record Blog", "switch Shop"], steps);
+    }
+
+    [Fact]
+    public async Task Transaction_LastDays_RecordingFails_PutsBackTheSitesAlreadyMoved()
+    {
+        var iis = TransactionIis(Failure());
+
+        var exception = await Assert.ThrowsAsync<IisBindingException>(() => SharedBindingTransaction.ApplyAsync(
+            iis.Object, TwoTargets(), New, true, null, CancellationToken.None, _ => throw new IOException("disk full")));
+
+        Assert.True(exception.PreviousBindingsRestored);
+        iis.Verify(value => value.UndoHttpsBindingsAsync(It.Is<HttpsBindingUndo>(undo => undo.SiteName == "Shop"), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     private sealed class FakeDns : IDnsChallengeService
     {
         public Task CheckBeforeOrderAsync(ValidationMethod method, IReadOnlyList<string> certificateNames, string authorityId, CancellationToken cancellationToken) =>
@@ -219,9 +270,14 @@ public sealed class SharedCertificateTests
                 artifacts.Object,
                 Store.Object,
                 Managed.Object,
+                transactionJournal: Journal.Object,
                 dnsChallenges: new FakeDns());
+            Journal.Setup(value => value.BeginAsync(It.IsAny<ManagedCertificate>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((ManagedCertificate certificate, string? previous, CancellationToken _) =>
+                    new CertificateTransaction(Guid.NewGuid(), certificate, previous, CertificateTransactionStage.Prepared, DateTimeOffset.UtcNow));
         }
 
+        public Mock<ICertificateTransactionJournal> Journal { get; } = new();
         public List<string> Steps { get; } = [];
         public Mock<IIisService> Iis { get; } = new();
         public Mock<IManagedCertificateStore> Managed { get; } = new();
@@ -367,6 +423,38 @@ public sealed class SharedCertificateTests
         Assert.Equal("Blog", Assert.Single(result.LeftOutSites!).SiteName);
         Assert.NotNull(Assert.Single(harness.SavedRecord().AdditionalTargets!).PendingSince);
         harness.Iis.Verify(value => value.UndoHttpsBindingsAsync(It.IsAny<HttpsBindingUndo>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Issue_SiteFailsTheSwitch_InTheLastDays_IsRecordedInTheJournal_ForRecoveryAfterAStop()
+    {
+        var harness = new IssueHarness(Shared(daysLeft: 6), Site("Shop", "shop.example.com"), Site("Blog", "blog.example.com"));
+        BlogFailsTheSwitch(harness);
+
+        await harness.Service.IssueAsync(Renewal());
+
+        harness.Journal.Verify(value => value.UpdateCertificateAsync(
+            It.IsAny<Guid>(),
+            It.Is<ManagedCertificate>(record =>
+                record.Thumbprint == New &&
+                record.SitePendingSince == null &&
+                record.AdditionalTargets!.Single().SiteName == "Blog" &&
+                record.AdditionalTargets!.Single().PendingSince != null),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Issue_SiteNotConfirmedRestored_InTheLastDays_PutsEverySiteBack_AndKeepsTheNewCertificate()
+    {
+        var harness = new IssueHarness(Shared(daysLeft: 6), Site("Shop", "shop.example.com"), Site("Blog", "blog.example.com"));
+        BlogFailsTheSwitch(harness, restored: false);
+
+        var exception = await Assert.ThrowsAsync<IisBindingException>(() => harness.Service.IssueAsync(Renewal()));
+
+        Assert.False(exception.PreviousBindingsRestored);
+        harness.Iis.Verify(value => value.UndoHttpsBindingsAsync(It.Is<HttpsBindingUndo>(undo => undo.SiteName == "Shop"), It.IsAny<CancellationToken>()), Times.Once);
+        harness.Store.Verify(value => value.RemoveAsync(New, It.IsAny<CancellationToken>()), Times.Never);
+        harness.VerifySavedNothing();
     }
 
     [Fact]
@@ -905,6 +993,19 @@ public sealed class SharedCertificateTests
         })).Message, StringComparison.Ordinal);
         ManagedCertificateTargets.ThrowIfAdditionalSite([Shared()], "Shop");
         ManagedCertificateTargets.ThrowIfAdditionalSite([Shared()], "Unrelated");
+    }
+
+    [Fact]
+    public void ImportedInstall_OnTheFirstSiteOfASharedCertificate_IsRefused_AndSaysHowToDetachIt()
+    {
+        var message = Assert.Throws<InvalidOperationException>(() =>
+            ManagedCertificateTargets.ThrowIfSharedFirstSite([Shared()], "shop")).Message;
+
+        Assert.Contains("'Blog'", message, StringComparison.Ordinal);
+        Assert.Contains("share remove --site \"Shop\"", message, StringComparison.Ordinal);
+        ManagedCertificateTargets.ThrowIfSharedFirstSite([Shared()], "Blog");
+        ManagedCertificateTargets.ThrowIfSharedFirstSite([Shared() with { AdditionalTargets = null }], "Shop");
+        ManagedCertificateTargets.ThrowIfSharedFirstSite([Shared()], "Unrelated");
     }
 
     private static Mock<IIisService> IisShowing(params IisSite[] sites)

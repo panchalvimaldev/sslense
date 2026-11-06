@@ -58,4 +58,21 @@ public static class ManagedCertificateTargets
                 $"'SSLense.Cli share remove --site \"{siteName}\"'.");
         }
     }
+
+    /// <summary>
+    /// A certificate SSLense does not obtain cannot be shared, so replacing a shared certificate on its first site would
+    /// drop the other sites from the record, and they would stop being renewed.
+    /// </summary>
+    internal static void ThrowIfSharedFirstSite(IReadOnlyList<ManagedCertificate> records, string siteName)
+    {
+        var record = records.FirstOrDefault(value => string.Equals(value.SiteName, siteName.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (record is not null && record.IsShared())
+        {
+            var others = string.Join(", ", record.AdditionalTargets!.Select(target => $"'{target.SiteName}'"));
+            throw new InvalidOperationException(
+                $"IIS site '{record.SiteName}' shares its certificate with {others}. A certificate you import or request cannot " +
+                $"be shared, so those sites would stop being renewed. To give this site its own certificate, first run " +
+                $"'SSLense.Cli share remove --site \"{record.SiteName}\"': the other sites keep the shared certificate and its renewal.");
+        }
+    }
 }

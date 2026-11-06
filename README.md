@@ -230,7 +230,7 @@ In the app, use **Sites using this certificate** on Certificate Details.
 
 - **`share add`:** without `--hosts`, it uses every named binding on the site that the certificate covers. If SSLense already manages another certificate for that site, add `--replace-existing`, which stops managing that certificate. A certificate from another provider stays in the store.
 - **`share remove`:** SSLense stops managing the site and leaves its binding as it is, so the site keeps working until the certificate expires. If you remove the first site, the next one takes its place. A certificate with one site left is removed with `remove`, and `remove` on a shared certificate removes the bindings on every site.
-- **Renewing:** `renew --site` with any of the sites renews them all. Other commands that install a certificate, such as `import` and `csr`, are refused on a site added this way until you run `share remove`.
+- **Renewing:** `renew --site` with any of the sites renews them all. Other commands that install a certificate, such as `import` and `csr`, are refused on a site added this way until you run `share remove`. They are refused on the first site too, because an imported certificate can't be shared; `share remove` on the first site hands the shared certificate to the next site.
 - **Only DNS validation for now:** HTTP validation would have to reach every site, and certificates from other providers can't be shared yet.
 
 SSLense tries each new certificate before touching a real site, moves sites one at a time, and confirms over HTTPS what each one serves. Moving a site refuses new connections on that site for a moment, about 10 to 20 ms in testing, as any certificate change in IIS does. Browsers normally retry. When a site has a problem:

@@ -278,7 +278,11 @@ internal sealed class AcmeService : IAcmeService
                                 installedCertificate.Thumbprint,
                                 sharedPlan.InLastDays,
                                 progress,
-                                cancellationToken)
+                                cancellationToken,
+                                sitesLeftOut => _transactionJournal.UpdateCertificateAsync(
+                                    transaction.Id,
+                                    pendingRecord.WithTargets(MarkLeftOut(pendingRecord.AllTargets(), [.. sharedPlan.LeftOut, .. sitesLeftOut])),
+                                    CancellationToken.None))
                             .ConfigureAwait(false)
                     ];
                     pendingRecord = pendingRecord.WithTargets(MarkLeftOut(pendingRecord.AllTargets(), leftOut));
