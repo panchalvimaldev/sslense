@@ -28,6 +28,7 @@ public static class DependencyInjection
         services.AddSingleton<ICertificateAuthorityRegistry, CertificateAuthorityRegistry>();
         services.AddSingleton<IChallengeProbe, HttpChallengeProbe>();
         services.AddSingleton<IChallengeJournal, JsonChallengeJournal>();
+        services.AddSingleton<IIisSectionLocks, IisSectionLocks>();
         services.AddTransient<IChallengeHandler, Http01Handler>();
         services.AddSingleton<IDnsLookup, DnsClientLookup>();
         services.AddSingleton<IDnsProvider, CloudflareDnsProvider>();

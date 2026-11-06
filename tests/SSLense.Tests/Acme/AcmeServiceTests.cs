@@ -38,7 +38,7 @@ public sealed class AcmeServiceTests
             .ReturnsAsync(order.Object);
         var cleanup = new TrackingCleanup();
         var handler = new Mock<IChallengeHandler>(MockBehavior.Strict);
-        handler.Setup(value => value.PrepareAsync("C:\\inetpub\\site", challenge, It.IsAny<CancellationToken>()))
+        handler.Setup(value => value.PrepareAsync("My Site", "C:\\inetpub\\site", challenge, It.IsAny<CancellationToken>()))
             .ReturnsAsync(cleanup);
         var probe = new Mock<IChallengeProbe>(MockBehavior.Strict);
         probe.Setup(value => value.VerifyAsync(challenge, It.IsAny<CancellationToken>()))
@@ -144,6 +144,7 @@ public sealed class AcmeServiceTests
         var cleanup = new TrackingCleanup();
         var handler = new Mock<IChallengeHandler>(MockBehavior.Strict);
         handler.Setup(value => value.PrepareAsync(
+                It.IsAny<string>(),
                 It.IsAny<string>(),
                 challenge,
                 It.IsAny<CancellationToken>()))
@@ -359,6 +360,7 @@ public sealed class AcmeServiceTests
             .ReturnsAsync(order.Object);
         var handler = new Mock<IChallengeHandler>(MockBehavior.Strict);
         handler.Setup(value => value.PrepareAsync(
+                It.IsAny<string>(),
                 It.IsAny<string>(),
                 challenge,
                 It.IsAny<CancellationToken>()))

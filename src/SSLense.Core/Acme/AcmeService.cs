@@ -178,7 +178,7 @@ internal sealed class AcmeService : IAcmeService
         }
         else
         {
-            await CompleteHttpChallengesAsync(order, site.PhysicalPath!, hosts, environmentName, progress, cancellationToken)
+            await CompleteHttpChallengesAsync(order, site.Name, site.PhysicalPath!, hosts, environmentName, progress, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -392,6 +392,7 @@ internal sealed class AcmeService : IAcmeService
 
     private async Task CompleteHttpChallengesAsync(
         IAcmeOrderSession order,
+        string siteName,
         string sitePhysicalPath,
         IReadOnlyList<string> hosts,
         string environmentName,
@@ -413,7 +414,7 @@ internal sealed class AcmeService : IAcmeService
 
             progress?.Report(new ProgressEvent("challenge", $"Preparing HTTP-01 for {challenge.Host}."));
             await using var cleanup = await _challengeHandler
-                .PrepareAsync(sitePhysicalPath, challenge, cancellationToken)
+                .PrepareAsync(siteName, sitePhysicalPath, challenge, cancellationToken)
                 .ConfigureAwait(false);
 
             progress?.Report(new ProgressEvent("self-check", $"Checking HTTP access for {challenge.Host}."));

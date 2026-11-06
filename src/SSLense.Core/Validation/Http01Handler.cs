@@ -1,48 +1,85 @@
 using SSLense.Core.Acme;
+using System.Text;
 using SSLense.Core.Config;
+using SSLense.Core.Iis;
 
 namespace SSLense.Core.Validation;
 
 internal sealed class Http01Handler : IChallengeHandler
 {
-    private const string ChallengeWebConfig = """
-        <?xml version="1.0" encoding="utf-8"?>
-        <configuration>
-          <system.webServer>
-            <validation validateIntegratedModeConfiguration="false" />
-            <handlers>
-              <remove name="ExtensionlessUrlHandler-Integrated-4.0" />
-              <add name="SSLenseAcmeChallenge" path="*" verb="GET,HEAD" modules="StaticFileModule" resourceType="File" requireAccess="Read" />
-            </handlers>
-            <staticContent>
-              <remove fileExtension="." />
-              <mimeMap fileExtension="." mimeType="text/plain" />
-            </staticContent>
-            <security>
-              <authorization>
-                <clear />
-                <add accessType="Allow" users="*" />
-              </authorization>
-            </security>
-          </system.webServer>
-        </configuration>
-        """;
+    private const string ChallengePath = ".well-known/acme-challenge";
+
+    /// <summary>
+    /// Each section serves the token as a plain static file. One that IIS does not let the folder set is left out, because a
+    /// web.config with a locked or unknown section makes IIS answer 500.19 to every request in the folder.
+    /// </summary>
+    private static readonly (string Path, string Xml)[] ChallengeSections =
+    [
+        ("system.webServer/validation", """
+                <validation validateIntegratedModeConfiguration="false" />
+            """),
+        ("system.webServer/handlers", """
+                <handlers>
+                  <remove name="ExtensionlessUrlHandler-Integrated-4.0" />
+                  <add name="SSLenseAcmeChallenge" path="*" verb="GET,HEAD" modules="StaticFileModule" resourceType="File" requireAccess="Read" />
+                </handlers>
+            """),
+        ("system.webServer/staticContent", """
+                <staticContent>
+                  <remove fileExtension="." />
+                  <mimeMap fileExtension="." mimeType="text/plain" />
+                </staticContent>
+            """),
+        ("system.webServer/security/authorization", """
+                <security>
+                  <authorization>
+                    <clear />
+                    <add accessType="Allow" users="*" />
+                  </authorization>
+                </security>
+            """),
+    ];
 
     private readonly IFileSystem _fileSystem;
     private readonly IChallengeJournal _journal;
+    private readonly IIisSectionLocks? _sectionLocks;
 
-    public Http01Handler(IFileSystem fileSystem, IChallengeJournal? journal = null)
+    public Http01Handler(IFileSystem fileSystem, IChallengeJournal? journal = null, IIisSectionLocks? sectionLocks = null)
     {
         _fileSystem = fileSystem;
         _journal = journal ?? new NoOpChallengeJournal();
+        _sectionLocks = sectionLocks;
+    }
+
+    /// <summary>Every section when <paramref name="settable"/> is null, because IIS configuration could not be read.</summary>
+    internal static string BuildWebConfig(IReadOnlySet<string>? settable)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("""<?xml version="1.0" encoding="utf-8"?>""");
+        builder.AppendLine("<configuration>");
+        builder.AppendLine("  <system.webServer>");
+        foreach (var (path, xml) in ChallengeSections)
+        {
+            if (settable is null || settable.Contains(path))
+            {
+                builder.AppendLine(xml);
+            }
+        }
+
+        builder.AppendLine("  </system.webServer>");
+        builder.AppendLine("</configuration>");
+        return builder.ToString();
     }
 
     public async Task<IAsyncDisposable> PrepareAsync(
+        string siteName,
         string sitePhysicalPath,
         AcmeHttpChallenge challenge,
         CancellationToken cancellationToken)
     {
         ValidateToken(challenge.Token);
+        var webConfig = BuildWebConfig(
+            _sectionLocks?.GetSettableSections(siteName, ChallengePath, ChallengeSections.Select(section => section.Path).ToArray()));
         var siteRoot = Path.GetFullPath(sitePhysicalPath);
         if (!_fileSystem.DirectoryExists(siteRoot))
         {
@@ -80,7 +117,7 @@ internal sealed class Http01Handler : IChallengeHandler
             _fileSystem.CreateDirectory(challengeDirectory);
             await _fileSystem.WriteAllTextAsync(tokenPath, challenge.KeyAuthorization, cancellationToken)
                 .ConfigureAwait(false);
-            await _fileSystem.WriteAllTextAsync(webConfigPath, ChallengeWebConfig, cancellationToken)
+            await _fileSystem.WriteAllTextAsync(webConfigPath, webConfig, cancellationToken)
                 .ConfigureAwait(false);
             return cleanup;
         }
