@@ -52,6 +52,16 @@ internal sealed class CertificateSharingService(
             throw new InvalidOperationException($"Certificate {owner.Thumbprint} has no usable private key, so no site can use it.");
         }
 
+        // The HTTPS confirmation checks only which certificate is served, not whether it is valid, so it would not catch this.
+        var now = DateTimeOffset.UtcNow;
+        if (installed.NotAfter <= now || installed.NotBefore > now)
+        {
+            throw new InvalidOperationException(
+                $"Certificate {owner.Thumbprint} is not valid now (valid from {installed.NotBefore:yyyy-MM-dd HH:mm} to " +
+                $"{installed.NotAfter:yyyy-MM-dd HH:mm} UTC), so sharing it would break HTTPS on IIS site '{site.Name}'. " +
+                $"Renew it first with 'SSLense.Cli renew --site \"{owner.SiteName}\" --force'.");
+        }
+
         var updated = owner.WithTargets([.. owner.AllTargets(), new CertificateTarget(site.Name, targetHosts)]);
         var transaction = await journal.BeginAsync(updated, owner.Thumbprint, CancellationToken.None).ConfigureAwait(false);
         await journal.UpdateStageAsync(transaction.Id, CertificateTransactionStage.CertificateImported, CancellationToken.None)

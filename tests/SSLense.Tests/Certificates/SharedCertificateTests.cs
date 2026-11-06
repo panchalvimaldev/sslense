@@ -592,6 +592,24 @@ public sealed class SharedCertificateTests
     }
 
     [Fact]
+    public async Task Add_AnExpiredCertificate_IsRefused_EvenToReplaceAnother()
+    {
+        var harness = new SharingHarness(
+            [SingleSite(), SingleSite(site: "Blog", thumbprint: "BLOGCERT")],
+            Site("Shop", "shop.example.com"),
+            Site("Blog", "blog.example.com", thumbprint: "BLOGCERT"));
+        harness.Store.Setup(value => value.FindByThumbprintAsync(Old, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new InstalledCertificate(Old, DateTimeOffset.UtcNow.AddDays(-90), DateTimeOffset.UtcNow.AddMinutes(-1), true));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            harness.Service.AddSiteAsync("Shop", "Blog", [], replaceExisting: true));
+
+        Assert.Contains("renew --site \"Shop\"", exception.Message, StringComparison.Ordinal);
+        harness.VerifyNothingChanged();
+        harness.Managed.Verify(value => value.RemoveAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task Add_AHostTheCertificateDoesNotCover_IsRefused()
     {
         var harness = new SharingHarness([SingleSite()], Site("Shop", "shop.example.com"), Site("Blog", "blog.other.net"));
