@@ -87,7 +87,7 @@ The old certificate is removed only after the record is saved, and only when no 
 
 ### 5.1 What real IIS does
 
-Tested November 4, 2026 on Windows 11 and IIS 10, with three test sites and self-signed certificates. **Windows Server has not been tested** (section 8).
+Tested November 4, 2026 on Windows 11 and IIS 10, with three test sites and self-signed certificates. Repeated November 6, 2026 on Windows Server with IIS 10, on a new AWS instance, with the same results (section 8).
 
 | Finding | Result |
 |---|---|
@@ -160,7 +160,7 @@ Must hold before merge:
 | 1 | This design | Docs |
 | 2 | Spike on real IIS. **Done** November 4, 2026. One commit is not atomic, so section 5 changed (section 5.1). | Nothing |
 | 3 | Core: model, migrations, locks, binding transaction, recovery, site-problem rules, catching up; `share` commands; updated checks and notifications. **Built and accepted** November 4, 2026, on Windows 11 and IIS 10 with Let's Encrypt staging: 55 checks on real IIS and 127 with the real commands. The run through the commands found one bug, now fixed (section 5.1, last row). | CLI |
-| 4 | GUI, README, website, roadmap; manual acceptance; release as 0.14. **GUI and documents built** November 4, 2026. The maintainer tried them by hand on November 5, 2026, on Let's Encrypt staging, and every step matched. Still to do before release: Windows Server, a real service cycle, and HTTP validation on real IIS | Both |
+| 4 | GUI, README, website, roadmap; manual acceptance; release as 0.14. **GUI and documents built** November 4, 2026. The maintainer tried them by hand on November 5, 2026, on Let's Encrypt staging, and every step matched. **Accepted on Windows Server** November 6, 2026, installed from the MSI as an upgrade, with Let's Encrypt staging: 55 checks on real IIS, 123 with the real commands, the installed service catching up a site left behind in its first cycle, and HTTP validation with a renewal. The HTTP run found a bug older than 0.14, now fixed: on IIS without ASP.NET, the challenge `web.config` set a locked section, so IIS answered 500.19 and HTTP validation always failed. SSLense now writes only the sections IIS lets that folder set | Both |
 
 Unit tests use fake IIS and locks. They cover each row of the table in section 6, lock ordering, a site list changing while waiting, a crash at each journal stage, and migration from real version 4 files.
 
@@ -177,7 +177,9 @@ Manual acceptance on this machine, with Let's Encrypt staging and three local si
 
 The findings in section 5.1 must also be repeated on Windows Server before release, because that is where SSLense runs in production.
 
-Done for step 3, November 4, 2026, except the GUI. Three things are still open: a live-check failure was simulated, because real IIS cannot be made to fail on demand; catching up ran through `renew`, not a real service cycle; and HTTP-01 was covered only by unit tests.
+Done for step 3, November 4, 2026, except the GUI. Repeated on Windows Server for step 4, November 6, 2026, with a real service cycle and HTTP validation added. One thing stays open: a live-check failure was simulated, because real IIS cannot be made to fail on demand. On the server, refusal of the upgraded data by 0.13 was not repeated, because the upgrade had replaced 0.13; it passed on Windows 11.
+
+The checks are in `tests/SSLense.Acceptance`, so they can be run again on a new server.
 
 A production test on real sites stays a separate test that the maintainer runs.
 
