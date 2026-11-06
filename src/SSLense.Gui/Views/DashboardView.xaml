@@ -82,7 +82,7 @@
                       SelectedItem="{Binding SelectedCertificate}"
                       SelectionMode="Single" ToolTip="Select a certificate to view its thumbprint and details">
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="Site" Binding="{Binding SiteName}" Width="1.2*" />
+                    <DataGridTextColumn Header="Site" Binding="{Binding SiteLabel}" Width="1.2*" />
                     <DataGridTextColumn Header="Host names" Binding="{Binding Hosts}" Width="2.2*" />
                     <DataGridTextColumn Header="Source" Binding="{Binding Environment}" Width="110" />
                     <DataGridTextColumn Header="Expires" Binding="{Binding Expiry, StringFormat={}{0:dd MMM yyyy}}" Width="130" />

@@ -35,6 +35,7 @@ internal sealed class RenewalService : IRenewalService
     private readonly INotifier _notifier;
     private readonly IRenewalInfoProvider _renewalInfoProvider;
     private readonly ICertificateAuthorityRegistry _authorities;
+    private readonly ICertificateSharingService? _sharing;
 
     public RenewalService(
         IManagedCertificateStore managedStore,
@@ -44,8 +45,10 @@ internal sealed class RenewalService : IRenewalService
         ICertificateStore certificateStore,
         INotifier notifier,
         IRenewalInfoProvider? renewalInfoProvider = null,
-        ICertificateAuthorityRegistry? authorities = null)
+        ICertificateAuthorityRegistry? authorities = null,
+        ICertificateSharingService? sharing = null)
     {
+        _sharing = sharing;
         _managedStore = managedStore;
         _configStore = configStore;
         _acmeService = acmeService;
@@ -86,7 +89,9 @@ internal sealed class RenewalService : IRenewalService
                 value.SnoozedUntil,
                 value.LastRemindedAt,
                 value.ValidationMethod,
-                value.CertificateNames));
+                value.CertificateNames,
+                value.AdditionalTargets,
+                value.SitePendingSince));
         }
 
         return statuses;
@@ -103,10 +108,7 @@ internal sealed class RenewalService : IRenewalService
         var records = await _managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
         var selected = request.All
             ? records
-            : records.Where(value => string.Equals(
-                value.SiteName,
-                request.SiteName,
-                StringComparison.OrdinalIgnoreCase)).ToArray();
+            : records.Where(value => value.ManagesSite(request.SiteName!)).ToArray();
         if (!request.All && selected.Count == 0)
         {
             throw ManagedCertificateNotFound.Create(request.SiteName!, records);
@@ -122,6 +124,7 @@ internal sealed class RenewalService : IRenewalService
         foreach (var certificate in selected)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            await CatchUpSitesLeftBehindAsync(certificate, progress, cancellationToken).ConfigureAwait(false);
 
             // No CA renews an imported certificate for SSLense; the reminder digest reminds the administrator instead.
             if (certificate.Source == CertificateSource.Imported)
@@ -213,27 +216,42 @@ internal sealed class RenewalService : IRenewalService
             var newThumbprint = issued.CertificateThumbprint
                 ?? throw new InvalidOperationException("The renewed certificate has no thumbprint.");
 
+            IReadOnlyList<LeftOutSite> leftOut = issued.LeftOutSites ?? [];
             var cleanupMessage = await RemoveOldCertificateIfUnusedAsync(
                     certificate.Thumbprint,
                     newThumbprint,
+                    leftOut.Select(site => site.SiteName).ToArray(),
                     cancellationToken)
                 .ConfigureAwait(false);
             await TryNotifyAsync(
                     new NotificationMessage(
                         NotificationKind.RenewalSuccess,
                         $"SSLense renewal succeeded: {certificate.SiteName}",
-                        $"The {CertificateAuthorities.Label(certificate.AuthorityId)} certificate for {certificate.SiteName} " +
-                        $"({string.Join(", ", certificate.Hosts)}) " +
+                        $"The {CertificateAuthorities.Label(certificate.AuthorityId)} certificate for {certificate.DescribeSites()} " +
                         $"was renewed successfully. New thumbprint: {newThumbprint}." +
                         (cleanupMessage is null ? string.Empty : $" {cleanupMessage}")),
                     progress,
                     cancellationToken)
                 .ConfigureAwait(false);
+            var leftOutMessage = DescribeLeftOut(leftOut, certificate.NotAfter);
+            if (leftOutMessage is not null)
+            {
+                // Sent every time: the renewal looks successful, but these sites will still expire.
+                await TryNotifyAsync(
+                        new NotificationMessage(
+                            NotificationKind.RenewalFailure,
+                            $"SSLense: sites left on the old certificate: {string.Join(", ", leftOut.Select(site => site.SiteName))}",
+                            leftOutMessage),
+                        progress,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             return new RenewalResult(
                 certificate.SiteName,
                 true,
                 true,
-                cleanupMessage ?? "Renewed and rebound successfully.",
+                string.Join(" ", new[] { cleanupMessage ?? "Renewed and rebound successfully.", leftOutMessage }.OfType<string>()),
                 certificate.Thumbprint,
                 newThumbprint);
         }
@@ -265,7 +283,8 @@ internal sealed class RenewalService : IRenewalService
         var now = DateTimeOffset.UtcNow;
         var rateLimited = exception is AcmeRateLimitedException;
         var failures = certificate.ConsecutiveFailures + 1;
-        var nextRetryAt = now + GetRetryDelay(failures, rateLimited, certificate.NotAfter - now);
+        var usedUpCertificate = certificate.IsShared() && exception is IisBindingException;
+        var nextRetryAt = now + GetRetryDelay(failures, rateLimited, certificate.NotAfter - now, usedUpCertificate);
         var updated = await _managedStore.RecordRenewalFailureAsync(
                 certificate.SiteName,
                 now,
@@ -283,8 +302,8 @@ internal sealed class RenewalService : IRenewalService
                     new NotificationMessage(
                         NotificationKind.RenewalFailure,
                         $"SSLense renewal failed: {certificate.SiteName}",
-                        $"The {CertificateAuthorities.Label(certificate.AuthorityId)} certificate renewal for {certificate.SiteName} " +
-                        $"({string.Join(", ", certificate.Hosts)}) has failed {failures} consecutive time(s). " +
+                        $"The {CertificateAuthorities.Label(certificate.AuthorityId)} certificate renewal for {certificate.DescribeSites()} " +
+                        $"has failed {failures} consecutive time(s). " +
                         $"The existing IIS binding was retained. The certificate expires at {certificate.NotAfter:O}. " +
                         $"Error: {message}"),
                     progress,
@@ -300,9 +319,13 @@ internal sealed class RenewalService : IRenewalService
             certificate.Thumbprint);
     }
 
-    internal static TimeSpan GetRetryDelay(int consecutiveFailures, bool rateLimited, TimeSpan remainingLifetime)
+    /// <param name="usedUpCertificate">
+    /// A shared certificate was issued and could not be used. Each retry would use another of the CA's weekly certificates,
+    /// so it waits as long as a rate limit, until close to expiry.
+    /// </param>
+    internal static TimeSpan GetRetryDelay(int consecutiveFailures, bool rateLimited, TimeSpan remainingLifetime, bool usedUpCertificate = false)
     {
-        var delay = rateLimited
+        var delay = rateLimited || usedUpCertificate
             ? RateLimitedRetryDelay
             : RetryDelays[Math.Clamp(consecutiveFailures, 1, RetryDelays.Length) - 1];
 
@@ -315,6 +338,44 @@ internal sealed class RenewalService : IRenewalService
     internal static bool ShouldNotifyFailure(int consecutiveFailures, bool scheduled, bool rateLimited) =>
         !scheduled || rateLimited || consecutiveFailures == NotifyAfterFailures ||
         (consecutiveFailures > NotifyAfterFailures && (consecutiveFailures - NotifyAfterFailures) % 4 == 0);
+
+    private async Task CatchUpSitesLeftBehindAsync(
+        ManagedCertificate certificate,
+        IProgress<ProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (_sharing is null || !certificate.HasPendingSites())
+        {
+            return;
+        }
+
+        try
+        {
+            var moved = await _sharing.CatchUpAsync(certificate.SiteName, progress, cancellationToken).ConfigureAwait(false);
+            if (moved.Count > 0)
+            {
+                await TryNotifyAsync(
+                        new NotificationMessage(
+                            NotificationKind.RenewalSuccess,
+                            $"SSLense: sites caught up: {string.Join(", ", moved)}",
+                            $"{string.Join(", ", moved.Select(site => $"'{site}'"))} now {(moved.Count == 1 ? "uses" : "use")} the current certificate for {certificate.SiteName}."),
+                        progress,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            progress?.Report(new ProgressEvent("binding", $"Sites left behind on '{certificate.SiteName}' could not be checked: {exception.Message}"));
+        }
+    }
+
+    private static string? DescribeLeftOut(IReadOnlyList<LeftOutSite> leftOut, DateTimeOffset previousExpiry) =>
+        leftOut.Count == 0
+            ? null
+            : $"These IIS sites stay on the previous certificate, which expires on {previousExpiry:yyyy-MM-dd}: " +
+              $"{string.Join(" ", leftOut.Select(site => $"'{site.SiteName}': {site.Reason}"))} " +
+              "SSLense keeps trying to move them. Fix the site, or stop sharing with 'SSLense.Cli share remove --site <site>'.";
 
     private async Task TryNotifyAsync(
         NotificationMessage message,
@@ -395,10 +456,11 @@ internal sealed class RenewalService : IRenewalService
     private async Task<string?> RemoveOldCertificateIfUnusedAsync(
         string oldThumbprint,
         string newThumbprint,
+        IReadOnlyList<string> sitesLeftOut,
         CancellationToken cancellationToken)
     {
         var message = await ReplacedCertificateCleanup
-            .RemoveIfUnusedAsync(_iisService, _certificateStore, oldThumbprint, newThumbprint, cancellationToken)
+            .RemoveIfUnusedAsync(_iisService, _certificateStore, oldThumbprint, newThumbprint, cancellationToken, sitesLeftOut)
             .ConfigureAwait(false);
         return message is null ? null : $"Renewed successfully; {message}";
     }

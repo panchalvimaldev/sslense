@@ -131,6 +131,11 @@ internal sealed class HealthCheckService(
                         $"Issue the certificate again with those hosts in --hosts, for example 'SSLense.Cli issue --site \"{site}\" --force --hosts ...'."));
                 }
 
+                foreach (var target in certificate.AdditionalTargets ?? [])
+                {
+                    await CheckAdditionalSiteAsync(certificate, target, sites, results, Check, cancellationToken).ConfigureAwait(false);
+                }
+
                 await Check($"Expiry: {site}", () => Task.FromResult(CheckExpiry(certificate))).ConfigureAwait(false);
                 if (certificate.Source == CertificateSource.Imported)
                 {
@@ -216,6 +221,37 @@ internal sealed class HealthCheckService(
                 .Where(host => CertificateInspector.Covers(names, host) &&
                                !certificate.Hosts.Contains(host, StringComparer.OrdinalIgnoreCase))
                 .ToArray();
+    }
+
+    /// <summary>The same binding checks as the first site. A deleted site is a warning: it no longer has anything to serve.</summary>
+    private async Task CheckAdditionalSiteAsync(
+        ManagedCertificate certificate,
+        CertificateTarget target,
+        IReadOnlyList<IisSite> sites,
+        List<HealthCheckResult> results,
+        Func<string, Func<Task<HealthCheckResult>>, Task> check,
+        CancellationToken cancellationToken)
+    {
+        if (!sites.Any(value => string.Equals(value.Name, target.SiteName, StringComparison.OrdinalIgnoreCase)))
+        {
+            results.Add(new HealthCheckResult(
+                $"HTTPS bindings: {target.SiteName}",
+                HealthStatus.Warning,
+                $"IIS site '{target.SiteName}' uses the certificate for '{certificate.SiteName}' but no longer exists.",
+                $"If it was deleted, run 'SSLense.Cli share remove --site \"{target.SiteName}\"'."));
+            return;
+        }
+
+        var view = certificate with { SiteName = target.SiteName, Hosts = target.Hosts, AdditionalTargets = null };
+        await check($"HTTPS bindings: {target.SiteName}", () => Task.FromResult(CheckBindings(view, sites))).ConfigureAwait(false);
+        await check($"Served certificate: {target.SiteName}", () => CheckServedAsync(view, sites, cancellationToken)).ConfigureAwait(false);
+        if (FindUnmanagedCoveredHosts(view, sites) is { Length: > 0 } unmanaged)
+        {
+            results.Add(new HealthCheckResult(
+                $"Wildcard coverage: {target.SiteName}",
+                HealthStatus.Warning,
+                $"{string.Join(", ", unmanaged)} on this site {(unmanaged.Length == 1 ? "is" : "are")} covered by the wildcard, but SSLense does not manage the HTTPS binding."));
+        }
     }
 
     /// <summary>What IIS really serves from this server, which may differ from what visitors receive through a CDN or proxy.</summary>

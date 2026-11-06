@@ -46,6 +46,12 @@ internal sealed class ServedCertificateCheck(
         var errors = new List<string>();
         foreach (var certificate in candidates)
         {
+            if (certificate.IsShared())
+            {
+                await CheckSharedAsync(certificate, sites, certificates, problems, passed, errors, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
             var site = sites.FirstOrDefault(value => string.Equals(value.Name, certificate.SiteName, StringComparison.OrdinalIgnoreCase));
             var sharedProblem = DescribeSharing(certificate, sites, certificates);
             if (site is not { State: StartedState })
@@ -84,6 +90,65 @@ internal sealed class ServedCertificateCheck(
         }
 
         return new ProactiveCheckResult(problems, passed, errors);
+    }
+
+    /// <summary>Every site of a shared certificate. A site left behind is reported with what it serves, or why it was left out.</summary>
+    private async Task CheckSharedAsync(
+        ManagedCertificate certificate,
+        IReadOnlyList<IisSite> sites,
+        IReadOnlyList<ManagedCertificate> certificates,
+        Dictionary<string, string> problems,
+        List<string> passed,
+        List<string> errors,
+        CancellationToken cancellationToken)
+    {
+        await using var siteLocks = operationLock.TryAcquireAll(certificate.AllSiteNames());
+        if (siteLocks is null)
+        {
+            return;
+        }
+
+        var found = new List<string>();
+        if (DescribeSharing(certificate, sites, certificates) is { } sharing)
+        {
+            found.Add(sharing);
+        }
+
+        foreach (var target in certificate.AllTargets())
+        {
+            var site = sites.FirstOrDefault(value => string.Equals(value.Name, target.SiteName, StringComparison.OrdinalIgnoreCase));
+            if (site is null)
+            {
+                found.Add($"IIS site '{target.SiteName}' uses this certificate but no longer exists. If it was deleted, run 'SSLense.Cli share remove --site \"{target.SiteName}\"'.");
+                continue;
+            }
+
+            if (site.State != StartedState)
+            {
+                continue;
+            }
+
+            try
+            {
+                if (await CheckAsync(certificate with { SiteName = target.SiteName, Hosts = target.Hosts }, site, cancellationToken).ConfigureAwait(false) is { } served)
+                {
+                    found.Add($"IIS site '{target.SiteName}': {served}");
+                }
+            }
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                errors.Add($"Could not check the served certificate for '{target.SiteName}': {exception.Message}");
+            }
+        }
+
+        if (found.Count > 0)
+        {
+            problems[certificate.SiteName] = string.Join(" ", found);
+        }
+        else
+        {
+            passed.Add(certificate.SiteName);
+        }
     }
 
     public async Task<string?> CheckAsync(ManagedCertificate certificate, IisSite site, CancellationToken cancellationToken = default)
@@ -133,7 +198,7 @@ internal sealed class ServedCertificateCheck(
         var expected = Normalize(certificate.Thumbprint);
         var others = sites
             .Where(site =>
-                !string.Equals(site.Name, certificate.SiteName, StringComparison.OrdinalIgnoreCase) &&
+                !certificate.ManagesSite(site.Name) &&
                 site.Bindings.Any(binding => binding.CertificateThumbprint is { } thumbprint && Normalize(thumbprint) == expected) &&
                 !certificates.Any(other =>
                     string.Equals(other.SiteName, site.Name, StringComparison.OrdinalIgnoreCase) &&
@@ -143,7 +208,10 @@ internal sealed class ServedCertificateCheck(
         return others.Length == 0
             ? null
             : $"IIS site {string.Join(", ", others)} also uses this certificate, but SSLense does not update that binding when it renews, " +
-              $"so it will stop working when the current certificate expires on {certificate.NotAfter:yyyy-MM-dd}. Give that site its own certificate.";
+              $"so it will stop working when the current certificate expires on {certificate.NotAfter:yyyy-MM-dd}. " +
+              (certificate.ValidationMethod == ValidationMethod.Http01
+                  ? "Give that site its own certificate."
+                  : $"To renew it too, run 'SSLense.Cli share add --from \"{certificate.SiteName}\" --to <site>'.");
     }
 
     private async Task<string?> CheckBindingAsync(

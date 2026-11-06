@@ -50,6 +50,17 @@ internal sealed class JsonCertificateTransactionJournal : ICertificateTransactio
         await WriteAsync(transaction with { Stage = stage }, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task UpdateCertificateAsync(
+        Guid id,
+        ManagedCertificate certificate,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(certificate);
+        var transaction = await GetAsync(id, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Certificate transaction '{id}' was not found.");
+        await WriteAsync(transaction with { Certificate = certificate }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<CertificateTransaction?> GetAsync(
         Guid id,
         CancellationToken cancellationToken = default)

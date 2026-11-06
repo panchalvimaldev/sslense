@@ -170,6 +170,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         cancellationToken));
     rootCommand.Subcommands.Add(issueCommand);
     rootCommand.Subcommands.Add(CreateDnsCommand(services));
+    rootCommand.Subcommands.Add(CreateShareCommand(services));
 
     var renewAllOption = new Option<bool>("--all")
     {
@@ -359,6 +360,7 @@ static async Task<int> DetailsAsync(ICertificateManagementService service, strin
     {
         var detail = await service.GetDetailsAsync(site, token).ConfigureAwait(false);
         Console.WriteLine($"Site: {detail.SiteName}\nHosts: {string.Join(", ", detail.Hosts)}\nIssuer: {detail.Issuer}\nThumbprint: {detail.Thumbprint}\nIssued: {detail.NotBefore:O}\nExpires: {detail.NotAfter:O}\nBound sites: {string.Join(", ", detail.BoundSites)}");
+        WriteSharedSites(detail.SiteName, detail.AdditionalTargets, detail.SitePendingSince);
         Console.WriteLine("Recent logs:"); foreach (var line in detail.RecentLogLines) Console.WriteLine($"  {line}");
         return 0;
     }
@@ -367,7 +369,25 @@ static async Task<int> DetailsAsync(ICertificateManagementService service, strin
 
 static async Task<int> RemoveAsync(ICertificateManagementService service, string site, bool confirmed, CancellationToken token)
 {
-    if (!confirmed) { Console.Error.WriteLine("Error: --yes is required because removal deletes matching HTTPS bindings."); return 1; }
+    if (!confirmed)
+    {
+        Console.Error.WriteLine("Error: --yes is required because removal deletes matching HTTPS bindings.");
+        try
+        {
+            var detail = await service.GetDetailsAsync(site, token).ConfigureAwait(false);
+            if (detail.AdditionalTargets is { Count: > 0 } others)
+            {
+                Console.Error.WriteLine($"This certificate is shared. Removal affects: {string.Join(", ", others.Select(target => target.SiteName).Prepend(detail.SiteName))}.");
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // The removal itself would explain this.
+        }
+
+        return 1;
+    }
+
     try { await service.RemoveAsync(site, token).ConfigureAwait(false); Console.WriteLine($"Removed managed certificate for '{site}'."); return 0; }
     catch (Exception exception) { Log.Error(exception, "Failed to remove certificate for {Site}", site); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
 }
@@ -687,6 +707,100 @@ static int ReportFailure(Exception exception, string logMessage)
     Log.Error(exception, "{Operation}", logMessage);
     Console.Error.WriteLine($"Error: {exception.Message}");
     return 1;
+}
+
+static Command CreateShareCommand(IServiceProvider services)
+{
+    ICertificateSharingService Sharing() => services.GetRequiredService<ICertificateSharingService>();
+    var command = new Command("share", "Let several IIS sites use one certificate, renewed together. The certificate must use DNS validation.");
+
+    var fromOption = new Option<string>("--from") { Required = true, Description = "An IIS site already using the certificate." };
+    var toOption = new Option<string>("--to") { Required = true, Description = "The IIS site to add." };
+    var hostsOption = new Option<string?>("--hosts") { Description = "Comma-separated hosts to bind (default: the site's named bindings that the certificate covers)." };
+    var replaceOption = new Option<bool>("--replace-existing") { Description = "The site has its own certificate: replace it, and stop managing that one." };
+    var addCommand = new Command("add", "Bind another IIS site to a certificate. Nothing is sent to the certificate authority.");
+    addCommand.Options.Add(fromOption);
+    addCommand.Options.Add(toOption);
+    addCommand.Options.Add(hostsOption);
+    addCommand.Options.Add(replaceOption);
+    addCommand.SetAction((parseResult, token) => AddSharedSiteAsync(
+        Sharing(),
+        parseResult.GetRequiredValue(fromOption),
+        parseResult.GetRequiredValue(toOption),
+        parseResult.GetValue(hostsOption),
+        parseResult.GetValue(replaceOption),
+        token));
+    command.Subcommands.Add(addCommand);
+
+    var siteOption = new Option<string>("--site") { Required = true, Description = "The IIS site to stop managing." };
+    var removeCommand = new Command("remove", "Stop managing one IIS site of a shared certificate. Its HTTPS binding is not changed.");
+    removeCommand.Options.Add(siteOption);
+    removeCommand.SetAction((parseResult, token) => RemoveSharedSiteAsync(
+        Sharing(), parseResult.GetRequiredValue(siteOption), token));
+    command.Subcommands.Add(removeCommand);
+    return command;
+}
+
+static async Task<int> AddSharedSiteAsync(
+    ICertificateSharingService sharing,
+    string from,
+    string to,
+    string? hosts,
+    bool replaceExisting,
+    CancellationToken token)
+{
+    try
+    {
+        var bound = await sharing
+            .AddSiteAsync(
+                from,
+                to,
+                hosts?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [],
+                replaceExisting,
+                new ConsoleProgress(),
+                token)
+            .ConfigureAwait(false);
+        Console.WriteLine($"IIS site '{to}' now shares the certificate with '{from}' ({string.Join(", ", bound)}). They renew together.");
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to share a certificate with IIS site {SiteName}", to);
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> RemoveSharedSiteAsync(ICertificateSharingService sharing, string site, CancellationToken token)
+{
+    try
+    {
+        Console.WriteLine(await sharing.RemoveSiteAsync(site, token).ConfigureAwait(false));
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to stop sharing a certificate with IIS site {SiteName}", site);
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
+static void WriteSharedSites(string firstSite, IReadOnlyList<CertificateTarget>? others, DateTimeOffset? firstPendingSince)
+{
+    if (others is not { Count: > 0 })
+    {
+        return;
+    }
+
+    Console.WriteLine($"  Also used by: {string.Join("; ", others.Select(target => $"{target.SiteName} ({string.Join(", ", target.Hosts)})"))}");
+    foreach (var (site, since) in others
+                 .Select(target => (target.SiteName, target.PendingSince))
+                 .Prepend((firstSite, firstPendingSince))
+                 .Where(value => value.Item2 is not null))
+    {
+        Console.WriteLine($"  Left behind: {site} is on an older certificate since {since:yyyy-MM-dd HH:mm} UTC; SSLense keeps trying to move it");
+    }
 }
 
 static Command CreateDnsCommand(IServiceProvider services)
@@ -1606,6 +1720,7 @@ static async Task<int> StatusAsync(
                 Console.WriteLine($"  Issuer: {status.Issuer}");
             }
             Console.WriteLine($"  Hosts: {string.Join(", ", status.Hosts)}");
+            WriteSharedSites(status.SiteName, status.AdditionalTargets, status.SitePendingSince);
             if (status.CertificateNames is { } certificateNames)
             {
                 Console.WriteLine($"  Certificate names: {string.Join(", ", certificateNames)}");
@@ -1752,6 +1867,11 @@ static async Task<int> IssueAsync(
         Console.WriteLine(result.PfxPath is null
             ? "PFX: not persisted (private key is installed as non-exportable)"
             : $"PFX: {result.PfxPath}");
+        foreach (var leftOut in result.LeftOutSites ?? [])
+        {
+            Console.WriteLine($"Left on its previous certificate: '{leftOut.SiteName}': {leftOut.Reason}");
+        }
+
         return 0;
     }
     catch (Exception exception)

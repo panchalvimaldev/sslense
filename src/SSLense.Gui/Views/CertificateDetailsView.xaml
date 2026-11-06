@@ -19,7 +19,7 @@
   <Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="1.15*"/></Grid.ColumnDefinitions>
    <Border Style="{StaticResource Card}" Margin="0,0,14,0">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="115"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="115"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
      <TextBlock Grid.ColumnSpan="2" Text="Certificate information" Style="{StaticResource SectionTitle}" Margin="0,0,0,16"/>
      <TextBlock Grid.Row="1" Text="Host names" Style="{StaticResource CaptionText}"/><TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Hosts}" TextWrapping="Wrap" FontWeight="SemiBold"/>
      <TextBlock Grid.Row="2" Text="Source" Style="{StaticResource CaptionText}" Margin="0,14,0,0"/><TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Environment}" TextWrapping="Wrap" Margin="0,14,0,0" FontWeight="SemiBold"/>
@@ -39,6 +39,39 @@
      <TextBlock Grid.Row="9" Text="Last reminded" Style="{StaticResource CaptionText}" Margin="0,14,0,0"/><TextBlock Grid.Row="9" Grid.Column="1" Text="{Binding LastReminded}" Margin="0,14,0,0"/>
      <TextBlock Grid.Row="10" Text="Certificate names" Style="{StaticResource CaptionText}" Margin="0,14,0,0"/><TextBlock Grid.Row="10" Grid.Column="1" Text="{Binding CertificateNames}" TextWrapping="Wrap" Margin="0,14,0,0"/>
      <TextBlock Grid.Row="11" Text="Validation" Style="{StaticResource CaptionText}" Margin="0,14,0,0"/><TextBlock Grid.Row="11" Grid.Column="1" Text="{Binding Validation}" TextWrapping="Wrap" Margin="0,14,0,0"/>
+     <StackPanel Grid.Row="12" Grid.ColumnSpan="2" Margin="0,22,0,0">
+      <DockPanel Margin="0,0,0,8">
+       <Button DockPanel.Dock="Right" Content="Try moving now" Command="{Binding CatchUpCommand}" Visibility="{Binding HasSitesLeftBehind, Converter={StaticResource BooleanToVisibilityConverter}}" ToolTip="Move sites left behind to the current certificate. Does not order a new certificate."/>
+       <TextBlock Text="Sites using this certificate" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
+      </DockPanel>
+      <ItemsControl ItemsSource="{Binding SharedSites}" Focusable="False" AutomationProperties.Name="Sites using this certificate">
+       <ItemsControl.ItemTemplate>
+        <DataTemplate>
+         <DockPanel Margin="0,0,0,10">
+          <Button x:Name="StopManaging" DockPanel.Dock="Right" Content="Stop managing" Click="OnStopManagingClick" Style="{StaticResource LinkButton}" VerticalAlignment="Top" ToolTip="SSLense stops renewing this site. Its binding stays as it is, so it keeps working until the certificate expires."/>
+          <StackPanel Margin="0,0,8,0">
+           <TextBlock Text="{Binding SiteName}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+           <TextBlock Text="{Binding Hosts}" Style="{StaticResource CaptionText}" TextWrapping="Wrap"/>
+           <TextBlock x:Name="SiteState" Text="{Binding State}" Style="{StaticResource CaptionText}" TextWrapping="Wrap"/>
+          </StackPanel>
+         </DockPanel>
+         <DataTemplate.Triggers>
+          <DataTrigger Binding="{Binding CanStopManaging}" Value="False"><Setter TargetName="StopManaging" Property="Visibility" Value="Collapsed"/></DataTrigger>
+          <DataTrigger Binding="{Binding IsLeftBehind}" Value="True"><Setter TargetName="SiteState" Property="Foreground" Value="{StaticResource WarningBrush}"/><Setter TargetName="SiteState" Property="FontWeight" Value="SemiBold"/></DataTrigger>
+         </DataTemplate.Triggers>
+        </DataTemplate>
+       </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <TextBlock Text="{Binding SharingNote}" Style="{StaticResource CaptionText}" TextWrapping="Wrap"/>
+      <StackPanel Visibility="{Binding CanShare, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,4,0,0">
+       <TextBlock Text="ADD A SITE" Style="{StaticResource FieldLabel}"/>
+       <ComboBox ItemsSource="{Binding SitesToAdd}" SelectedItem="{Binding SiteToAdd}" Margin="0,0,0,8" AutomationProperties.Name="IIS site to add"/>
+       <TextBlock Text="HOST NAMES (OPTIONAL)" Style="{StaticResource FieldLabel}"/>
+       <TextBox Text="{Binding HostsToAdd, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" AutomationProperties.Name="Host names to bind on the added site" ToolTip="Comma-separated. Leave empty to use every named binding on the site that this certificate covers."/>
+       <CheckBox Content="Replace the site's own certificate" IsChecked="{Binding ReplaceExistingCertificate}" Margin="0,0,0,8" ToolTip="Needed when SSLense already manages another certificate for this site. That certificate stops being managed."/>
+       <Button Content="Add site" Command="{Binding AddSiteCommand}" HorizontalAlignment="Left" ToolTip="Bind the site to this certificate and confirm it over HTTPS. Nothing is ordered from the certificate authority."/>
+      </StackPanel>
+     </StackPanel>
     </Grid>
     </ScrollViewer>
    </Border>

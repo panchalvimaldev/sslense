@@ -15,4 +15,6 @@ public sealed record CertificateDetails(
     string AuthorityId = CertificateAuthorities.LetsEncryptStagingId,
     string AuthorityName = "Let's Encrypt staging",
     bool IsTestAuthority = true,
-    CertificateSource Source = CertificateSource.Acme);
+    CertificateSource Source = CertificateSource.Acme,
+    IReadOnlyList<CertificateTarget>? AdditionalTargets = null,
+    DateTimeOffset? SitePendingSince = null);

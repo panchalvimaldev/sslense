@@ -1,5 +1,7 @@
 using SSLense.Core.Acme;
+using Moq;
 using SSLense.Core.Config;
+using SSLense.Core.Iis;
 using SSLense.Core.Validation;
 using Xunit;
 
@@ -21,6 +23,7 @@ public sealed class Http01HandlerTests
         try
         {
             await using (await handler.PrepareAsync(
+                "My Site",
                 root,
                 new AcmeHttpChallenge("example.com", "token", "key-authorization"),
                 CancellationToken.None))
@@ -50,7 +53,7 @@ public sealed class Http01HandlerTests
         fileSystem.Files[WebConfigPath] = "original-config";
 
         // Prepared but never disposed: the process "crashed" mid-validation.
-        _ = await handler.PrepareAsync(SiteRoot, Challenge, CancellationToken.None);
+        _ = await handler.PrepareAsync(SiteName, SiteRoot, Challenge, CancellationToken.None);
         Assert.Equal("key-authorization", fileSystem.Files[TokenPath]);
         Assert.Single(fileSystem.GetFiles(JournalDirectory, "*.json"));
 
@@ -73,7 +76,7 @@ public sealed class Http01HandlerTests
         var fileSystem = new InMemoryFileSystem();
         var handler = new Http01Handler(fileSystem, new JsonChallengeJournal(fileSystem, JournalDirectory, (_, _) => false));
 
-        await (await handler.PrepareAsync(SiteRoot, Challenge, CancellationToken.None)).DisposeAsync();
+        await (await handler.PrepareAsync(SiteName, SiteRoot, Challenge, CancellationToken.None)).DisposeAsync();
 
         Assert.Empty(fileSystem.GetFiles(JournalDirectory, "*.json"));
         Assert.False(fileSystem.FileExists(TokenPath));
@@ -90,6 +93,41 @@ public sealed class Http01HandlerTests
         Assert.False(JsonChallengeJournal.IsProcessAlive(int.MaxValue - 1, startedAt));
     }
 
+    [Fact]
+    public async Task Prepare_LeavesOutSectionsIisDoesNotLetTheFolderSet()
+    {
+        // A plain IIS install without ASP.NET: handlers is locked and URL Authorization is not installed.
+        var fileSystem = new InMemoryFileSystem();
+        var locks = new Mock<IIisSectionLocks>(MockBehavior.Strict);
+        locks.Setup(value => value.GetSettableSections(
+                SiteName,
+                ".well-known/acme-challenge",
+                It.Is<IReadOnlyCollection<string>>(paths => paths.Contains("system.webServer/handlers"))))
+            .Returns(new HashSet<string> { "system.webServer/validation", "system.webServer/staticContent" });
+        var handler = new Http01Handler(fileSystem, sectionLocks: locks.Object);
+
+        _ = await handler.PrepareAsync(SiteName, SiteRoot, Challenge, CancellationToken.None);
+
+        var webConfig = fileSystem.Files[WebConfigPath];
+        Assert.Contains("mimeType=\"text/plain\"", webConfig);
+        Assert.Contains("<validation ", webConfig);
+        Assert.DoesNotContain("<handlers>", webConfig);
+        Assert.DoesNotContain("<security>", webConfig);
+        System.Xml.Linq.XDocument.Parse(webConfig);
+    }
+
+    [Fact]
+    public void BuildWebConfig_WritesEverySection_WhenIisConfigurationCannotBeRead()
+    {
+        var webConfig = Http01Handler.BuildWebConfig(null);
+
+        Assert.Contains("SSLenseAcmeChallenge", webConfig);
+        Assert.Contains("<staticContent>", webConfig);
+        Assert.Contains("<authorization>", webConfig);
+        System.Xml.Linq.XDocument.Parse(webConfig);
+    }
+
+    private const string SiteName = "My Site";
     private const string SiteRoot = @"C:\inetpub\site";
     private const string JournalDirectory = @"C:\ProgramData\SSLense\challenges";
     private static readonly string TokenPath = Path.Combine(SiteRoot, ".well-known", "acme-challenge", "token");

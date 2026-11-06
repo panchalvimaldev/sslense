@@ -14,6 +14,12 @@ public interface ICertificateTransactionJournal
         CertificateTransactionStage stage,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Replaces the certificate record the entry will save, such as when a site is left out partway through.</summary>
+    Task UpdateCertificateAsync(
+        Guid id,
+        ManagedCertificate certificate,
+        CancellationToken cancellationToken = default);
+
     Task<CertificateTransaction?> GetAsync(
         Guid id,
         CancellationToken cancellationToken = default);

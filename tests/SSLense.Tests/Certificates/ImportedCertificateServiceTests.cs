@@ -163,6 +163,33 @@ public sealed class ImportedCertificateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Import_SiteBecomesSharedWhileWaitingForTheLock_IsRefused_AndKeepsTheSharedRecord()
+    {
+        var single = new ManagedCertificate(
+            Site, ["shop.example.com"], "admin@example.com", "OLD",
+            DateTimeOffset.UtcNow.AddDays(-5), DateTimeOffset.UtcNow.AddDays(60),
+            ValidationMethod: ValidationMethod.Dns01Provider);
+        var shared = single with { AdditionalTargets = [new CertificateTarget("Blog", ["blog.example.com"])] };
+        _managed.Add(single);
+        _lock.WhileWaiting = () =>
+        {
+            _managed.Clear();
+            _managed.Add(shared);
+        };
+        var (certificate, key) = _ca.IssueWithNewKey("shop.example.com");
+        using (certificate)
+        using (key)
+        {
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                CreateService().ImportPfxAsync(Site, [], _ca.ExportPfx(certificate, key, "secret"), "secret", force: true));
+
+            Assert.Contains("'Blog'", exception.Message, StringComparison.Ordinal);
+            Assert.Same(shared, Assert.Single(_managed));
+            Assert.Null(_store.ImportedPfxThumbprint);
+        }
+    }
+
+    [Fact]
     public async Task Import_BindingRolledBack_KeepsACertificateThatWasAlreadyInstalled()
     {
         _iis.Setup(value => value.ConfigureHttpsBindingsAsync(Site, It.IsAny<IReadOnlyList<string>>(), It.IsAny<string>(), "My", It.IsAny<CancellationToken>()))
@@ -367,9 +394,13 @@ public sealed class ImportedCertificateServiceTests : IDisposable
 
         public List<string> Acquisitions { get; } = [];
 
+        /// <summary>Runs while waiting for the lock, as another operation finishing first would.</summary>
+        public Action? WhileWaiting { get; set; }
+
         public Task<IAsyncDisposable> AcquireAsync(string siteName, CancellationToken cancellationToken = default)
         {
             Assert.False(_held, $"The lock for '{siteName}' was acquired while already held.");
+            WhileWaiting?.Invoke();
             _held = true;
             Acquisitions.Add(siteName);
             return Task.FromResult<IAsyncDisposable>(new Scope(this));

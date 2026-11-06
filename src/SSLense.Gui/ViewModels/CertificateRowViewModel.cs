@@ -9,7 +9,14 @@ public sealed class CertificateRowViewModel
     public CertificateRowViewModel(ManagedCertificateStatus status)
     {
         SiteName = status.SiteName;
-        Hosts = string.Join(", ", status.Hosts);
+        var others = status.AdditionalTargets ?? [];
+        SiteLabel = others.Count switch
+        {
+            0 => status.SiteName,
+            1 => $"{status.SiteName} +1 site",
+            _ => $"{status.SiteName} +{others.Count} sites"
+        };
+        Hosts = string.Join(", ", status.Hosts.Concat(others.SelectMany(target => target.Hosts)));
         Expiry = status.NotAfter;
         DaysRemaining = status.DaysRemaining;
         Thumbprint = status.Thumbprint;
@@ -39,6 +46,11 @@ public sealed class CertificateRowViewModel
             Status = "Expired";
             StatusKey = "Red";
         }
+        else if (status.SitePendingSince is not null || others.Any(target => target.PendingSince is not null))
+        {
+            Status = "Site left behind";
+            StatusKey = "Amber";
+        }
         else if (status.DaysRemaining <= 30)
         {
             // SSLense cannot renew an imported certificate; the administrator orders the next one.
@@ -53,6 +65,9 @@ public sealed class CertificateRowViewModel
     }
 
     public string SiteName { get; }
+
+    /// <summary>The site, and how many others share its certificate, such as "Shop +2 sites".</summary>
+    public string SiteLabel { get; }
 
     public string Hosts { get; }
 

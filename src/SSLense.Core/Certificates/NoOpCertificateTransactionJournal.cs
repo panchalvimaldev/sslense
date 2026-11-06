@@ -17,6 +17,11 @@ internal sealed class NoOpCertificateTransactionJournal : ICertificateTransactio
         CertificateTransactionStage stage,
         CancellationToken cancellationToken = default) => Task.CompletedTask;
 
+    public Task UpdateCertificateAsync(
+        Guid id,
+        ManagedCertificate certificate,
+        CancellationToken cancellationToken = default) => Task.CompletedTask;
+
     public Task<CertificateTransaction?> GetAsync(
         Guid id,
         CancellationToken cancellationToken = default) =>

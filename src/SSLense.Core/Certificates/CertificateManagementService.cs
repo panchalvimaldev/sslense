@@ -40,18 +40,38 @@ internal sealed class CertificateManagementService(
             record.AuthorityId,
             authority.Name,
             authority.IsTest,
-            record.Source);
+            record.Source,
+            record.AdditionalTargets,
+            record.SitePendingSince);
     }
 
     public async Task RemoveAsync(string siteName, CancellationToken cancellationToken = default)
     {
         var record = await FindRecordAsync(siteName, cancellationToken).ConfigureAwait(false);
-        await iisService.RemoveHttpsBindingsAsync(
-                record.SiteName,
-                record.Hosts,
-                record.Thumbprint,
-                cancellationToken)
-            .ConfigureAwait(false);
+        if (!string.Equals(record.SiteName, siteName.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"IIS site '{siteName}' shares the certificate managed for '{record.SiteName}'. To stop managing only this site and keep its binding, use " +
+                $"'SSLense.Cli share remove --site \"{siteName}\"'. To remove the certificate from every site, use 'SSLense.Cli remove --site \"{record.SiteName}\"'.");
+        }
+
+        var existingSites = await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var target in record.AllTargets())
+        {
+            // A site left on an older certificate keeps that binding, and a deleted site has none to remove.
+            if (record.IsShared() && (target.PendingSince is not null ||
+                !existingSites.Any(site => string.Equals(site.Name, target.SiteName, StringComparison.OrdinalIgnoreCase))))
+            {
+                continue;
+            }
+
+            await iisService.RemoveHttpsBindingsAsync(
+                    target.SiteName,
+                    target.Hosts,
+                    record.Thumbprint,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         var sites = await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
         var stillUsed = sites.SelectMany(site => site.Bindings).Any(binding =>
@@ -70,8 +90,7 @@ internal sealed class CertificateManagementService(
         CancellationToken cancellationToken)
     {
         var records = await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
-        return records.SingleOrDefault(value =>
-            string.Equals(value.SiteName, siteName, StringComparison.OrdinalIgnoreCase))
+        return records.FirstOrDefault(value => value.ManagesSite(siteName))
             ?? throw ManagedCertificateNotFound.Create(siteName, records);
     }
 }
