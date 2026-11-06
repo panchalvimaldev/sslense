@@ -699,6 +699,32 @@ public sealed class SharedCertificateTests
     }
 
     [Fact]
+    public async Task Remove_TheFirstSite_KeepsTheCertificateNames_WhenTheyWereTheFirstSitesHosts()
+    {
+        // Issued for a, b and c on one site, then b and c moved to sites of their own and shared.
+        string[] names = ["a.example.com", "b.example.com", "c.example.com"];
+        var record = Shared(60, new CertificateTarget("B", ["b.example.com"]), new CertificateTarget("C", ["c.example.com"]))
+            with { Hosts = names, CertificateNames = null };
+        var harness = new SharingHarness([record]);
+
+        await harness.Service.RemoveSiteAsync("Shop");
+
+        var saved = (ManagedCertificate)harness.Managed.Invocations
+            .Single(invocation => invocation.Method.Name == nameof(IManagedCertificateStore.ReplaceAsync)).Arguments[1];
+        Assert.Equal("B", saved.SiteName);
+        Assert.Equal(["b.example.com"], saved.Hosts);
+        Assert.Equal(names, saved.CertificateNames);
+    }
+
+    [Fact]
+    public void WithTargets_SameFirstSite_LeavesTheCertificateNamesAlone()
+    {
+        var record = Shared() with { CertificateNames = null };
+
+        Assert.Null(record.WithTargets(record.AllTargets()).CertificateNames);
+    }
+
+    [Fact]
     public async Task Remove_TheLastSite_IsRefused()
     {
         var harness = new SharingHarness([SingleSite()]);

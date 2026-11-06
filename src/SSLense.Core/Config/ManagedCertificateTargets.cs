@@ -28,15 +28,22 @@ public static class ManagedCertificateTargets
     public static bool HasPendingSites(this ManagedCertificate record) =>
         record.AllTargets().Any(target => target.PendingSince is not null);
 
-    /// <summary>The record with these sites; the first becomes the record's site.</summary>
-    public static ManagedCertificate WithTargets(this ManagedCertificate record, IReadOnlyList<CertificateTarget> targets) =>
-        record with
+    /// <summary>
+    /// The record with these sites; the first becomes the record's site. Without explicit certificate names, the first
+    /// site's hosts are the names, so a new first site keeps the old names explicitly instead of narrowing the certificate.
+    /// </summary>
+    public static ManagedCertificate WithTargets(this ManagedCertificate record, IReadOnlyList<CertificateTarget> targets)
+    {
+        var newFirstSite = !string.Equals(targets[0].SiteName, record.SiteName, StringComparison.OrdinalIgnoreCase);
+        return record with
         {
             SiteName = targets[0].SiteName,
             Hosts = targets[0].Hosts,
             SitePendingSince = targets[0].PendingSince,
-            AdditionalTargets = targets.Count > 1 ? targets.Skip(1).ToArray() : null
+            AdditionalTargets = targets.Count > 1 ? targets.Skip(1).ToArray() : null,
+            CertificateNames = newFirstSite ? record.CertificateNames ?? record.Hosts : record.CertificateNames
         };
+    }
 
     /// <summary>The site and hosts for display: the first site alone, or every site of a shared certificate.</summary>
     public static string DescribeSites(this ManagedCertificate record) =>
