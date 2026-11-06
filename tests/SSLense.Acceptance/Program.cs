@@ -3,11 +3,13 @@ using SSLense.Acceptance;
 
 // Checks on real IIS that unit tests cannot make. See README.md in this folder.
 var command = args.FirstOrDefault()?.ToLowerInvariant();
-if (command is not ("parta" or "partb" or "appsetup" or "restore"))
+if (command is not ("parta" or "partb" or "appsetup" or "servicecheck" or "httpcheck" or "restore"))
 {
     Console.WriteLine("Usage: SSLense.Acceptance parta");
     Console.WriteLine("       SSLense.Acceptance partb --zone example.com [--cli path] [--installed path] [--out folder]");
     Console.WriteLine("       SSLense.Acceptance appsetup --zone example.com [--cli path] [--out folder]");
+    Console.WriteLine("       SSLense.Acceptance servicecheck --zone example.com [--cli path] [--out folder]");
+    Console.WriteLine("       SSLense.Acceptance httpcheck --zone example.com [--cli path] [--out folder]");
     Console.WriteLine("       SSLense.Acceptance restore [--cli path] [--out folder]");
     return 2;
 }
@@ -44,6 +46,12 @@ try
             break;
         case "appsetup":
             await PartB.SetUpForAppAsync();
+            break;
+        case "servicecheck":
+            await PartB.ServiceCheckAsync();
+            break;
+        case "httpcheck":
+            await PartB.HttpCheckAsync();
             break;
         default:
             await PartB.RestoreAsync();

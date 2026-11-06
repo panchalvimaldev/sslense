@@ -137,6 +137,132 @@ internal static class PartB
         Report.Info("Run the app from the same build. When finished, close it and run this program with 'restore'.");
     }
 
+    /// <summary>The installed service, not a command, moves a site left behind. Its first cycle runs when it starts.</summary>
+    public static async Task ServiceCheckAsync()
+    {
+        RequireReady();
+        if (!ServiceExists())
+        {
+            throw new InvalidOperationException("The SSLense service is not installed, so there is nothing to check.");
+        }
+
+        Console.Write("Email for the Let's Encrypt staging account: ");
+        _email = Console.ReadLine()?.Trim() ?? "";
+        Report.Scrub = _email;
+        Report.Info($"Build: {(await Run(Cli, "--version")).Output.Trim()}");
+        TakeBackup(StopService());
+        try
+        {
+            CleanupTestObjects();
+            await AddDnsProviderAsync();
+            await Report.Scenario("S1 The service moves a site left behind, without a new certificate", async () =>
+            {
+                foreach (var (site, host) in new[] { (A, HostA), (B, HostB), (C, HostC) })
+                {
+                    Iis.EnsureSite(site, host);
+                }
+
+                var issued = await Run(Cli, "issue", "--site", A, "--email", _email, "--validation", "dns", "--staging", "--names", $"*.{Domain}", "--hosts", HostA);
+                Report.Check("Issued", issued.ExitCode == 0, $"exit {issued.ExitCode}");
+                await Run(Cli, "share", "add", "--from", A, "--to", B, "--hosts", HostB);
+                await Run(Cli, "share", "add", "--from", A, "--to", C, "--hosts", HostC);
+                Iis.RemoveHostBindings(C, HostC);
+                await Renew(A, force: true, expectNew: true);
+                var record = Get(A);
+                Report.Check("Left behind", record.IsPending(C));
+
+                Iis.EnsureSite(C, HostC);
+                using (var service = new ServiceController(Service))
+                {
+                    service.Start();
+                    service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromMinutes(2));
+                }
+
+                var deadline = DateTimeOffset.UtcNow.AddMinutes(5);
+                var after = Get(A);
+                while (after.IsPending(C) && DateTimeOffset.UtcNow < deadline)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5));
+                    try
+                    {
+                        after = Get(A);
+                    }
+                    catch (IOException)
+                    {
+                        // The service was saving the file; read it on the next pass.
+                    }
+                }
+
+                Report.Check("The service caught it up", !after.IsPending(C));
+                Report.Check("Without a new certificate", Same(after.Thumbprint, record.Thumbprint));
+                await RequireServing(after.Thumbprint, HostA, HostB, HostC);
+            });
+        }
+        finally
+        {
+            await RestoreAsync();
+        }
+    }
+
+    /// <summary>
+    /// A single site over HTTP validation, through the trial and the checked install. Needs the first host's name in public DNS,
+    /// pointing at this machine, with port 80 open to the internet.
+    /// </summary>
+    public static async Task HttpCheckAsync()
+    {
+        RequireReady();
+        IPAddress[] addresses;
+        try
+        {
+            addresses = await Dns.GetHostAddressesAsync(HostA);
+        }
+        catch (System.Net.Sockets.SocketException exception)
+        {
+            Report.Check($"{HostA} is in public DNS", false,
+                $"{exception.Message} Add an A record for it pointing at this machine, set to DNS only. A failed lookup can be cached for up to 30 minutes. Nothing was changed.");
+            return;
+        }
+
+        Report.Info($"{HostA} resolves to {string.Join(", ", addresses.Select(address => address.ToString()))}");
+        Console.Write("Email for the Let's Encrypt staging account: ");
+        _email = Console.ReadLine()?.Trim() ?? "";
+        Report.Scrub = _email;
+        Report.Info($"Build: {(await Run(Cli, "--version")).Output.Trim()}");
+        TakeBackup(StopService());
+        try
+        {
+            CleanupTestObjects();
+            await Report.Scenario("H1 HTTP validation on one site", async () =>
+            {
+                Iis.EnsureSite(A, HostA);
+                var issued = await Run(Cli, "issue", "--site", A, "--email", _email, "--validation", "http", "--staging", "--hosts", HostA);
+                Report.Check("Issued", issued.ExitCode == 0, $"exit {issued.ExitCode}");
+                if (issued.ExitCode != 0)
+                {
+                    return;
+                }
+
+                var first = Get(A).Thumbprint;
+                await RequireServing(first, HostA);
+
+                await Renew(A, force: true, expectNew: true);
+                var renewed = Get(A).Thumbprint;
+                Report.Check("Renewed", !Same(first, renewed), $"{Iis.Short(first)} -> {Iis.Short(renewed)}");
+                await RequireServing(renewed, HostA);
+                Report.Check("Old certificate removed from the store", !Iis.InStore(first));
+
+                Iis.EnsureSite(B, HostB);
+                await ExpectRefused("sharing a certificate that uses HTTP validation", "share", "add", "--from", A, "--to", B, "--hosts", HostB);
+                var removed = await Run(Cli, "remove", "--site", A, "--yes");
+                Report.Check("Removed", removed.ExitCode == 0 && !Iis.InStore(renewed), $"exit {removed.ExitCode}");
+            });
+        }
+        finally
+        {
+            await RestoreAsync();
+        }
+    }
+
     public static async Task RunAsync()
     {
         RequireReady();
