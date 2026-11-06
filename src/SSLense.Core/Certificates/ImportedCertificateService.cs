@@ -114,6 +114,7 @@ internal sealed class ImportedCertificateService(
         var site = await FindSiteAsync(siteName, cancellationToken).ConfigureAwait(false);
         await ThrowIfSharedAsync(site.Name, cancellationToken).ConfigureAwait(false);
         await using var siteLock = await operationLock.AcquireAsync(site.Name, cancellationToken).ConfigureAwait(false);
+        await ThrowIfSharedAsync(site.Name, cancellationToken).ConfigureAwait(false);
         if (await FindRecordAsync(site.Name, cancellationToken).ConfigureAwait(false) is { } existing)
         {
             throw new InvalidOperationException(
@@ -275,6 +276,7 @@ internal sealed class ImportedCertificateService(
 
         // Held for the whole completion, so the request and its key cannot be replaced or cancelled meanwhile.
         await using var siteLock = await operationLock.AcquireAsync(site.Name, cancellationToken).ConfigureAwait(false);
+        await ThrowIfSharedAsync(site.Name, cancellationToken).ConfigureAwait(false);
         var request = await pendingRequests.GetAsync(site.Name, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException(
                 $"IIS site '{siteName}' has no pending certificate request. Create one with 'csr', or use 'import' for a PFX file.");
@@ -376,6 +378,7 @@ internal sealed class ImportedCertificateService(
             ThrowIfInvalid(leaf, targetHosts, intermediates);
             await ThrowIfSharedAsync(site.Name, cancellationToken).ConfigureAwait(false);
             await using var siteLock = await operationLock.AcquireAsync(site.Name, cancellationToken).ConfigureAwait(false);
+            await ThrowIfSharedAsync(site.Name, cancellationToken).ConfigureAwait(false);
             return await InstallAsync(
                     site,
                     targetHosts,
@@ -596,7 +599,10 @@ internal sealed class ImportedCertificateService(
                 $"IIS site '{siteName}' was not found. Run 'list-sites' to see the site names.");
     }
 
-    /// <summary>Refuses a site that shares a certificate, whether it uses another site's certificate or is the first site.</summary>
+    /// <summary>
+    /// Refuses a site that shares a certificate, whether it uses another site's certificate or is the first site. Checked
+    /// before waiting for the site lock, to fail fast, and again once it is held, because sharing may finish meanwhile.
+    /// </summary>
     private async Task ThrowIfSharedAsync(string siteName, CancellationToken cancellationToken)
     {
         var records = await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
