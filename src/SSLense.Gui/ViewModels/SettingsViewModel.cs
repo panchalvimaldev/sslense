@@ -29,6 +29,25 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string newDnsZone = string.Empty;
     [ObservableProperty] private string newDnsZoneId = string.Empty;
     [ObservableProperty] private string newDnsToken = string.Empty;
+    [ObservableProperty] private string newDnsService = CloudflareService;
+    [ObservableProperty] private string newDnsScriptPath = string.Empty;
+    [ObservableProperty] private string newDnsScriptTimeout = string.Empty;
+
+    private const string CloudflareService = "Cloudflare";
+    private const string ScriptService = "Script";
+
+    /// <summary>Cloudflare is built in; a script works with any DNS service that has an API.</summary>
+    public IReadOnlyList<string> DnsServices { get; } = [CloudflareService, ScriptService];
+
+    public bool NewDnsIsScript => NewDnsService == ScriptService;
+
+    public bool NewDnsIsCloudflare => !NewDnsIsScript;
+
+    partial void OnNewDnsServiceChanged(string value)
+    {
+        OnPropertyChanged(nameof(NewDnsIsScript));
+        OnPropertyChanged(nameof(NewDnsIsCloudflare));
+    }
 
     [ObservableProperty] private EmailPreset? selectedPreset;
     [ObservableProperty] private string emailHost = string.Empty;
@@ -78,6 +97,7 @@ public partial class SettingsViewModel : ObservableObject
         TestDnsProviderCommand = Command(TestDnsProviderAsync);
         RemoveDnsProviderCommand = Command(RemoveDnsProviderAsync);
         ReplaceDnsTokenCommand = Command(ReplaceDnsTokenAsync);
+        UpdateDnsScriptCommand = Command(UpdateDnsScriptAsync);
         _reminderService = reminderService;
         _settingsService = settingsService;
         _notificationSettingsService = notificationSettingsService;
@@ -113,6 +133,7 @@ public partial class SettingsViewModel : ObservableObject
     public IAsyncRelayCommand TestDnsProviderCommand { get; }
     public IAsyncRelayCommand RemoveDnsProviderCommand { get; }
     public IAsyncRelayCommand ReplaceDnsTokenCommand { get; }
+    public IAsyncRelayCommand UpdateDnsScriptCommand { get; }
     public ObservableCollection<DnsProviderOverview> DnsProviders { get; } = [];
 
     public IReadOnlyList<EmailPreset> EmailPresets => EmailPreset.All;
@@ -169,16 +190,48 @@ public partial class SettingsViewModel : ObservableObject
 
     private Task AddDnsProviderAsync(CancellationToken token) => RunAsync(async ct =>
     {
+        var isScript = NewDnsIsScript;
+        int? timeout = null;
+        if (isScript && NewDnsScriptTimeout.Trim().Length > 0)
+        {
+            if (!int.TryParse(NewDnsScriptTimeout.Trim(), out var seconds))
+            {
+                ErrorMessage = "Enter the script timeout in whole seconds, or leave it empty for 120.";
+                return;
+            }
+
+            timeout = seconds;
+        }
+
         await _dnsProviders.AddAsync(
-                new DnsProviderRequest(NewDnsName, DnsProviderType.Cloudflare, NewDnsZone, NewDnsZoneId, NewDnsToken),
+                isScript
+                    ? new DnsProviderRequest(NewDnsName, DnsProviderType.Script, NewDnsZone, null, NewDnsToken, NewDnsScriptPath, timeout)
+                    : new DnsProviderRequest(NewDnsName, DnsProviderType.Cloudflare, NewDnsZone, NewDnsZoneId, NewDnsToken),
                 ct)
             .ConfigureAwait(true);
         var name = NewDnsName.Trim();
 
         // Secrets are cleared from memory as soon as they are saved.
         NewDnsToken = string.Empty; NewDnsName = string.Empty; NewDnsZone = string.Empty; NewDnsZoneId = string.Empty;
+        NewDnsScriptPath = string.Empty; NewDnsScriptTimeout = string.Empty;
         await LoadDnsProvidersAsync(ct).ConfigureAwait(true);
-        ResultMessage = $"DNS provider '{name}' added. Use Test to confirm the token can change the zone.";
+        ResultMessage = isScript
+            ? $"DNS provider '{name}' added: SSLense copied the script, and its Check action succeeded. Use Test to confirm it can add and remove a record."
+            : $"DNS provider '{name}' added. Use Test to confirm the token can change the zone.";
+    }, token);
+
+    private Task UpdateDnsScriptAsync(CancellationToken token) => RunAsync(async ct =>
+    {
+        if (SelectedDnsProvider is not { Provider: DnsProviderType.Script } provider)
+        {
+            ErrorMessage = "Select a script provider, and choose its changed script under Script.";
+            return;
+        }
+
+        var sha256 = await _dnsProviders.UpdateScriptAsync(provider.Name, NewDnsScriptPath, ct).ConfigureAwait(true);
+        NewDnsScriptPath = string.Empty;
+        await LoadDnsProvidersAsync(ct).ConfigureAwait(true);
+        ResultMessage = $"DNS provider '{provider.Name}' now runs the new copy of the script (SHA-256 {sha256}).";
     }, token);
 
     private Task TestDnsProviderAsync(CancellationToken token) => RunAsync(async ct =>
@@ -196,7 +249,7 @@ public partial class SettingsViewModel : ObservableObject
     {
         if (SelectedDnsProvider is not { } provider)
         {
-            ErrorMessage = "Select a DNS provider, and enter its new token under API token.";
+            ErrorMessage = "Select a DNS provider, and enter its new token or secret below.";
             return;
         }
 
@@ -204,7 +257,9 @@ public partial class SettingsViewModel : ObservableObject
 
         // Secrets are cleared from memory as soon as they are saved.
         NewDnsToken = string.Empty;
-        ResultMessage = $"Token replaced for DNS provider '{provider.Name}'. Delete the old token in your DNS service.";
+        ResultMessage = provider.Provider == DnsProviderType.Script
+            ? $"Secret replaced for DNS provider '{provider.Name}'."
+            : $"Token replaced for DNS provider '{provider.Name}'. Delete the old token in your DNS service.";
     }, token);
 
     private Task RemoveDnsProviderAsync(CancellationToken token) => RunAsync(async ct =>
@@ -388,7 +443,7 @@ public partial class SettingsViewModel : ObservableObject
         (AsyncRelayCommand)StartServiceCommand, (AsyncRelayCommand)StopServiceCommand,
         (AsyncRelayCommand)SaveRemindersCommand, (AsyncRelayCommand)SendSampleReminderCommand,
         (AsyncRelayCommand)AddDnsProviderCommand, (AsyncRelayCommand)TestDnsProviderCommand, (AsyncRelayCommand)RemoveDnsProviderCommand,
-        (AsyncRelayCommand)ReplaceDnsTokenCommand
+        (AsyncRelayCommand)ReplaceDnsTokenCommand, (AsyncRelayCommand)UpdateDnsScriptCommand
     ];
 }
 

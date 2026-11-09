@@ -34,8 +34,24 @@ internal sealed class HealthCheckService(
     HttpClient httpClient,
     ICertificateAuthorityRegistry authorities,
     IPendingRequestStore pendingRequests,
-    Reminders.IServedCertificateCheck servedCheck) : IHealthCheckService
+    Reminders.IServedCertificateCheck servedCheck,
+    DnsValidation.IDnsScriptStore? scripts = null) : IHealthCheckService
 {
+    private readonly DnsValidation.IDnsScriptStore _scripts = scripts ?? new DnsValidation.DnsScriptStore();
+
+    /// <summary>The service runs only SSLense's own unchanged copy, so a problem here stops every renewal through it.</summary>
+    private HealthCheckResult CheckDnsScript(string name, DnsValidation.DnsProviderProfile provider)
+    {
+        var problems = _scripts.Inspect(provider.Name, provider.ScriptSha256 ?? string.Empty);
+        return problems.Count == 0
+            ? Pass(name, $"SSLense's copy of the script is unchanged (SHA-256 starting {provider.ScriptSha256?[..Math.Min(16, provider.ScriptSha256.Length)]}).")
+            : new HealthCheckResult(
+                name,
+                HealthStatus.Fail,
+                $"{string.Join(" ", problems)} Renewals through this provider will stop until you take a new copy with " +
+                $"'SSLense.Cli dns update-script --name \"{provider.Name}\" --script <path>'.");
+    }
+
     // The service checks hourly; three missed cycles means it is stuck or not running its loop.
     private static readonly TimeSpan HeartbeatStaleAfter = TimeSpan.FromHours(3);
     private static readonly TimeSpan NetworkTimeout = TimeSpan.FromSeconds(15);
@@ -86,6 +102,12 @@ internal sealed class HealthCheckService(
             config = await configStore.LoadAsync(cancellationToken).ConfigureAwait(false);
             return Pass("Configuration", "config.json is readable.");
         }).ConfigureAwait(false);
+
+        foreach (var provider in config?.DnsProviders.Where(value => value.Provider == DnsValidation.DnsProviderType.Script) ?? [])
+        {
+            var name = $"DNS script: {provider.Name}";
+            await Check(name, () => Task.FromResult(CheckDnsScript(name, provider))).ConfigureAwait(false);
+        }
 
         IReadOnlyList<ManagedCertificate> certificates = [];
         await Check("Managed certificates", async () =>

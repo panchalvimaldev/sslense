@@ -812,36 +812,69 @@ static Command CreateDnsCommand(IServiceProvider services)
     listCommand.SetAction((_, token) => ListDnsProvidersAsync(Providers(), token));
     command.Subcommands.Add(listCommand);
 
-    var providerOption = new Option<string>("--provider") { Required = true, Description = "The DNS service. Currently: cloudflare." };
-    providerOption.AcceptOnlyFromAmong("cloudflare");
+    var providerOption = new Option<string>("--provider")
+    {
+        Required = true,
+        Description = "The DNS service: cloudflare, or script for your own PowerShell script that works with any DNS service."
+    };
+    providerOption.AcceptOnlyFromAmong("cloudflare", "script");
     var addNameOption = new Option<string>("--name") { Required = true, Description = "A label for this provider." };
     var zoneOption = new Option<string>("--zone") { Required = true, Description = "The DNS zone, such as example.com." };
-    var zoneIdOption = new Option<string>("--zone-id") { Required = true, Description = "The zone ID, from the domain's Overview page in Cloudflare." };
+    var zoneIdOption = new Option<string>("--zone-id") { Description = "Cloudflare only: the zone ID, from the domain's Overview page." };
+    var scriptOption = new Option<string>("--script")
+    {
+        Description = "Script only: your .ps1 file. SSLense runs its own copy, so later changes to this file need 'dns update-script'."
+    };
+    var secretOption = new Option<bool>("--secret") { Description = "Script only: prompt for one secret, such as an API key, given to the script when it runs." };
+    var timeoutOption = new Option<int?>("--timeout") { Description = "Script only: seconds one call may run before it is stopped. Default 120." };
     var addCommand = new Command(
         "add",
-        "Add a DNS provider. The API token is prompted without echo. Use a token with Zone > DNS > Edit on this one zone: it can change every record in the zone.");
+        "Add a DNS provider. For Cloudflare, the API token is prompted without echo; use a token with Zone > DNS > Edit on this one zone, " +
+        "because it can change every record in the zone. For a script, read it before adding it: the renewal service runs it as SYSTEM.");
     addCommand.Options.Add(providerOption);
     addCommand.Options.Add(addNameOption);
     addCommand.Options.Add(zoneOption);
     addCommand.Options.Add(zoneIdOption);
+    addCommand.Options.Add(scriptOption);
+    addCommand.Options.Add(secretOption);
+    addCommand.Options.Add(timeoutOption);
     addCommand.SetAction((parseResult, token) => AddDnsProviderAsync(
         Providers(),
         parseResult.GetRequiredValue(providerOption),
         parseResult.GetRequiredValue(addNameOption),
         parseResult.GetRequiredValue(zoneOption),
-        parseResult.GetRequiredValue(zoneIdOption),
+        parseResult.GetValue(zoneIdOption),
+        parseResult.GetValue(scriptOption),
+        parseResult.GetValue(secretOption),
+        parseResult.GetValue(timeoutOption),
         token));
     command.Subcommands.Add(addCommand);
 
+    var updateScriptNameOption = new Option<string>("--name") { Required = true, Description = "The script provider whose script changed." };
+    var updateScriptOption = new Option<string>("--script") { Required = true, Description = "The .ps1 file to copy." };
+    var updateScriptCommand = new Command(
+        "update-script",
+        "Take a new copy of a provider's script, after you changed it. The new copy is checked first; if it fails, the old copy stays in use.");
+    updateScriptCommand.Options.Add(updateScriptNameOption);
+    updateScriptCommand.Options.Add(updateScriptOption);
+    updateScriptCommand.SetAction((parseResult, token) => UpdateDnsScriptAsync(
+        Providers(), parseResult.GetRequiredValue(updateScriptNameOption), parseResult.GetRequiredValue(updateScriptOption), token));
+    command.Subcommands.Add(updateScriptCommand);
+
     var testNameOption = new Option<string>("--name") { Required = true, Description = "The DNS provider to test." };
-    var testCommand = new Command("test", "Prove the token can change the zone, by adding and removing a temporary TXT record.");
+    var testCommand = new Command(
+        "test",
+        "Prove the provider can change the zone, by adding and removing a temporary TXT record. " +
+        "For a script, SSLense also waits until every authoritative name server returns the record.");
     testCommand.Options.Add(testNameOption);
     testCommand.SetAction((parseResult, token) => TestDnsProviderAsync(
         Providers(), parseResult.GetRequiredValue(testNameOption), token));
     command.Subcommands.Add(testCommand);
 
     var updateTokenNameOption = new Option<string>("--name") { Required = true, Description = "The DNS provider whose token to replace." };
-    var updateTokenCommand = new Command("update-token", "Replace a provider's API token, for one that expired or was rotated. The token is prompted without echo.");
+    var updateTokenCommand = new Command(
+        "update-token",
+        "Replace a provider's API token, or a script's secret, for one that expired or was rotated. It is prompted without echo.");
     updateTokenCommand.Options.Add(updateTokenNameOption);
     updateTokenCommand.SetAction((parseResult, token) => UpdateDnsTokenAsync(
         Providers(), parseResult.GetRequiredValue(updateTokenNameOption), token));
@@ -870,6 +903,10 @@ static async Task<int> ListDnsProvidersAsync(IDnsProviderService providers, Canc
         foreach (var provider in overview)
         {
             Console.WriteLine($"{provider.Name}: {provider.Provider}, zone {provider.ZoneName}");
+            if (provider.ScriptSha256 is { } sha256)
+            {
+                Console.WriteLine($"  Script SHA-256: {sha256}. Compare with Get-FileHash on your original script.");
+            }
         }
 
         return 0;
@@ -885,22 +922,58 @@ static async Task<int> AddDnsProviderAsync(
     string provider,
     string name,
     string zone,
-    string zoneId,
+    string? zoneId,
+    string? script,
+    bool promptForSecret,
+    int? timeoutSeconds,
     CancellationToken token)
 {
     try
     {
+        var type = Enum.Parse<DnsProviderType>(provider, ignoreCase: true);
+        if (type == DnsProviderType.Script)
+        {
+            var secret = promptForSecret ? ReadHiddenValue("Secret for the script: ") : string.Empty;
+            if (promptForSecret && secret.Trim().Length == 0)
+            {
+                throw new ArgumentException("No secret was entered, so nothing was saved. Run the command again and enter it, or leave out --secret if the script needs none.");
+            }
+
+            await providers.AddAsync(new DnsProviderRequest(name, type, zone, null, secret, script, timeoutSeconds), token)
+                .ConfigureAwait(false);
+            Console.WriteLine(
+                $"DNS provider '{name}' added: SSLense copied the script, and its Check action succeeded. " +
+                $"Run 'SSLense.Cli dns test --name \"{name}\"' to confirm it can add and remove a record.");
+            return 0;
+        }
+
+        if (script is not null || promptForSecret || timeoutSeconds is not null)
+        {
+            throw new ArgumentException("--script, --secret, and --timeout apply only to --provider script.");
+        }
+
         var apiToken = ReadHiddenValue("API token: ");
-        await providers.AddAsync(
-                new DnsProviderRequest(name, Enum.Parse<DnsProviderType>(provider, ignoreCase: true), zone, zoneId, apiToken),
-                token)
-            .ConfigureAwait(false);
+        await providers.AddAsync(new DnsProviderRequest(name, type, zone, zoneId, apiToken), token).ConfigureAwait(false);
         Console.WriteLine($"DNS provider '{name}' added. Run 'SSLense.Cli dns test --name \"{name}\"' to confirm the token can change the zone.");
         return 0;
     }
     catch (Exception exception)
     {
         return ReportDnsFailure(exception, "Failed to add a DNS provider");
+    }
+}
+
+static async Task<int> UpdateDnsScriptAsync(IDnsProviderService providers, string name, string script, CancellationToken token)
+{
+    try
+    {
+        var sha256 = await providers.UpdateScriptAsync(name, script, token).ConfigureAwait(false);
+        Console.WriteLine($"DNS provider '{name}' now runs the new copy of the script (SHA-256 {sha256}).");
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        return ReportDnsFailure(exception, "Failed to update a DNS script");
     }
 }
 
@@ -1486,14 +1559,38 @@ static async Task<int> TestNotificationsAsync(INotifier notifier, CancellationTo
     }
 }
 
+/// <summary>
+/// Asks again when nothing is entered. A command pasted with its line break leaves an Enter waiting, which would
+/// otherwise answer the prompt before anything could be pasted.
+/// </summary>
 static string ReadHiddenValue(string prompt)
 {
-    Console.Write(prompt);
     if (Console.IsInputRedirected)
     {
+        Console.Write(prompt);
         return Console.ReadLine() ?? string.Empty;
     }
 
+    for (var attempt = 1; ; attempt++)
+    {
+        while (Console.KeyAvailable)
+        {
+            Console.ReadKey(intercept: true);
+        }
+
+        Console.Write(prompt);
+        var value = ReadHiddenLine();
+        if (value.Trim().Length > 0 || attempt == 3)
+        {
+            return value;
+        }
+
+        Console.WriteLine("Nothing was entered. Paste or type it, then press Enter.");
+    }
+}
+
+static string ReadHiddenLine()
+{
     var characters = new List<char>();
     while (true)
     {

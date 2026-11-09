@@ -21,9 +21,10 @@ internal static class StateSchema
     /// email, chat channels, a heartbeat, and the Event Log (see <see cref="ConfigMigrations"/>). Version 3 adds
     /// configured certificate authorities. Version 4 adds reminder settings, which default when absent. Version 5 adds
     /// the proactive-checks and repeat-automatic-reminders settings, which also default when absent. Version 6 adds
-    /// DNS providers, which default to none.
+    /// DNS providers, which default to none. Version 7 adds script DNS providers with their script hash and timeout,
+    /// which an older version would not recognize.
     /// </summary>
-    public const int Config = 6;
+    public const int Config = 7;
 
     /// <summary>Version 2 stores the certificate snapshot in managed-certificate schema 2. Version 3 can list several sites, which an older version would only partly recover.</summary>
     public const int Transactions = 3;

@@ -14,7 +14,7 @@ SSLense is a Windows application for IIS administrators. It gets free Let's Encr
 
 - **A failed renewal never takes a site down.** After every change, SSLense connects to the site over HTTPS to check the new certificate is really served. If it isn't, the previous binding is restored automatically.
 - **One certificate across several IIS sites.** A DNS-validated certificate, such as `*.example.com`, can serve several sites that renew together. If one site has a problem, the others are protected.
-- **Wildcard certificates and sites without port 80.** DNS validation issues `*.example.com`, and works for internal servers and sites that cannot open port 80. It renews automatically through Cloudflare, or through a CNAME from any DNS service to a domain on Cloudflare.
+- **Wildcard certificates and sites without port 80.** DNS validation issues `*.example.com`, and works for internal servers and sites that cannot open port 80. It renews automatically through Cloudflare, through your own PowerShell script for any DNS service with an API, or through a CNAME from any DNS service to a domain on Cloudflare.
 - **Certificates from any provider, not only Let's Encrypt.** It creates the certificate request with a private key that never leaves the server, installs what the provider issues with the same safety checks, or simply starts watching a certificate that is already in IIS.
 - **No need to log on to the server to check expiry dates.** One digest a day, sent only when something needs attention, by email (any SMTP setup, including Microsoft 365 relays), Teams, Slack, Discord, Telegram, ntfy, or the Windows Event Log.
 - **Problems explained, with a fix for each one.** A health check covers the service, permissions, IIS, DNS, port 80, and Let's Encrypt. A redacted diagnostic bundle can be attached to a bug report.
@@ -174,12 +174,13 @@ SSLense removes an old certificate only after the replacement binding is confirm
 
 ### DNS validation and wildcard certificates
 
-Let's Encrypt only issues wildcard certificates through DNS validation. It also suits internal servers and sites that cannot open port 80. There are three ways to use it:
+Let's Encrypt only issues wildcard certificates through DNS validation. It also suits internal servers and sites that cannot open port 80. There are four ways to use it:
 
 | Method | Works with | Renewal |
 |---|---|---|
 | **DNS provider** | Cloudflare | Automatic |
-| **CNAME delegation** | Any DNS service, plus a domain on Cloudflare | Automatic |
+| **Script** | Any DNS service with an API, through your PowerShell script | Automatic |
+| **CNAME delegation** | Any DNS service, plus a domain on Cloudflare or one your script can change | Automatic |
 | **Manual** | Any DNS service | By hand, with new records each time |
 
 **Add a provider.** In Cloudflare, go to **My Profile → API Tokens → Create Token** and use the **Edit zone DNS** template for one zone. The zone ID is on the domain's **Overview** page. The token is prompted for, never passed as an argument, and is encrypted on the server with DPAPI. In the app, use **Settings → DNS providers**.
@@ -199,6 +200,21 @@ SSLense.Cli preflight --site "Shop" --validation dns --names "*.example.com,exam
 SSLense.Cli issue --site "Shop" --email admin@example.com --validation dns --names "*.example.com,example.com" --hosts "shop.example.com,example.com"
 ```
 
+**Use any DNS service with a script.** Write a PowerShell script that adds and removes one TXT record through your DNS service's API, and SSLense does the rest: the order, the check that every name server has the record, cleanup, recovery, and renewal. Start from `Template.ps1` in `C:\Program Files\SSLense\dns-scripts\`; `Cloudflare.ps1` there is a complete working example. In the app, choose **Script** under **Settings → DNS providers**.
+
+```powershell
+SSLense.Cli dns add --provider script --name "Registrar" --zone example.com --script C:\Scripts\registrar.ps1 --secret
+SSLense.Cli dns test --name "Registrar"    # adds a record, waits until every name server has it, removes it
+SSLense.Cli dns update-script --name "Registrar" --script C:\Scripts\registrar.ps1   # after you change the script
+```
+
+SSLense runs it as `powershell.exe -File <script> -Action Check|Add|Remove -Zone example.com -RecordName _acme-challenge.example.com -Value <value>`. Exit with 0 when the action worked. `--secret` prompts for one secret, such as an API key, which is encrypted and given to the script in the `SSLENSE_DNS_SECRET` environment variable; for two values, use `key:secret`. Each call may run for 2 minutes, or `--timeout` seconds.
+
+- **Read a script before adding it.** The renewal service runs it as **SYSTEM**, so it can do anything on the server.
+- **SSLense runs its own copy,** in `C:\ProgramData\SSLense\dns-scripts`, which only administrators can change. It checks the copy's SHA-256 before every run and refuses one that changed. After you edit the original, run `dns update-script`, which checks the new copy before using it. `dns list` shows the hash, to compare with `Get-FileHash` on your original.
+- **Test as you, renew as SYSTEM.** `dns test` runs the script as your account; the service runs it as SYSTEM. Install any module it needs for all users (`Install-Module -Scope AllUsers`), and don't rely on anything in your user profile. In the 30 days before each renewal, the service runs the script's `Check` daily, so a problem shows in the digest before the renewal fails.
+- **A Group Policy execution policy still applies.** On a server that requires signed scripts, sign the script.
+
 **Use another DNS service with CNAME delegation.** Create this one permanent record at your DNS service, then use `--validation dns` with a provider for the other zone. If your DNS service can proxy records, as Cloudflare can, turn that off for this one:
 
 ```text
@@ -214,7 +230,7 @@ _acme-challenge.example.com  CNAME  example-com.acme.example.net
 - **It checks before asking Let's Encrypt,** including CAA records and the zone's own name servers, to avoid using up the failed validation limit. If outbound port 53 is blocked, it can't check, so it says so, waits 2 minutes, and continues.
 - **To use one wildcard on several IIS sites, share it** with `share add`, described below. Requesting the same wildcard again for another site is refused. Bound by hand and not shared, a certificate isn't updated on that site at renewal, so SSLense warns you about it.
 - **`*.example.com` can't be an IIS binding that SSLense manages.** Use real host names in `--hosts`. A host added to the site later isn't bound automatically: the health check reports it, and you run `issue --force` again with the new host in `--hosts`.
-- **Other DNS services:** more are planned; see [ROADMAP.md](ROADMAP.md).
+- **Other DNS services:** use a script for now. Built-in providers for more services are planned; see [ROADMAP.md](ROADMAP.md).
 
 ### One certificate across several IIS sites
 
@@ -444,7 +460,7 @@ Windows displays an administrator elevation prompt because the application manif
 - A visual three-step issuance wizard with IIS selection, HTTP or DNS validation, certificate names for wildcards, guarded environment choice, pre-flight checks, the records to create for manual DNS validation, live progress, and cancellation
 - Certificate details, renewal, confirmed removal, bindings, issuer, validity, and recent logs
 - An **Other Providers** page for certificates bought elsewhere: create a request (CSR) to copy or save, complete it with the issued certificate and bundle, import a PFX, or adopt a certificate already bound in IIS. Imported certificates show as "Imported" on the Dashboard, with "Order renewal" when 30 days or fewer remain
-- General, DNS provider, notification, reminder, and Windows Service settings; per-certificate reminders on Certificate Details
+- General, DNS provider (Cloudflare or your own script), notification, reminder, and Windows Service settings; per-certificate reminders on Certificate Details
 
 Staging remains the wizard default. Production requires a separate selection and acknowledgement before the Issue button is enabled. Use **Issue certificate** on the Dashboard to open the wizard. Removing a certificate requires confirmation and removes only matching HTTPS bindings; a certificate still used by another IIS site is retained in the Windows certificate store.
 
@@ -480,13 +496,16 @@ SSLense stores files under `C:\ProgramData\SSLense`:
 - `transactions\`: durable certificate-operation journals, normally removed automatically after commit or recovery
 - `challenges\`: records of HTTP-01 challenge files written into a site, so files left by an interrupted validation are removed at the next start (only once the process that wrote them has exited)
 - `dns-challenges\`: records of DNS TXT records being published, so a record left by an interrupted validation is removed at the next start
+- `dns-scripts\`: SSLense's own copy of each DNS script, the only copy the service runs, named after the provider and the start of its SHA-256
 - `service-heartbeat.json`: when the renewal service last started and completed a cycle, used by the health check
 - `reminder-state.json`: the day the last reminder digest and weekly summary were handled, so a restart never sends one twice
 - `logs\sslense-YYYYMMDD.log`: rolling logs retained for 30 days
 
 `config.json`, `managed-certificates.json`, `pending-requests.json`, and transaction journals carry a `schemaVersion`. Before SSLense first rewrites a file from an older schema, it saves the original as `<file>.v<old version>.bak` (for example `managed-certificates.json.v0.bak`). A file written by a newer SSLense version is never modified: SSLense stops with a message to install the newer version, so a downgrade cannot corrupt state.
 
-Private keys, PFX passwords, SMTP passwords, webhook URLs, DNS provider tokens, and the ACME account key must never appear in logs.
+Private keys, PFX passwords, SMTP passwords, webhook URLs, DNS provider tokens and script secrets, and the ACME account key must never appear in logs.
+
+**Going back to 0.14:** the first save after upgrading to 0.15 moves `config.json` to schema 7, which 0.14 cannot read, and keeps the old file as `config.json.v6.bak`. Going back means restoring that copy, which has no script providers.
 
 ### Data directory permissions
 
@@ -548,6 +567,9 @@ The command prints a `PASS` or `FAIL` line for each check. Fix the first failing
 - **ACME validation times out:** confirm public DNS and tunnel routing, and that inbound HTTP remains available throughout validation.
 - **No DNS provider manages a record:** add a provider for that zone, or check the CNAME at `_acme-challenge.<name>`. SSLense follows the CNAME, and the zone it ends in needs a provider.
 - **Cloudflare rejects the token (HTTP 401 or 403):** check that the token still exists, hasn't expired, and has **Zone → DNS → Edit** on that zone, and that the zone ID belongs to the same domain. To change the token, use `SSLense.Cli dns update-token`, or **Replace token** in **Settings → DNS providers**.
+- **A DNS script fails:** the message gives the action, the exit code, and the script's last 20 lines, with the secret removed. Run `SSLense.Cli dns test --name <provider>` to try it again. If it works in `dns test` but fails at renewal, it depends on something only your account has, such as a module installed for you alone; install it for all users.
+- **SSLense will not run a DNS script:** its copy is missing, was changed, or has the wrong permissions. Check your original script, then run `SSLense.Cli dns update-script`. The health check reports this too.
+- **A DNS script was stopped:** it ran longer than its timeout, 2 minutes by default. Raise it by removing the provider and adding it again with `--timeout`, or find what it waits for.
 - **The DNS records did not appear in time:** SSLense waits up to 5 minutes and doesn't ask Let's Encrypt to validate. Check the records at your DNS service, then try again. For manual records, check for a typo and that every value exists.
 - **CAA records block Let's Encrypt:** the message names the record to add. For a wildcard, an `issuewild` record takes priority over `issue`.
 - **A wildcard is refused because it is managed for another site:** add the site to that certificate with `share add` instead of requesting the wildcard again.

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using SSLense.Gui.ViewModels;
@@ -37,6 +38,17 @@ public partial class SettingsView : UserControl
     private void OnDnsTokenChanged(object sender, RoutedEventArgs e)
     {
         if (ViewModel is { } vm) vm.NewDnsToken = DnsTokenBox.Password;
+    }
+
+    private void OnBrowseDnsScriptClick(object sender, RoutedEventArgs e)
+    {
+        var examples = Path.Combine(AppContext.BaseDirectory, "..", "dns-scripts");
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "PowerShell scripts (*.ps1)|*.ps1",
+            InitialDirectory = Directory.Exists(examples) ? Path.GetFullPath(examples) : null
+        };
+        if (dialog.ShowDialog() == true && ViewModel is { } vm) vm.NewDnsScriptPath = dialog.FileName;
     }
 
     private void OnEmailPasswordChanged(object sender, RoutedEventArgs e)

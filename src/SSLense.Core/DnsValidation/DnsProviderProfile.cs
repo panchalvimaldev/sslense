@@ -2,18 +2,27 @@ namespace SSLense.Core.DnsValidation;
 
 public enum DnsProviderType
 {
-    Cloudflare = 0
+    Cloudflare = 0,
+
+    /// <summary>The administrator's PowerShell script (docs/design/dns-script.md).</summary>
+    Script = 1
 }
 
 /// <summary>Credentials for changing one DNS zone. The name identifies the profile.</summary>
 /// <param name="ZoneId">The provider's ID for the zone, so the token needs no permission to list zones.</param>
-/// <param name="ProtectedToken">The API token, encrypted with DPAPI and Base64-encoded.</param>
+/// <param name="ProtectedToken">
+/// The API token, encrypted with DPAPI and Base64-encoded. Empty for a script that needs no secret.
+/// </param>
+/// <param name="ScriptSha256">For a script, the SHA-256 of SSLense's own copy, checked before every run.</param>
+/// <param name="ScriptTimeoutSeconds">For a script, how long one call may run; the default when null.</param>
 public sealed record DnsProviderProfile(
     string Name,
     DnsProviderType Provider,
     string ZoneName,
     string? ZoneId,
-    string ProtectedToken);
+    string ProtectedToken,
+    string? ScriptSha256 = null,
+    int? ScriptTimeoutSeconds = null);
 
 /// <summary>One TXT record that must be visible in public DNS for a validation.</summary>
 public sealed record DnsTxtRecord(string Name, string Value);

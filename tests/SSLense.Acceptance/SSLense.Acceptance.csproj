@@ -8,4 +8,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\SSLense.Core\SSLense.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- scriptcheck runs the Cloudflare example that ships with SSLense. -->
+    <None Include="..\..\dns-scripts\*.ps1" Link="dns-scripts\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

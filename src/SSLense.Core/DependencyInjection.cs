@@ -32,6 +32,9 @@ public static class DependencyInjection
         services.AddTransient<IChallengeHandler, Http01Handler>();
         services.AddSingleton<IDnsLookup, DnsClientLookup>();
         services.AddSingleton<IDnsProvider, CloudflareDnsProvider>();
+        services.AddSingleton<IDnsScriptStore>(_ => new DnsScriptStore());
+        services.AddSingleton<IScriptRunner, PowerShellScriptRunner>();
+        services.AddSingleton<IDnsProvider, ScriptDnsProvider>();
         services.AddSingleton<IDnsChallengeJournal, JsonDnsChallengeJournal>();
         services.AddTransient<DnsPropagationChecker>();
         services.AddTransient<IDnsChallengeService, DnsChallengeService>();

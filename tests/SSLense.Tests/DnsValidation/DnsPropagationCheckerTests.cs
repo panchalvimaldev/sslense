@@ -96,6 +96,20 @@ public sealed class DnsPropagationCheckerTests
         Assert.Contains("no public name servers", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Confirm_SaysWhetherTheRecordWasReallySeen_AndDoesNotWaitWhenDnsIsBlocked()
+    {
+        _lookup.Answer = (_, _) => ["value"];
+        Assert.True(await Checker().ConfirmAsync([Record], CancellationToken.None));
+
+        _lookup.Unavailable = true;
+        var blocked = new DnsPropagationChecker(_lookup, new DnsPropagationOptions { UncheckedWait = TimeSpan.FromMinutes(10) });
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        Assert.False(await blocked.ConfirmAsync([Record], CancellationToken.None));
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(5), $"Took {stopwatch.Elapsed}.");
+    }
+
     private DnsPropagationChecker Checker(TimeSpan? timeout = null) => new(_lookup, new DnsPropagationOptions
     {
         Timeout = timeout ?? TimeSpan.FromSeconds(30),

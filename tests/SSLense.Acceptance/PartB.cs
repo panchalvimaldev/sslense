@@ -20,7 +20,7 @@ internal sealed record Record(string Id, string Site, string Thumbprint, DateTim
 /// The real commands against Let's Encrypt STAGING. These use C:\ProgramData\SSLense, which the installed release shares, so the
 /// service is stopped and the folder is backed up first and restored afterwards.
 /// </summary>
-internal static class PartB
+internal static partial class PartB
 {
     private const string Service = "SSLense";
     private const string DefaultInstalledCli = @"C:\Program Files\SSLense\cli\SSLense.Cli.exe";
@@ -780,7 +780,8 @@ internal static class PartB
         return (result.ExitCode, result.Output);
     }
 
-    private static async Task<(int ExitCode, string Output, bool Killed)> Run(string exe, string[] arguments, Func<string, bool>? killWhen)
+    /// <param name="input">A line for the command to read, such as a made-up secret; only ever a value this program chose.</param>
+    private static async Task<(int ExitCode, string Output, bool Killed)> Run(string exe, string[] arguments, Func<string, bool>? killWhen, string? input = null)
     {
         Report.Info($"> {Path.GetFileName(Path.GetDirectoryName(exe))}\\{Path.GetFileName(exe)} {string.Join(' ', arguments)}");
         var info = new ProcessStartInfo(exe)
@@ -799,6 +800,11 @@ internal static class PartB
         }
 
         using var process = Process.Start(info)!;
+        if (input is not null)
+        {
+            process.StandardInput.WriteLine(input);
+        }
+
         process.StandardInput.Close();
         var output = new StringBuilder();
         var killed = false;
@@ -843,6 +849,12 @@ internal static class PartB
     /// <summary>Uses this console for input, so SSLense reads the token itself and this program never sees it. Only error text is captured.</summary>
     private static async Task<(int ExitCode, string Errors)> Interactive(params string[] arguments)
     {
+        // A pasted line break or an extra Enter would otherwise answer SSLense's hidden prompt with nothing.
+        while (!Console.IsInputRedirected && Console.KeyAvailable)
+        {
+            Console.ReadKey(intercept: true);
+        }
+
         var info = new ProcessStartInfo(Cli) { UseShellExecute = false, RedirectStandardError = true };
         foreach (var argument in arguments)
         {

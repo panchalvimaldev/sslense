@@ -204,7 +204,10 @@ internal sealed class DiagnosticBundleService(
             .Select(provider => provider with
             {
                 ZoneId = provider.ZoneId is null ? null : SecretRedactor.Marker,
-                ProtectedToken = SecretRedactor.Marker
+                ProtectedToken = SecretRedactor.Marker,
+
+                // Enough to tell which script runs. The whole hash is long enough to be redacted as a possible secret.
+                ScriptSha256 = provider.ScriptSha256 is { Length: > 16 } sha256 ? $"{sha256[..16]}..." : provider.ScriptSha256
             })
             .ToArray(),
         Notifications = config.Notifications with
