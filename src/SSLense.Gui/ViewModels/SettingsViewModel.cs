@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using System.IO;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
+using SSLense.Core.Acme;
 using SSLense.Core.Config;
 using SSLense.Core.DnsValidation;
 using SSLense.Core.Notifications;
@@ -19,6 +20,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly IWindowsServiceManager _serviceManager;
     private readonly IReminderService _reminderService;
     private readonly IDnsProviderService _dnsProviders;
+    private readonly ICertificateAuthorityService _authorities;
     private readonly ILogger<SettingsViewModel> _logger;
 
     [ObservableProperty] private string defaultEmail = string.Empty;
@@ -90,9 +92,16 @@ public partial class SettingsViewModel : ObservableObject
         IWindowsServiceManager serviceManager,
         IReminderService reminderService,
         IDnsProviderService dnsProviders,
+        ICertificateAuthorityService authorities,
         ILogger<SettingsViewModel> logger)
     {
         _dnsProviders = dnsProviders;
+        _authorities = authorities;
+        CaChoices = [.. authorities.Presets.Select(preset => new CaChoice(preset.Id, $"{preset.Name} ({preset.Id})")), new CaChoice(null, "Other ACME certificate authority")];
+        selectedCaChoice = CaChoices[0];
+        AddCaCommand = Command(AddCaAsync);
+        TestCaCommand = Command(TestCaAsync);
+        RemoveCaCommand = Command(RemoveCaAsync);
         AddDnsProviderCommand = Command(AddDnsProviderAsync);
         TestDnsProviderCommand = Command(TestDnsProviderAsync);
         RemoveDnsProviderCommand = Command(RemoveDnsProviderAsync);
@@ -175,11 +184,88 @@ public partial class SettingsViewModel : ObservableObject
             ProactiveChecks = reminders.ProactiveChecks;
             WeeklySummary = reminders.WeeklySummaryDay?.ToString() ?? "Off";
             await LoadDnsProvidersAsync(token).ConfigureAwait(true);
+            await LoadCertificateAuthoritiesAsync(token).ConfigureAwait(true);
             await LoadNotificationsAsync(token).ConfigureAwait(true);
             await RefreshServiceCoreAsync(token).ConfigureAwait(true);
             await LoadReminderOutlookAsync(token).ConfigureAwait(true);
         }, CancellationToken.None);
     }
+
+    public sealed record CaChoice(string? PresetId, string Label);
+
+    public IReadOnlyList<CaChoice> CaChoices { get; }
+    public ObservableCollection<CertificateAuthorityOverview> CertificateAuthorityList { get; } = [];
+    public IAsyncRelayCommand AddCaCommand { get; }
+    public IAsyncRelayCommand TestCaCommand { get; }
+    public IAsyncRelayCommand RemoveCaCommand { get; }
+
+    [ObservableProperty] private CertificateAuthorityOverview? selectedCertificateAuthority;
+    [ObservableProperty] private CaChoice selectedCaChoice;
+    [ObservableProperty] private string newCaName = string.Empty;
+    [ObservableProperty] private string newCaDirectory = string.Empty;
+    [ObservableProperty] private bool newCaIsTest;
+    [ObservableProperty] private string newCaEabKeyId = string.Empty;
+    [ObservableProperty] private string newCaEabHmacKey = string.Empty;
+    [ObservableProperty] private string newCaCaaDomain = string.Empty;
+
+    /// <summary>Any CA that is not a preset needs its directory URL, and says whether it is a test CA.</summary>
+    public bool NewCaIsCustom => SelectedCaChoice.PresetId is null;
+
+    partial void OnSelectedCaChoiceChanged(CaChoice value) => OnPropertyChanged(nameof(NewCaIsCustom));
+
+    private async Task LoadCertificateAuthoritiesAsync(CancellationToken token)
+    {
+        var authorities = await _authorities.ListAsync(token).ConfigureAwait(true);
+        CertificateAuthorityList.Clear();
+        foreach (var authority in authorities) CertificateAuthorityList.Add(authority);
+    }
+
+    private Task AddCaAsync(CancellationToken token) => RunAsync(async ct =>
+    {
+        var custom = NewCaIsCustom;
+        var added = await _authorities.AddAsync(
+                new CertificateAuthorityRequest(
+                    SelectedCaChoice.PresetId,
+                    Name: NewCaName.Trim().Length > 0 ? NewCaName : null,
+                    DirectoryUrl: custom ? NewCaDirectory : null,
+                    IsTest: custom && NewCaIsTest,
+                    EabKeyId: NewCaEabKeyId,
+                    EabHmacKey: NewCaEabHmacKey,
+                    CaaDomain: NewCaCaaDomain.Trim().Length > 0 ? NewCaCaaDomain : null),
+                ct)
+            .ConfigureAwait(true);
+
+        // The HMAC key is cleared from memory as soon as it is saved.
+        NewCaEabHmacKey = string.Empty; NewCaEabKeyId = string.Empty; NewCaName = string.Empty;
+        NewCaDirectory = string.Empty; NewCaIsTest = false; NewCaCaaDomain = string.Empty;
+        await LoadCertificateAuthoritiesAsync(ct).ConfigureAwait(true);
+        ResultMessage = $"Certificate authority '{added.Name}' added as '{added.Id}'. Choose it in the Issue wizard." +
+                        (added.IsTest ? string.Empty : " Its certificates are trusted, so issuing asks for confirmation.");
+    }, token);
+
+    private Task TestCaAsync(CancellationToken token) => RunAsync(async ct =>
+    {
+        if (SelectedCertificateAuthority is not { } authority)
+        {
+            ErrorMessage = "Select a certificate authority to test.";
+            return;
+        }
+
+        ResultMessage = await _authorities.TestAsync(authority.Id, ct).ConfigureAwait(true);
+    }, token);
+
+    private Task RemoveCaAsync(CancellationToken token) => RunAsync(async ct =>
+    {
+        if (SelectedCertificateAuthority is not { } authority)
+        {
+            ErrorMessage = "Select a certificate authority to remove.";
+            return;
+        }
+
+        await _authorities.RemoveAsync(authority.Id, ct).ConfigureAwait(true);
+        await LoadCertificateAuthoritiesAsync(ct).ConfigureAwait(true);
+        ResultMessage = $"Certificate authority '{authority.Name}' removed.";
+    }, token);
 
     private async Task LoadDnsProvidersAsync(CancellationToken token)
     {
@@ -443,7 +529,8 @@ public partial class SettingsViewModel : ObservableObject
         (AsyncRelayCommand)StartServiceCommand, (AsyncRelayCommand)StopServiceCommand,
         (AsyncRelayCommand)SaveRemindersCommand, (AsyncRelayCommand)SendSampleReminderCommand,
         (AsyncRelayCommand)AddDnsProviderCommand, (AsyncRelayCommand)TestDnsProviderCommand, (AsyncRelayCommand)RemoveDnsProviderCommand,
-        (AsyncRelayCommand)ReplaceDnsTokenCommand, (AsyncRelayCommand)UpdateDnsScriptCommand
+        (AsyncRelayCommand)ReplaceDnsTokenCommand, (AsyncRelayCommand)UpdateDnsScriptCommand,
+        (AsyncRelayCommand)AddCaCommand, (AsyncRelayCommand)TestCaCommand, (AsyncRelayCommand)RemoveCaCommand
     ];
 }
 

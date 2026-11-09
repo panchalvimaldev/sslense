@@ -26,6 +26,7 @@ Complete:
 - DNS validation and wildcard certificates (0.13): Cloudflare, CNAME delegation from any DNS service, and a manual method; propagation checks at the zone's authoritative name servers; CAA checks before ordering; DPAPI-protected, per-zone tokens; a journal that removes records left by an interrupted validation; one wildcard per IIS site; in the GUI and CLI ([design](docs/design/dns-validation.md))
 - One certificate across several IIS sites (0.14): `share add` and `share remove`, a trial of each new certificate before any real site changes, sites moved one at a time and checked over HTTPS, checked restores, and rules for a site with a problem, so that it cannot take the others down ([design](docs/design/shared-certificates.md)). Tested on Windows 11 and Windows Server with IIS 10, on Let's Encrypt staging and production. Testing on Windows Server also found and fixed an older bug: HTTP validation failed on IIS without ASP.NET
 - DNS validation through a script (0.15): any DNS service with an API, through the administrator's PowerShell script with `Check`, `Add`, and `Remove` actions; SSLense runs only its own copy, in its restricted data folder, checked by hash before every run; one optional DPAPI-protected secret passed in the environment; output redacted and runs stopped after a timeout; propagation still checked at the authoritative name servers; a template and a working Cloudflare example installed with SSLense ([design](docs/design/dns-script.md))
+- Other ACME certificate authorities (0.16): presets for ZeroSSL, Google Trust Services, SSL.com, and Sectigo, or any ACME directory; External Account Binding with a DPAPI-protected HMAC key; the CA's directory read before it is added, including the CAA identities it publishes, so CAA checks work for every CA; a confirmation for every CA that is not a test endpoint, enforced in Core; a CA choice in the Issue wizard and Settings; and the ACME client tested end to end against Pebble in CI ([design](docs/design/certificate-sources.md), section 9)
 - Cross-process per-site locking, durable operation journals, and non-fatal startup recovery
 - Health check (CLI and GUI) and redacted diagnostic bundles for support
 - Versioned state schemas with backup before migration and safe refusal of newer schemas
@@ -58,14 +59,13 @@ References:
 In priority order. Feedback from real users can change the order.
 
 1. **Built-in DNS providers.** The script method (0.15) covers any service with an API; built-in providers save writing one. One at a time, starting with Amazon Route 53, Azure DNS, and GoDaddy, then whichever users ask for most. Each stays labelled untested until it has run on a real account. Providers are compiled in, not loaded as plugins, because the service runs as SYSTEM.
-2. **More ACME certificate authorities.** The certificate authority profiles from 0.10 are in place. Adding ACME CAs with External Account Binding (ZeroSSL, Google Trust Services, SSL.com, internal ACME servers), a CA choice in the Issue wizard, and Pebble-based tests in CI (steps 4 and 5 of [docs/design/certificate-sources.md](docs/design/certificate-sources.md)). SSLense never fails over to another CA without explicit configuration.
-3. **Certificates on other machines.** Add host names that are not on this server, such as load balancers and appliances, to the daily served-certificate check, so one place reminds about every certificate.
-4. **Script hooks.** Optional PowerShell commands before and after a renewal or install, with the certificate's details passed in, for restarting a service or copying a certificate elsewhere.
-5. **Certificate export and shared stores.** IIS Central Certificate Store, Azure Key Vault, and PFX or PEM export. Export needs an exportable key, so it stays off by default and is an explicit choice per certificate.
-6. **Key options for ACME certificates.** A choice of RSA or ECDSA (issuance currently uses ECDSA P-256), and optional private-key reuse for sites that pin keys.
-7. **HTTP-to-HTTPS redirect helper** using an IIS URL Rewrite rule, with a check that it does not block validation.
-8. **Bulk operations.** Adopt every unmanaged certificate at once, and issue for many sites from a CSV file.
-9. **New version notice.** Tell the administrator when a newer release is available, with a setting to turn the check off. Never install anything automatically.
+2. **Certificates on other machines.** Add host names that are not on this server, such as load balancers and appliances, to the daily served-certificate check, so one place reminds about every certificate.
+3. **Script hooks.** Optional PowerShell commands before and after a renewal or install, with the certificate's details passed in, for restarting a service or copying a certificate elsewhere.
+4. **Certificate export and shared stores.** IIS Central Certificate Store, Azure Key Vault, and PFX or PEM export. Export needs an exportable key, so it stays off by default and is an explicit choice per certificate.
+5. **Key options for ACME certificates.** A choice of RSA or ECDSA (issuance currently uses ECDSA P-256), and optional private-key reuse for sites that pin keys.
+6. **HTTP-to-HTTPS redirect helper** using an IIS URL Rewrite rule, with a check that it does not block validation.
+7. **Bulk operations.** Adopt every unmanaged certificate at once, and issue for many sites from a CSV file.
+8. **New version notice.** Tell the administrator when a newer release is available, with a setting to turn the check off. Never install anything automatically.
 
 ## 5. Before 1.0
 

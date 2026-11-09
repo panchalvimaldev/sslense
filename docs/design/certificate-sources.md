@@ -189,7 +189,7 @@ Pebble is Let's Encrypt's small ACME server for testing. It runs locally and sup
 
 - **Acceptance, on the maintainer's PC:** Google Trust Services' **test** endpoint, which is free and issues untrusted certificates like Let's Encrypt staging: `ca add`, a wildcard through DNS validation, a renewal, and a shared certificate.
 - **Production test, by the maintainer:** one ZeroSSL certificate, which is free through ACME.
-- **Delivery:** step 4a, Core and CLI with the Pebble tests; step 4b, the app, documents, website, and roadmap; acceptance; release as 0.16. **Step 4a built** November 9, 2026: 613 tests, of which 5 run against Pebble 2.10.1 (an account with EAB, refusal without it or with a wrong key, an HTTP order, a wildcard DNS order, and reuse of a saved account), and pass locally and in CI.
+- **Delivery:** step 4a, Core and CLI with the Pebble tests; step 4b, the app, documents, website, and roadmap; acceptance; release as 0.16. **Step 4a built** November 9, 2026: 613 tests, of which 5 run against Pebble 2.10.1 (an account with EAB, refusal without it or with a wrong key, an HTTP order, a wildcard DNS order, and reuse of a saved account), and pass locally and in CI. **Step 4b built** the same day: Settings → Certificate authorities, a CA choice in the Issue wizard in place of the staging and production buttons (a certificate renewed by hand keeps its CA), and the README, roadmap, and website.
 
 ### 9.7 Decisions for approval
 

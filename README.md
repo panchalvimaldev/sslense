@@ -15,7 +15,8 @@ SSLense is a Windows application for IIS administrators. It gets free Let's Encr
 - **A failed renewal never takes a site down.** After every change, SSLense connects to the site over HTTPS to check the new certificate is really served. If it isn't, the previous binding is restored automatically.
 - **One certificate across several IIS sites.** A DNS-validated certificate, such as `*.example.com`, can serve several sites that renew together. If one site has a problem, the others are protected.
 - **Wildcard certificates and sites without port 80.** DNS validation issues `*.example.com`, and works for internal servers and sites that cannot open port 80. It renews automatically through Cloudflare, through your own PowerShell script for any DNS service with an API, or through a CNAME from any DNS service to a domain on Cloudflare.
-- **Certificates from any provider, not only Let's Encrypt.** It creates the certificate request with a private key that never leaves the server, installs what the provider issues with the same safety checks, or simply starts watching a certificate that is already in IIS.
+- **Any ACME certificate authority, not only Let's Encrypt.** ZeroSSL, Google Trust Services, SSL.com, Sectigo, or your own internal CA, with External Account Binding, renewed automatically like Let's Encrypt.
+- **Certificates from any provider.** For one bought without ACME, it creates the certificate request with a private key that never leaves the server, installs what the provider issues with the same safety checks, or simply starts watching a certificate that is already in IIS.
 - **No need to log on to the server to check expiry dates.** One digest a day, sent only when something needs attention, by email (any SMTP setup, including Microsoft 365 relays), Teams, Slack, Discord, Telegram, ntfy, or the Windows Event Log.
 - **Problems explained, with a fix for each one.** A health check covers the service, permissions, IIS, DNS, port 80, and Let's Encrypt. A redacted diagnostic bundle can be attached to a bug report.
 - **Secure by default.** Private keys are non-exportable, no PFX files are kept, secrets are encrypted with Windows DPAPI, and SSLense's data folder is restricted to Administrators and SYSTEM.
@@ -149,7 +150,7 @@ dotnet run --project .\src\SSLense.Cli -- issue `
   --accept-production-risk
 ```
 
-Staging and production use separate DPAPI-protected ACME accounts. The certificate private key is installed as non-exportable, and SSLense does not retain the transient PFX. `--output` saves only the public certificate PEM.
+Staging and production use separate DPAPI-protected ACME accounts. The certificate private key is installed as non-exportable, and SSLense does not retain the transient PFX. `--output` saves only the public certificate PEM. To issue from a certificate authority other than Let's Encrypt, use `--ca`; see [Other ACME certificate authorities](#other-acme-certificate-authorities).
 
 Show managed certificates:
 
@@ -265,9 +266,39 @@ The HTTPS checks run from this server, so they show what IIS serves, not what vi
 
 **Going back to an older version:** the first save after upgrading to 0.14 changes the format of `managed-certificates.json`, and older versions refuse the new format. SSLense keeps a copy of the old file as `managed-certificates.json.v4.bak`. It doesn't include any changes made since, so going back means restoring that copy and issuing again anything added after it.
 
+### Other ACME certificate authorities
+
+Let's Encrypt is built in. SSLense can also issue and renew automatically from any certificate authority that speaks ACME, including the ACME services of commercial CAs. Add it once, then issue with `--ca`, or choose it in the Issue wizard. In the app, use **Settings → Certificate authorities**.
+
+```powershell
+SSLense.Cli ca add --preset zerossl --eab      # prompts for the EAB key ID, then the HMAC key without echo
+SSLense.Cli ca add --name "Internal CA" --directory https://acme.internal.example/directory
+SSLense.Cli ca list
+SSLense.Cli ca test --ca zerossl               # reads the CA's directory; creates no account
+SSLense.Cli issue --site "Shop" --hosts shop.example.com --email admin@example.com --ca zerossl --accept-production-risk
+SSLense.Cli ca remove --ca zerossl             # refused while a certificate renews with it
+```
+
+| Preset | Certificate authority | EAB |
+|---|---|---|
+| `zerossl` | ZeroSSL, free | Required |
+| `google` | Google Trust Services, free | Required |
+| `google-test` | Google Trust Services test endpoint, untrusted certificates | Required |
+| `sslcom` | SSL.com | Optional |
+| `sectigo` | Sectigo DV | Required |
+
+**External Account Binding (EAB)** links SSLense's ACME account to your account with the CA. The CA shows a key ID and an HMAC key in its dashboard; Google gives them through `gcloud publicca external-account-keys create`. SSLense uses them when it creates its account, and keeps the HMAC key encrypted with DPAPI, so a lost account key can be replaced without asking again. It never appears in logs or diagnostic bundles.
+
+**Good to know:**
+
+- **SSLense reads the CA's directory before saving it.** A CA that requires EAB is refused without it, and the CAA names the CA publishes are saved, so the CAA check before each order works for every CA. For a CA that publishes none, give one with `--caa-domain`.
+- **Every CA that is not a test endpoint needs `--accept-production-risk`** when issuing, as Let's Encrypt production does, or the confirmation in the app. Automatic renewals do not ask again.
+- **A certificate always renews with the CA that issued it.** SSLense never switches CA by itself. To move a certificate, issue it again with `--ca <other> --force`.
+- HTTP and DNS validation, DNS scripts, and sharing a certificate across sites work with every CA. Renewal timing uses the CA's ARI where it offers it.
+
 ### Certificates from other providers (bring your own)
 
-Some sites use a certificate bought from a provider such as 123-reg, Sectigo or DigiCert. In the desktop app, use the **Other Providers** page. SSLense installs and binds these certificates with the same safeguards (validation first, HTTPS verification, automatic rollback) and reminds you to order the next one. It never tries to renew them itself.
+Some sites use a certificate bought from a provider such as 123-reg, Sectigo or DigiCert, without ACME. (If the provider offers ACME, add it as a certificate authority instead, and SSLense renews it automatically.) In the desktop app, use the **Other Providers** page. SSLense installs and binds these certificates with the same safeguards (validation first, HTTPS verification, automatic rollback) and reminds you to order the next one. It never tries to renew them itself.
 
 Order a certificate with a request (CSR) created on this server. The private key is a non-exportable machine key that never leaves the server:
 
@@ -418,7 +449,7 @@ Failed renewals are retried from a saved schedule, so retries survive service re
 | 1 | after 1 hour |
 | 2 | after 2 hours |
 | 3 or more | every 6 hours (hourly once the certificate is within 2 days of expiry) |
-| Let's Encrypt rate limit | after 24 hours, because retrying sooner only extends the limit |
+| The certificate authority's rate limit | after 24 hours, because retrying sooner only extends the limit |
 
 The service sends a failure notification on the third consecutive failure and about once a day after that, and immediately for a rate limit. Manual renewals from the GUI or CLI ignore the backoff, run immediately, and always notify on failure. `status` shows the failure count and the next automatic attempt. Existing IIS bindings remain in place when issuance fails. The service is registered to restart one minute after each of its first three unexpected exits in a day.
 
@@ -457,10 +488,10 @@ Windows displays an administrator elevation prompt because the application manif
 - Cancellable operations with live progress
 - A live log viewer with level filtering and access to the log folder
 - Sites using this certificate on Certificate Details: add a site, stop managing one, or move a site left behind. The Dashboard shows one row per certificate, such as `Shop +2 sites`
-- A visual three-step issuance wizard with IIS selection, HTTP or DNS validation, certificate names for wildcards, guarded environment choice, pre-flight checks, the records to create for manual DNS validation, live progress, and cancellation
+- A visual three-step issuance wizard with IIS selection, HTTP or DNS validation, certificate names for wildcards, a choice of certificate authority with a confirmation for trusted ones, pre-flight checks, the records to create for manual DNS validation, live progress, and cancellation
 - Certificate details, renewal, confirmed removal, bindings, issuer, validity, and recent logs
 - An **Other Providers** page for certificates bought elsewhere: create a request (CSR) to copy or save, complete it with the issued certificate and bundle, import a PFX, or adopt a certificate already bound in IIS. Imported certificates show as "Imported" on the Dashboard, with "Order renewal" when 30 days or fewer remain
-- General, DNS provider (Cloudflare or your own script), notification, reminder, and Windows Service settings; per-certificate reminders on Certificate Details
+- General, certificate authority, DNS provider (Cloudflare or your own script), notification, reminder, and Windows Service settings; per-certificate reminders on Certificate Details
 
 Staging remains the wizard default. Production requires a separate selection and acknowledgement before the Issue button is enabled. Use **Issue certificate** on the Dashboard to open the wizard. Removing a certificate requires confirmation and removes only matching HTTPS bindings; a certificate still used by another IIS site is retained in the Windows certificate store.
 
@@ -574,6 +605,9 @@ The command prints a `PASS` or `FAIL` line for each check. Fix the first failing
 - **CAA records block Let's Encrypt:** the message names the record to add. For a wildcard, an `issuewild` record takes priority over `issue`.
 - **A wildcard is refused because it is managed for another site:** add the site to that certificate with `share add` instead of requesting the wildcard again.
 - **A site is left behind on its previous certificate:** the notification and Certificate Details name it. Fix the site in IIS, then use **Try moving now** or `renew --site`, or stop managing it with `share remove`.
+- **A certificate authority is refused when it is added:** if it says External Account Binding is required, get the key ID and HMAC key from your account with the CA and add it again with `--eab`. If the directory cannot be reached, check the URL, outbound HTTPS, and any proxy.
+- **The CA refuses the account:** the EAB key ID or HMAC key is wrong, or was already used for another account; some CAs accept each EAB key only once. Create new EAB credentials, then remove the CA and add it again.
+- **Issuing asks for `--accept-production-risk`:** the CA issues trusted certificates. Try the site with Let's Encrypt staging or a test CA first.
 - **Access denied:** run PowerShell as Administrator.
 - **IIS sites cannot be read:** install IIS Management Scripts and Tools.
 - **SMTP test fails:** verify the port, TLS mode, credentials, outbound firewall policy, and provider-specific authentication requirements.

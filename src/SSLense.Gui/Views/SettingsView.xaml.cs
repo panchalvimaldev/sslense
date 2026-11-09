@@ -33,11 +33,17 @@ public partial class SettingsView : UserControl
         if (e.PropertyName == nameof(SettingsViewModel.NewChatUrl) && vm.NewChatUrl.Length == 0) ChatUrlBox.Clear();
         if (e.PropertyName == nameof(SettingsViewModel.HeartbeatUrl) && vm.HeartbeatUrl.Length == 0) HeartbeatUrlBox.Clear();
         if (e.PropertyName == nameof(SettingsViewModel.NewDnsToken) && vm.NewDnsToken.Length == 0) DnsTokenBox.Clear();
+        if (e.PropertyName == nameof(SettingsViewModel.NewCaEabHmacKey) && vm.NewCaEabHmacKey.Length == 0) CaHmacBox.Clear();
     }
 
     private void OnDnsTokenChanged(object sender, RoutedEventArgs e)
     {
         if (ViewModel is { } vm) vm.NewDnsToken = DnsTokenBox.Password;
+    }
+
+    private void OnCaHmacChanged(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is { } vm) vm.NewCaEabHmacKey = CaHmacBox.Password;
     }
 
     private void OnBrowseDnsScriptClick(object sender, RoutedEventArgs e)

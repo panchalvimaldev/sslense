@@ -20,6 +20,40 @@
     <Button Content="Save general settings" Command="{Binding SaveGeneralCommand}" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" Margin="0,16,0,0"/>
    </StackPanel></GroupBox>
 
+   <GroupBox Header="Certificate authorities" Margin="0,0,0,14"><StackPanel>
+    <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,10"
+               Text="Let's Encrypt is built in. Add another ACME certificate authority to issue from it, then choose it in the Issue wizard. A certificate always renews with the CA that issued it. Most commercial CAs need External Account Binding (EAB): a key ID and an HMAC key from your account with them."/>
+    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="7" ClipToBounds="True" Margin="0,0,0,8">
+     <DataGrid ItemsSource="{Binding CertificateAuthorityList}" SelectedItem="{Binding SelectedCertificateAuthority}" Height="130" AutomationProperties.Name="Certificate authorities">
+      <DataGrid.Columns>
+       <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="130"/>
+       <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
+       <DataGridCheckBoxColumn Header="Test" Binding="{Binding IsTest, Mode=OneWay}" Width="50"/>
+       <DataGridCheckBoxColumn Header="EAB" Binding="{Binding HasExternalAccountBinding, Mode=OneWay}" Width="50"/>
+       <DataGridTextColumn Header="Renews" Binding="{Binding UsedBy.Count}" Width="70"/>
+      </DataGrid.Columns>
+     </DataGrid>
+    </Border>
+    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+     <Button Content="Test selected" Command="{Binding TestCaCommand}" Margin="0,0,8,0" ToolTip="Reads the CA's directory and reports what it requires and offers. Creates no account."/>
+     <Button Content="Remove selected" Command="{Binding RemoveCaCommand}" Style="{StaticResource DangerButton}" ToolTip="Refused while a certificate renews with it. Let's Encrypt cannot be removed."/>
+    </StackPanel>
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <StackPanel Margin="0,0,8,0"><TextBlock Text="CERTIFICATE AUTHORITY" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding CaChoices}" SelectedItem="{Binding SelectedCaChoice}" DisplayMemberPath="Label" AutomationProperties.Name="Certificate authority to add"/></StackPanel>
+     <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="EAB KEY ID" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewCaEabKeyId}" AutomationProperties.Name="EAB key ID"/></StackPanel>
+     <StackPanel Grid.Column="2" Margin="0,0,8,0"><TextBlock Text="EAB HMAC KEY" Style="{StaticResource FieldLabel}"/><PasswordBox x:Name="CaHmacBox" PasswordChanged="OnCaHmacChanged" AutomationProperties.Name="EAB HMAC key"/></StackPanel>
+     <Button Grid.Column="3" Content="Add certificate authority" Command="{Binding AddCaCommand}" Style="{StaticResource PrimaryButton}" VerticalAlignment="Bottom"/>
+    </Grid>
+    <Grid Margin="0,8,0,0" Visibility="{Binding NewCaIsCustom, Converter={StaticResource BooleanToVisibilityConverter}}">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <StackPanel Margin="0,0,8,0"><TextBlock Text="NAME" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewCaName}" AutomationProperties.Name="Certificate authority name"/></StackPanel>
+     <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="ACME DIRECTORY URL" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewCaDirectory}" AutomationProperties.Name="ACME directory URL"/></StackPanel>
+     <StackPanel Grid.Column="2" Margin="0,0,8,0"><TextBlock Text="CAA DOMAIN (OPTIONAL)" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewCaCaaDomain}" AutomationProperties.Name="CAA domain" ToolTip="Only for a CA whose directory does not publish its CAA identities."/></StackPanel>
+     <CheckBox Grid.Column="3" Content="Test CA (untrusted certificates)" IsChecked="{Binding NewCaIsTest}" VerticalAlignment="Bottom" Margin="0,0,0,6" AutomationProperties.Name="Test certificate authority"/>
+    </Grid>
+    <TextBlock Text="SSLense reads the CA's directory before saving. A CA that requires EAB is refused without it. The HMAC key is encrypted on this server and never shown again." Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+   </StackPanel></GroupBox>
+
    <GroupBox Header="DNS providers" Margin="0,0,0,14"><StackPanel>
     <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,10"
                Text="Needed for wildcard certificates and sites without port 80 when they renew automatically. In Cloudflare, go to My Profile, API Tokens, Create Token, and use the Edit zone DNS template for one zone only. The token can change every record in that zone, so for an important domain, consider a CNAME that points _acme-challenge to a separate zone. For any other DNS service with an API, use a PowerShell script."/>
