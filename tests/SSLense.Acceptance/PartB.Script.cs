@@ -80,10 +80,23 @@ internal static partial class PartB
     private static async Task AddScriptProviderAsync(string original)
     {
         Console.WriteLine();
-        Console.WriteLine($"SSLense will ask for the script's secret: the Cloudflare zone ID for {Zone}, a colon, then a new API token,");
-        Console.WriteLine("as one value with no spaces. It is not shown, and it goes straight to SSLense.");
-        var (exitCode, errors) = await Interactive(
-            "dns", "add", "--provider", "script", "--name", ScriptProvider, "--zone", Domain, "--script", original, "--secret");
+        Console.WriteLine($"SSLense will ask for the script's secret: the Cloudflare zone ID for {Zone}, a colon, then the API token,");
+        Console.WriteLine("as one value with no spaces. Nothing is shown while you paste; that is expected. Press Enter once after pasting.");
+        int exitCode = 0;
+        string errors = "";
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            Console.WriteLine($"Attempt {attempt} of 3. Paste the secret at the prompt below, then press Enter.");
+            (exitCode, errors) = await Interactive(
+                "dns", "add", "--provider", "script", "--name", ScriptProvider, "--zone", Domain, "--script", original, "--secret");
+            if (exitCode == 0 || !errors.Contains("No secret was entered", StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            Console.WriteLine("SSLense received nothing. Copy the secret again, check it is on one line with no line break before it, and paste it.");
+        }
+
         if (!Report.Check("Script provider added", exitCode == 0, $"exit {exitCode}: {errors.Trim()}"))
         {
             throw new InvalidOperationException("The script provider was not added, so the other checks were not run.");
