@@ -53,8 +53,9 @@ internal sealed class AcmeRenewalInfoProvider(HttpClient httpClient, ICertificat
             }
 
             var certificateId = CreateCertificateId(installed);
+            using var directoryRequest = AcmeHttp.Get(authority.DirectoryUri);
             using var directoryResponse = await httpClient
-                .GetAsync(authority.DirectoryUri, cancellationToken)
+                .SendAsync(directoryRequest, cancellationToken)
                 .ConfigureAwait(false);
             if (!directoryResponse.IsSuccessStatusCode)
             {
@@ -73,9 +74,7 @@ internal sealed class AcmeRenewalInfoProvider(HttpClient httpClient, ICertificat
                 return null;
             }
 
-            using var request = new HttpRequestMessage(
-                HttpMethod.Get,
-                $"{renewalInfoUrl.TrimEnd('/')}/{certificateId}");
+            using var request = AcmeHttp.Get(new Uri($"{renewalInfoUrl.TrimEnd('/')}/{certificateId}"));
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             using var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)

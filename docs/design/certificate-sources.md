@@ -157,15 +157,15 @@ In the app, **Settings → Certificate authorities** adds from a preset or a dir
 
 ### 9.3 Presets
 
-| Preset | Directory | EAB | CAA domain | Test endpoint |
-|---|---|---|---|---|
-| `zerossl` | `https://acme.zerossl.com/v2/DV90` | Required | `sectigo.com` | No |
-| `google` | `https://dv.acme-v02.api.pki.goog/directory` | Required | `pki.goog` | No |
-| `google-test` | `https://dv.acme-v02.test-api.pki.goog/directory` | Required | `pki.goog` | Yes |
-| `sslcom` | `https://acme.ssl.com/sslcom-dv-ecc` | Required | `ssl.com` | No |
-| `sectigo` | `https://acme.sectigo.com/v2/DV` | Required | `sectigo.com` | No |
+| Preset | Directory | EAB | CAA identities | ARI | Test endpoint |
+|---|---|---|---|---|---|
+| `zerossl` | `https://acme.zerossl.com/v2/DV90` | Required | `sectigo.com` and six others | Yes | No |
+| `google` | `https://dv.acme-v02.api.pki.goog/directory` | Required | `pki.goog` | Yes | No |
+| `google-test` | `https://dv.acme-v02.test-api.pki.goog/directory` | Required | `pki.goog` | Yes | Yes |
+| `sslcom` | `https://acme.ssl.com/sslcom-dv-ecc` | Optional | `ssl.com` | Yes | No |
+| `sectigo` | `https://acme.sectigo.com/v2/DV` | Required | `sectigo.com` and six others | Yes | No |
 
-Every URL and CAA domain is checked against the CA's current documentation while step 4 is built, and the table is corrected if needed. Sectigo OV and EV are left out: they need organisation checks outside ACME. A custom CA can be given a CAA domain with `--caa-domain`; without one, SSLense says it cannot check CAA for that CA and continues.
+**Checked** November 9, 2026, by reading each directory. Every directory publishes its CAA identities (`meta.caaIdentities` in RFC 8555), so SSLense saves them when a CA is added, for any CA, and the CAA check accepts any of them. `--caa-domain` overrides them, for a CA that publishes none; without either, SSLense does not check CAA for that CA, and the CA still checks it itself. Sectigo OV and EV are left out: they need organisation checks outside ACME.
 
 ### 9.4 Rules
 
@@ -182,13 +182,14 @@ Pebble is Let's Encrypt's small ACME server for testing. It runs locally and sup
 - **In CI:** the workflow downloads one pinned Pebble release, checks its SHA-256, and starts it with EAB required and validation switched off (`PEBBLE_VA_ALWAYS_VALID`), so no DNS or IIS is needed. No NuGet package is added.
 - **Tests:** an account created with EAB; an account without EAB refused; a wrong HMAC key refused; an order through HTTP and through DNS validation that downloads a certificate; a second order through the same account, which must not send EAB again; and the ARI fallback for a CA without ARI. These exercise SSLense's real Certes client, which no test does today.
 - **Trust:** Pebble serves its API with its own test certificate. Only the tests trust it, through an HTTP client handed to the ACME client. Production code keeps the system's normal trust.
-- **Locally:** the same tests run when `SSLENSE_PEBBLE_URL` points at a running Pebble, and are skipped otherwise, so `dotnet test` needs nothing new.
+- **Locally:** the same tests start their own Pebble when `SSLENSE_PEBBLE` names `pebble.exe`, and are skipped otherwise, so `dotnet test` needs nothing new.
+- **Found by Pebble:** RFC 8555 requires a User-Agent on every ACME request, and Pebble refuses requests without one. Certes sends one, but SSLense's own requests to a CA (its directory, ARI, and the health check) did not. They now send `SSLense/<version>`.
 
 ### 9.6 Acceptance and release
 
 - **Acceptance, on the maintainer's PC:** Google Trust Services' **test** endpoint, which is free and issues untrusted certificates like Let's Encrypt staging: `ca add`, a wildcard through DNS validation, a renewal, and a shared certificate.
 - **Production test, by the maintainer:** one ZeroSSL certificate, which is free through ACME.
-- **Delivery:** step 4a, Core and CLI with the Pebble tests; step 4b, the app, documents, website, and roadmap; acceptance; release as 0.16.
+- **Delivery:** step 4a, Core and CLI with the Pebble tests; step 4b, the app, documents, website, and roadmap; acceptance; release as 0.16. **Step 4a built** November 9, 2026: 613 tests, of which 5 run against Pebble 2.10.1 (an account with EAB, refusal without it or with a wrong key, an HTTP order, a wildcard DNS order, and reuse of a saved account), and pass locally and in CI.
 
 ### 9.7 Decisions for approval
 

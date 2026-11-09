@@ -29,7 +29,8 @@ internal sealed class AcmeDirectoryReader(HttpClient httpClient) : IAcmeDirector
         string json;
         try
         {
-            using var response = await httpClient.GetAsync(directoryUri, timeout.Token).ConfigureAwait(false);
+            using var request = AcmeHttp.Get(directoryUri);
+            using var response = await httpClient.SendAsync(request, timeout.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 throw new InvalidOperationException(
