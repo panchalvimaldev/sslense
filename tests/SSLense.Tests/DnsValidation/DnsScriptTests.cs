@@ -404,6 +404,66 @@ public sealed class DnsScriptTests : IDisposable
         Assert.Single(Directory.GetFiles(Copies));
     }
 
+    private void ChangeSavedProvider(Func<DnsProviderProfile, DnsProviderProfile> change) =>
+        _config.SaveAsync(_config.Config with { DnsProviders = [change(_config.Config.DnsProviders.Single())] }).GetAwaiter().GetResult();
+
+    [Fact]
+    public async Task UpdateScript_KeepsASecretReplacedWhileTheNewScriptWasChecked()
+    {
+        await Service().AddAsync(ScriptRequest(Original("'old'"), "old-secret"));
+        var newSecret = Protect("new-secret");
+        _runner.During = () => ChangeSavedProvider(profile => profile with { ProtectedToken = newSecret });
+
+        var sha256 = await Service().UpdateScriptAsync("Registrar", Original("'new'", "new.ps1"));
+
+        var saved = _config.Config.DnsProviders.Single();
+        Assert.Equal(sha256, saved.ScriptSha256);
+        Assert.Equal(newSecret, saved.ProtectedToken);
+    }
+
+    [Fact]
+    public async Task UpdateToken_KeepsAScriptUpdatedWhileTheTokenWasChecked()
+    {
+        await Service().AddAsync(ScriptRequest(Original("'old'"), "old-secret"));
+        var newer = await _store.SaveAsync("Registrar", Original("'newer'", "newer.ps1"), CancellationToken.None);
+        _runner.During = () => ChangeSavedProvider(profile => profile with { ScriptSha256 = newer });
+
+        await Service().UpdateTokenAsync("Registrar", "new-secret");
+
+        var saved = _config.Config.DnsProviders.Single();
+        Assert.Equal(newer, saved.ScriptSha256);
+        Assert.Equal(Protect("new-secret"), saved.ProtectedToken);
+    }
+
+    [Fact]
+    public async Task UpdateScript_AnotherUpdateFinishedMeanwhile_KeepsThatOne_AndChangesNothing()
+    {
+        await Service().AddAsync(ScriptRequest(Original("'old'"), ""));
+        var other = await _store.SaveAsync("Registrar", Original("'other'", "other.ps1"), CancellationToken.None);
+        _runner.During = () => ChangeSavedProvider(profile => profile with { ScriptSha256 = other });
+
+        var message = (await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Service().UpdateScriptAsync("Registrar", Original("'mine'", "mine.ps1")))).Message;
+
+        Assert.Contains("replaced by another update", message, StringComparison.Ordinal);
+        Assert.Equal(other, _config.Config.DnsProviders.Single().ScriptSha256);
+        Assert.Empty(_store.Inspect("Registrar", other));
+    }
+
+    [Fact]
+    public async Task Config_UpdateAppliesTheChangeToTheFileAsItIsNow()
+    {
+        var files = new InMemoryFileSystem();
+        var store = new JsonConfigStore(files, @"C:\data\config.json");
+        await store.SaveAsync(new AppConfig { DefaultEmail = "first@example.com" });
+
+        await store.UpdateAsync(config => config with { DnsProviders = [new DnsProviderProfile("Registrar", DnsProviderType.Script, "example.com", null, "", "AABB")] });
+
+        var loaded = await store.LoadAsync();
+        Assert.Equal("first@example.com", loaded.DefaultEmail);
+        Assert.Equal("Registrar", Assert.Single(loaded.DnsProviders).Name);
+    }
+
     [Fact]
     public async Task Test_WaitsUntilTheNameServersHaveTheRecord_ThenRemovesIt()
     {
@@ -500,10 +560,16 @@ public sealed class DnsScriptTests : IDisposable
 
         public ScriptRunResult? Next { get; set; }
 
+        /// <summary>Runs once, during the next call, as another process changing settings meanwhile would.</summary>
+        public Action? During { get; set; }
+
         public Task<ScriptRunResult> RunAsync(
             string scriptPath, IReadOnlyList<string> arguments, string? secret, TimeSpan timeout, CancellationToken cancellationToken)
         {
             Calls.Add((scriptPath, [.. arguments], secret, timeout));
+            var during = During;
+            During = null;
+            during?.Invoke();
             if (arguments[0] == "-Action:Add")
             {
                 Published[arguments[2]["-RecordName:".Length..]] = arguments[3]["-Value:".Length..];

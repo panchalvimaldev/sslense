@@ -146,9 +146,13 @@ internal sealed class DnsProviderService(
             await GetProvider(profile).VerifyAccessAsync(profile, cancellationToken).ConfigureAwait(false);
         }
 
-        // Read again, so a change made while the provider was contacted is not overwritten.
-        config = await configStore.LoadAsync(cancellationToken).ConfigureAwait(false);
-        await configStore.SaveAsync(config with { DnsProviders = [.. config.DnsProviders, profile] }, cancellationToken)
+        // Added to the providers as they are now, so a change made while the provider was contacted is not overwritten.
+        await configStore.UpdateAsync(
+                current => current.DnsProviders.Any(value =>
+                        string.Equals(value.Name, name, StringComparison.OrdinalIgnoreCase) || DnsNames.Normalize(value.ZoneName) == zone)
+                    ? throw new InvalidOperationException($"A DNS provider named '{name}' or for the zone '{zone}' was added while this one was being checked.")
+                    : current with { DnsProviders = [.. current.DnsProviders, profile] },
+                cancellationToken)
             .ConfigureAwait(false);
     }
 
@@ -211,14 +215,16 @@ internal sealed class DnsProviderService(
         try
         {
             await GetProvider(updated).VerifyAccessAsync(updated, cancellationToken).ConfigureAwait(false);
-            var config = await configStore.LoadAsync(cancellationToken).ConfigureAwait(false);
-            if (!config.DnsProviders.Any(value => value.Name == profile.Name))
-            {
-                throw new InvalidOperationException($"DNS provider '{profile.Name}' was removed while its new script was being checked.");
-            }
 
-            await configStore.SaveAsync(
-                    config with { DnsProviders = config.DnsProviders.Select(value => value.Name == profile.Name ? updated : value).ToArray() },
+            // Only the hash changes, on the profile as it is now: a secret replaced meanwhile must survive.
+            await SaveProfileChangeAsync(
+                    profile.Name,
+                    "its new script was being checked",
+                    current => string.Equals(current.ScriptSha256, profile.ScriptSha256, StringComparison.OrdinalIgnoreCase)
+                        ? current with { ScriptSha256 = sha256 }
+                        : throw new InvalidOperationException(
+                            $"The script for DNS provider '{profile.Name}' was replaced by another update while this one was being checked. " +
+                            "Nothing was changed by this update. Run it again if it is still needed."),
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -248,15 +254,11 @@ internal sealed class DnsProviderService(
         var updated = profile with { ProtectedToken = Protect(trimmed) };
         await GetProvider(updated).VerifyAccessAsync(updated, cancellationToken).ConfigureAwait(false);
 
-        // Read again, so a change made while the provider was contacted is not overwritten.
-        var config = await configStore.LoadAsync(cancellationToken).ConfigureAwait(false);
-        if (!config.DnsProviders.Any(value => value.Name == profile.Name))
-        {
-            throw new InvalidOperationException($"DNS provider '{profile.Name}' was removed while its token was being checked.");
-        }
-
-        await configStore.SaveAsync(
-                config with { DnsProviders = config.DnsProviders.Select(value => value.Name == profile.Name ? updated : value).ToArray() },
+        // Only the token changes, on the profile as it is now: a script updated meanwhile must keep its new hash.
+        await SaveProfileChangeAsync(
+                profile.Name,
+                "its token was being checked",
+                current => current with { ProtectedToken = updated.ProtectedToken },
                 cancellationToken)
             .ConfigureAwait(false);
     }
@@ -291,8 +293,8 @@ internal sealed class DnsProviderService(
                 "To change its token, replace the token instead.");
         }
 
-        await configStore.SaveAsync(
-                config with { DnsProviders = config.DnsProviders.Where(value => value.Name != profile.Name).ToArray() },
+        await configStore.UpdateAsync(
+                current => current with { DnsProviders = current.DnsProviders.Where(value => value.Name != profile.Name).ToArray() },
                 cancellationToken)
             .ConfigureAwait(false);
         if (profile.ScriptSha256 is { } sha256)
@@ -311,6 +313,25 @@ internal sealed class DnsProviderService(
                     ? "Add one with 'SSLense.Cli dns add'."
                     : $"Available: {string.Join(", ", profiles.Select(profile => profile.Name))}."));
     }
+
+    /// <summary>
+    /// Applies one change to the provider as it is saved now, under the config store's lock. A check before it can take
+    /// seconds, so the profile read before the check may be out of date, and saving that copy would undo another change.
+    /// </summary>
+    private Task SaveProfileChangeAsync(
+        string name,
+        string during,
+        Func<DnsProviderProfile, DnsProviderProfile> change,
+        CancellationToken cancellationToken) =>
+        configStore.UpdateAsync(
+            config =>
+            {
+                var current = config.DnsProviders.FirstOrDefault(value => value.Name == name)
+                    ?? throw new InvalidOperationException($"DNS provider '{name}' was removed while {during}.");
+                var changed = change(current);
+                return config with { DnsProviders = config.DnsProviders.Select(value => value.Name == name ? changed : value).ToArray() };
+            },
+            cancellationToken);
 
     private IDnsProvider GetProvider(DnsProviderProfile profile) =>
         providers.FirstOrDefault(provider => provider.Type == profile.Provider)

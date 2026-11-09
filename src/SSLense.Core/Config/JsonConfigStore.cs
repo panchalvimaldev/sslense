@@ -44,11 +44,65 @@ public sealed class JsonConfigStore : IConfigStore
             await using var fileLock = await _fileSystem
                 .AcquireExclusiveFileLockAsync(_lockPath, cancellationToken)
                 .ConfigureAwait(false);
-            if (!_fileSystem.FileExists(_configPath))
-            {
-                return new AppConfig();
-            }
+            return await ReadAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
 
+    public async Task SaveAsync(AppConfig config, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var fileLock = await _fileSystem
+                .AcquireExclusiveFileLockAsync(_lockPath, cancellationToken)
+                .ConfigureAwait(false);
+            await WriteAsync(config, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Reads, changes, and writes under one lock, which every SSLense process honours, so a change made by another
+    /// process between the read and the write cannot be lost.
+    /// </summary>
+    public async Task UpdateAsync(Func<AppConfig, AppConfig> change, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var fileLock = await _fileSystem
+                .AcquireExclusiveFileLockAsync(_lockPath, cancellationToken)
+                .ConfigureAwait(false);
+            var config = await ReadAsync(cancellationToken).ConfigureAwait(false);
+            await WriteAsync(change(config), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>The caller holds the locks.</summary>
+    private async Task<AppConfig> ReadAsync(CancellationToken cancellationToken)
+    {
+        if (!_fileSystem.FileExists(_configPath))
+        {
+            return new AppConfig();
+        }
+
+        try
+        {
             var json = await _fileSystem.ReadAllTextAsync(_configPath, cancellationToken)
                 .ConfigureAwait(false);
             var config = JsonSerializer.Deserialize<AppConfig>(json, SerializerOptions)
@@ -72,22 +126,14 @@ public sealed class JsonConfigStore : IConfigStore
                 $"Configuration file '{_configPath}' contains invalid JSON.",
                 exception);
         }
-        finally
-        {
-            _gate.Release();
-        }
     }
 
-    public async Task SaveAsync(AppConfig config, CancellationToken cancellationToken = default)
+    /// <summary>The caller holds the locks.</summary>
+    private async Task WriteAsync(AppConfig config, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
-
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await using var fileLock = await _fileSystem
-                .AcquireExclusiveFileLockAsync(_lockPath, cancellationToken)
-                .ConfigureAwait(false);
             var existingVersion = await ReadExistingVersionAsync(cancellationToken).ConfigureAwait(false);
             if (existingVersion is { } version)
             {
@@ -108,10 +154,6 @@ public sealed class JsonConfigStore : IConfigStore
             throw new InvalidDataException(
                 $"Configuration file '{_configPath}' contains invalid JSON and was not overwritten.",
                 exception);
-        }
-        finally
-        {
-            _gate.Release();
         }
     }
 
