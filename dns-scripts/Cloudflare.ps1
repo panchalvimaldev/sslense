@@ -55,9 +55,20 @@ function Find-Records {
 }
 
 try {
-    $parts = "$env:SSLENSE_DNS_SECRET".Split(':', 2)
-    if ($parts.Count -ne 2 -or $parts[0].Length -ne 32) {
-        throw 'The secret must be "<zone ID>:<API token>". Set it with: SSLense.Cli dns update-token --name <provider>'
+    # Says what is wrong with the secret without ever printing it.
+    $format = 'The secret must be "<zone ID>:<API token>", such as 0123456789abcdef0123456789abcdef:token.'
+    $parts = "$env:SSLENSE_DNS_SECRET".Split(':', 2) | ForEach-Object { $_.Trim() }
+    if (-not $env:SSLENSE_DNS_SECRET) {
+        throw "$format No secret was given: add the provider with --secret."
+    }
+    if (@($parts).Count -ne 2) {
+        throw "$format It has no colon, so it looks like the token alone."
+    }
+    if ($parts[0] -notmatch '^[0-9a-fA-F]{32}$') {
+        throw "$format The part before the colon is $($parts[0].Length) characters; a zone ID is 32 hexadecimal characters."
+    }
+    if ($parts[1].Length -eq 0) {
+        throw "$format The token after the colon is empty."
     }
     $zoneId = $parts[0]
     $token = $parts[1]
