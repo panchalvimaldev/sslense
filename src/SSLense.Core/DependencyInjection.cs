@@ -27,6 +27,7 @@ public static class DependencyInjection
         services.AddSingleton<IAcmeAccountStore, AcmeAccountStore>();
         services.AddSingleton<ICertificateAuthorityRegistry, CertificateAuthorityRegistry>();
         services.AddSingleton<IAcmeDirectoryReader, AcmeDirectoryReader>();
+        services.AddSingleton<ICertificateAuthorityLock>(_ => new FileCertificateAuthorityLock());
         services.AddTransient<ICertificateAuthorityService, CertificateAuthorityService>();
         services.AddSingleton<IChallengeProbe, HttpChallengeProbe>();
         services.AddSingleton<IChallengeJournal, JsonChallengeJournal>();

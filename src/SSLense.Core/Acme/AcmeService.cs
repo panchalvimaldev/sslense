@@ -23,6 +23,7 @@ internal sealed class AcmeService : IAcmeService
     private readonly ICertificateTransactionJournal _transactionJournal;
     private readonly ICertificateAuthorityRegistry _authorities;
     private readonly IDnsChallengeService? _dnsChallenges;
+    private readonly ICertificateAuthorityLock _authorityLock;
 
     public AcmeService(
         IIisService iisService,
@@ -35,8 +36,10 @@ internal sealed class AcmeService : IAcmeService
         ICertificateOperationLock? operationLock = null,
         ICertificateTransactionJournal? transactionJournal = null,
         ICertificateAuthorityRegistry? authorities = null,
-        IDnsChallengeService? dnsChallenges = null)
+        IDnsChallengeService? dnsChallenges = null,
+        ICertificateAuthorityLock? authorityLock = null)
     {
+        _authorityLock = authorityLock ?? NoOpCertificateAuthorityLock.Instance;
         _iisService = iisService;
         _protocolClient = protocolClient;
         _challengeHandler = challengeHandler;
@@ -64,6 +67,9 @@ internal sealed class AcmeService : IAcmeService
             .ConfigureAwait(false);
         var sharedRecord = await FindSharedRecordAsync(request.SiteName, lockedSites, cancellationToken).ConfigureAwait(false);
         await EnsureExpectedCertificateAsync(request, cancellationToken).ConfigureAwait(false);
+        // Held until the record is saved, so the CA cannot be removed in between and leave the certificate pointing at
+        // nothing. Taken before the CA is read: an issue that waited for a removal finds the CA gone and stops here.
+        await using var authorityUse = await _authorityLock.AcquireUseAsync(request.AuthorityId, cancellationToken).ConfigureAwait(false);
         var authority = await _authorities.GetAsync(request.AuthorityId, cancellationToken).ConfigureAwait(false);
         if (!authority.IsTest && !request.AcceptProductionRisk)
         {

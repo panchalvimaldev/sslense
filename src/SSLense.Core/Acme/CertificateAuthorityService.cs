@@ -52,8 +52,11 @@ internal sealed partial class CertificateAuthorityService(
     IManagedCertificateStore managedStore,
     ICertificateAuthorityRegistry registry,
     IAcmeDirectoryReader directoryReader,
-    ISecretProtector protector) : ICertificateAuthorityService
+    ISecretProtector protector,
+    ICertificateAuthorityLock? authorityLock = null) : ICertificateAuthorityService
 {
+    private readonly ICertificateAuthorityLock _authorityLock = authorityLock ?? NoOpCertificateAuthorityLock.Instance;
+
     public IReadOnlyList<CertificateAuthorityPreset> Presets => CertificateAuthorities.Presets;
 
     public async Task<IReadOnlyList<CertificateAuthorityOverview>> ListAsync(CancellationToken cancellationToken = default)
@@ -185,7 +188,15 @@ internal sealed partial class CertificateAuthorityService(
 
     public async Task RemoveAsync(string id, CancellationToken cancellationToken = default)
     {
-        var authority = await registry.GetAsync(id?.Trim() ?? string.Empty, cancellationToken).ConfigureAwait(false);
+        // Waits for any issue from this CA to save its certificate, so the check below sees it.
+        var trimmed = id?.Trim().ToLowerInvariant() ?? string.Empty;
+        if (CertificateAuthorities.IsBuiltIn(trimmed))
+        {
+            throw new InvalidOperationException($"'{trimmed}' is built in and cannot be removed.");
+        }
+
+        await using var removal = await _authorityLock.AcquireRemovalAsync(trimmed, cancellationToken).ConfigureAwait(false);
+        var authority = await registry.GetAsync(trimmed, cancellationToken).ConfigureAwait(false);
         if (authority.IsBuiltIn)
         {
             throw new InvalidOperationException($"'{authority.Id}' is built in and cannot be removed.");
