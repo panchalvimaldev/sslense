@@ -849,6 +849,12 @@ internal static partial class PartB
     /// <summary>Uses this console for input, so SSLense reads the token itself and this program never sees it. Only error text is captured.</summary>
     private static async Task<(int ExitCode, string Errors)> Interactive(params string[] arguments)
     {
+        // A pasted line break or an extra Enter would otherwise answer SSLense's hidden prompt with nothing.
+        while (!Console.IsInputRedirected && Console.KeyAvailable)
+        {
+            Console.ReadKey(intercept: true);
+        }
+
         var info = new ProcessStartInfo(Cli) { UseShellExecute = false, RedirectStandardError = true };
         foreach (var argument in arguments)
         {

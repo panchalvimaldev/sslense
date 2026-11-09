@@ -43,10 +43,22 @@ internal static partial class PartB
             File.Copy(example, original, overwrite: true);
 
             await Report.Scenario("X1 Add the Cloudflare example as a script provider", () => AddScriptProviderAsync(original));
-            await Report.Scenario("X2 Issue a wildcard through the script", IssueThroughScriptAsync);
-            await Report.Scenario("X3 Renew as SYSTEM, as the service does", RenewAsSystemAsync);
-            await Report.Scenario("X4 A copy changed in place is refused until update-script", () => ChangedCopyAsync(original));
+            var ready = CopiesOf(ScriptProvider).Any();
+            if (ready)
+            {
+                await Report.Scenario("X2 Issue a wildcard through the script", IssueThroughScriptAsync);
+                await Report.Scenario("X3 Renew as SYSTEM, as the service does", RenewAsSystemAsync);
+                await Report.Scenario("X4 A copy changed in place is refused until update-script", () => ChangedCopyAsync(original));
+            }
+
+            // These need no real secret, so they run either way.
             await Report.Scenario("X5 Scripts that fail, hang, lie, or print their secret", BrokenScriptsAsync);
+            if (!ready)
+            {
+                Report.Check("X2, X3, X4, X6, and X7 were not run, because the script provider was not added", false);
+                return;
+            }
+
             await Report.Scenario("X6 The process is killed after the script added a record", KillAfterAddAsync);
             await Report.Scenario("X7 Clean up", async () =>
             {
@@ -195,8 +207,12 @@ internal static partial class PartB
             Cli,
             ["issue", "--site", B, "--email", _email, "--validation", "dns", "--staging", "--hosts", HostB],
             line => line.Contains("[dns-propagation]", StringComparison.Ordinal));
-        Report.Check("Killed after the script added the record", result.Killed, $"exit {result.ExitCode}");
-        Report.Check("The record is in the zone", await WaitForTxtAsync(record, present: true));
+        // Without a kill there is nothing to clean up, so the checks after it would pass on nothing.
+        if (!Report.Check("Killed after the script added the record", result.Killed, $"exit {result.ExitCode}") ||
+            !Report.Check("The record is in the zone", await WaitForTxtAsync(record, present: true)))
+        {
+            return;
+        }
 
         // Any command start runs recovery, which removes what the killed process left through the script.
         await Run(Cli, "status");

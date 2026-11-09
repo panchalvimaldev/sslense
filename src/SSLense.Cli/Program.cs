@@ -934,6 +934,11 @@ static async Task<int> AddDnsProviderAsync(
         if (type == DnsProviderType.Script)
         {
             var secret = promptForSecret ? ReadHiddenValue("Secret for the script: ") : string.Empty;
+            if (promptForSecret && secret.Trim().Length == 0)
+            {
+                throw new ArgumentException("No secret was entered, so nothing was saved. Run the command again and enter it, or leave out --secret if the script needs none.");
+            }
+
             await providers.AddAsync(new DnsProviderRequest(name, type, zone, null, secret, script, timeoutSeconds), token)
                 .ConfigureAwait(false);
             Console.WriteLine(
