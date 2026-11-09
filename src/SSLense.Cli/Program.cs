@@ -1559,14 +1559,38 @@ static async Task<int> TestNotificationsAsync(INotifier notifier, CancellationTo
     }
 }
 
+/// <summary>
+/// Asks again when nothing is entered. A command pasted with its line break leaves an Enter waiting, which would
+/// otherwise answer the prompt before anything could be pasted.
+/// </summary>
 static string ReadHiddenValue(string prompt)
 {
-    Console.Write(prompt);
     if (Console.IsInputRedirected)
     {
+        Console.Write(prompt);
         return Console.ReadLine() ?? string.Empty;
     }
 
+    for (var attempt = 1; ; attempt++)
+    {
+        while (Console.KeyAvailable)
+        {
+            Console.ReadKey(intercept: true);
+        }
+
+        Console.Write(prompt);
+        var value = ReadHiddenLine();
+        if (value.Trim().Length > 0 || attempt == 3)
+        {
+            return value;
+        }
+
+        Console.WriteLine("Nothing was entered. Paste or type it, then press Enter.");
+    }
+}
+
+static string ReadHiddenLine()
+{
     var characters = new List<char>();
     while (true)
     {
