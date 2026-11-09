@@ -79,25 +79,24 @@ internal static partial class PartB
 
     private static async Task AddScriptProviderAsync(string original)
     {
-        Console.WriteLine();
-        Console.WriteLine($"SSLense will ask for the script's secret: the Cloudflare zone ID for {Zone}, a colon, then the API token,");
-        Console.WriteLine("as one value with no spaces. Nothing is shown while you paste; that is expected. Press Enter once after pasting.");
-        int exitCode = 0;
-        string errors = "";
-        for (var attempt = 1; attempt <= 3; attempt++)
+        // Run by hand in a window of its own: a hidden prompt in a command this program starts received nothing, three times,
+        // although the same command typed directly worked. The secret then never passes through this program either.
+        var command = $"& '{Cli}' dns add --provider script --name {ScriptProvider} --zone {Domain} --script {original} --secret";
+        for (var attempt = 1; attempt <= 3 && !CopiesOf(ScriptProvider).Any(); attempt++)
         {
-            Console.WriteLine($"Attempt {attempt} of 3. Paste the secret at the prompt below, then press Enter.");
-            (exitCode, errors) = await Interactive(
-                "dns", "add", "--provider", "script", "--name", ScriptProvider, "--zone", Domain, "--script", original, "--secret");
-            if (exitCode == 0 || !errors.Contains("No secret was entered", StringComparison.Ordinal))
-            {
-                break;
-            }
-
-            Console.WriteLine("SSLense received nothing. Copy the secret again, check it is on one line with no line break before it, and paste it.");
+            Console.WriteLine();
+            Console.WriteLine("Open a SECOND Administrator PowerShell window and run this command:");
+            Console.WriteLine();
+            Console.WriteLine($"  {command}");
+            Console.WriteLine();
+            Console.WriteLine($"At 'Secret for the script:', paste the Cloudflare zone ID for {Zone}, a colon, then the API token, as one value.");
+            Console.Write($"When it says the provider was added, come back here and press Enter (attempt {attempt} of 3): ");
+            Console.ReadLine();
         }
 
-        if (!Report.Check("Script provider added", exitCode == 0, $"exit {exitCode}: {errors.Trim()}"))
+        var exitCode = CopiesOf(ScriptProvider).Any() ? 0 : 1;
+        var errors = exitCode == 0 ? "" : "The provider was not added in the second window.";
+        if (!Report.Check("Script provider added", exitCode == 0, errors))
         {
             throw new InvalidOperationException("The script provider was not added, so the other checks were not run.");
         }
