@@ -39,6 +39,7 @@
         <Directory Id="GuiFolder" Name="gui" />
         <Directory Id="CliFolder" Name="cli" />
         <Directory Id="ServiceFolder" Name="service" />
+        <Directory Id="DnsScriptsFolder" Name="dns-scripts" />
       </Directory>
     </StandardDirectory>
 
@@ -49,6 +50,7 @@
       <ComponentRef Id="ServiceStart" />
       <ComponentRef Id="CliOnPath" />
       <ComponentGroupRef Id="LicenseFiles" />
+      <ComponentGroupRef Id="DnsScriptFiles" />
     </Feature>
 
     <!--
@@ -82,6 +84,19 @@
       </Component>
       <Component Id="TrademarksFile">
         <File Id="TrademarksMd" Source="$(RepoRoot)TRADEMARKS.md" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!--
+      Example DNS scripts to copy and fill in (docs/design/dns-script.md). Under Program Files, so only administrators
+      can change them. SSLense never runs these files: 'dns add' takes its own copy of whichever script is chosen.
+    -->
+    <ComponentGroup Id="DnsScriptFiles" Directory="DnsScriptsFolder">
+      <Component Id="DnsScriptTemplate">
+        <File Id="DnsScriptTemplatePs1" Source="$(RepoRoot)dns-scripts\Template.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="DnsScriptCloudflare">
+        <File Id="DnsScriptCloudflarePs1" Source="$(RepoRoot)dns-scripts\Cloudflare.ps1" KeyPath="yes" />
       </Component>
     </ComponentGroup>
 

@@ -9,6 +9,7 @@ Unit tests use a fake IIS, so they cannot show what IIS and HTTP.sys really do. 
 | `appsetup --zone example.com` | Prepares three sites and a staging certificate, to try the app by hand | The same as `partb` |
 | `servicecheck --zone example.com` | The installed service moves a site left behind, in its first cycle after starting. A few minutes | The same, and the service installed |
 | `httpcheck --zone example.com` | Issues and renews one certificate with HTTP validation, then removes it. Uses no token | `site1.accept.<zone>` in public DNS pointing at this machine, and port 80 open to the internet |
+| `scriptcheck --zone example.com` | DNS validation through a script: the Cloudflare example issues a wildcard, renews it as SYSTEM, is refused once its copy is changed, and cleans up after a kill. Then scripts broken on purpose: one that fails, one that hangs, one that only claims to add the record, and one that prints its secret. About 15 minutes | IIS, a Cloudflare zone, a token for it, which goes into the script's secret as `<zone ID>:<token>` |
 | `restore` | Finishes `appsetup`, or recovers from an interrupted run | |
 
 Every command except `parta` uses `C:\ProgramData\SSLense`, because SSLense has no other data folder. They stop the service and back up the folder first, and put everything back when they finish, except `appsetup`, which leaves it ready for you. Never delete `C:\ProgramData\SSLense.acceptance-backup` by hand: run `restore`.
