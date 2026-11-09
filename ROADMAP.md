@@ -58,14 +58,18 @@ References:
 
 In priority order. Feedback from real users can change the order.
 
-1. **Built-in DNS providers.** The script method (0.15) covers any service with an API; built-in providers save writing one. One at a time, starting with Amazon Route 53, Azure DNS, and GoDaddy, then whichever users ask for most. Each stays labelled untested until it has run on a real account. Providers are compiled in, not loaded as plugins, because the service runs as SYSTEM.
-2. **Certificates on other machines.** Add host names that are not on this server, such as load balancers and appliances, to the daily served-certificate check, so one place reminds about every certificate.
-3. **Script hooks.** Optional PowerShell commands before and after a renewal or install, with the certificate's details passed in, for restarting a service or copying a certificate elsewhere.
-4. **Certificate export and shared stores.** IIS Central Certificate Store, Azure Key Vault, and PFX or PEM export. Export needs an exportable key, so it stays off by default and is an explicit choice per certificate.
-5. **Key options for ACME certificates.** A choice of RSA or ECDSA (issuance currently uses ECDSA P-256), and optional private-key reuse for sites that pin keys.
-6. **HTTP-to-HTTPS redirect helper** using an IIS URL Rewrite rule, with a check that it does not block validation.
-7. **Bulk operations.** Adopt every unmanaged certificate at once, and issue for many sites from a CSV file.
-8. **New version notice.** Tell the administrator when a newer release is available, with a setting to turn the check off. Never install anything automatically.
+1. **acme-dns.** Validate through an acme-dns server, the free public one or your own: a CNAME set once at any DNS host, and a credential on the server that can change only the validation record, not the whole zone. Safer than a zone-wide token, and it works with DNS hosts that have no API.
+2. **Certificates beyond IIS sites.** Certificates for services on this server that are not IIS sites, such as Remote Desktop, Exchange, SQL Server, and other Windows services, renewed like any other. Optional PowerShell steps after a renewal or install, with the certificate's details passed in, and ready-made steps for those services. Private-key permissions for the accounts that need the key, including IIS application-pool identities.
+3. **Certificate export and shared stores.** PFX and PEM export, the IIS Central Certificate Store for web farms, and Azure Key Vault. Export needs an exportable key, so it stays off by default and is an explicit choice per certificate.
+4. **Key and order options.** A choice of RSA or ECDSA (issuance currently uses ECDSA P-256), optional private-key reuse for sites that pin keys, the CA's preferred chain, and ACME profiles where the CA offers them, such as short-lived certificates.
+5. **Built-in DNS providers.** The script method (0.15) covers any service with an API; built-in providers save writing one. One at a time, starting with Amazon Route 53, Azure DNS, Google Cloud DNS, DigitalOcean, and Hetzner, then whichever users ask for most. Each stays labelled untested until it has run on a real account. Providers are compiled in, not loaded as plugins, because the service runs as SYSTEM.
+6. **HTTP validation without a port 80 binding.** A short-lived listener of SSLense's own answers the challenge, for sites that have only HTTPS bindings or whose port 80 is used by something else.
+7. **Certificates on other machines.** Add host names that are not on this server, such as load balancers and appliances, to the daily served-certificate check, so one place reminds about every certificate.
+8. **HTTP-to-HTTPS redirect helper** using an IIS URL Rewrite rule, with a check that it does not block validation.
+9. **Bulk operations.** Adopt every unmanaged certificate at once, and issue for many sites from a CSV file.
+10. **New version notice.** Tell the administrator when a newer release is available, with a setting to turn the check off. Never install anything automatically.
+
+Later, by demand: certificates for IP addresses, TLS-ALPN-01 validation, IIS FTP sites, and managing several servers from one place.
 
 ## 5. Before 1.0
 
@@ -75,7 +79,7 @@ These keep users' sites safe and make SSLense supportable without paid support. 
 
 - Send the ARI `replaces` field on renewal orders (Certes does not expose it yet).
 - ~~Journal challenge files so an interrupted validation is cleaned up on recovery.~~ Done October 28, 2026.
-- Certificate private-key permissions for IIS application-pool identities.
+- Certificate private-key permissions for IIS application-pool identities (part of item 2 in section 4).
 - Configurable maintenance windows that can never let a certificate expire.
 - Recovery procedures for a compromised ACME account or private key.
 
