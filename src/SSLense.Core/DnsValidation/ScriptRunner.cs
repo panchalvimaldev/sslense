@@ -76,40 +76,59 @@ internal sealed class PowerShellScriptRunner : IScriptRunner
         }
 
         var stopwatch = Stopwatch.StartNew();
-        using var process = new Process { StartInfo = startInfo };
+        using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+        var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        process.Exited += (_, _) => exited.TrySetResult();
         process.OutputDataReceived += Append;
         process.ErrorDataReceived += Append;
+
+        // Everything the script starts joins this job, so it can all be stopped, even after the script itself exits.
+        using var job = new ProcessJob();
         process.Start();
+        try
+        {
+            job.Add(process);
+        }
+        catch
+        {
+            process.Kill(entireProcessTree: true);
+            throw;
+        }
+
         process.StandardInput.Close();
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
-        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutSource.CancelAfter(timeout);
+        // Waits for the script itself, not for its output to end: a program it left running can hold the output open.
         var timedOut = false;
-        try
+        var deadline = Task.Delay(timeout, cancellationToken);
+        if (await Task.WhenAny(exited.Task, deadline).ConfigureAwait(false) != exited.Task)
         {
-            await process.WaitForExitAsync(timeoutSource.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // Child processes too: a script may have started a program that would otherwise keep running.
+            job.Terminate();
             try
             {
-                process.Kill(entireProcessTree: true);
+                await exited.Task.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None).ConfigureAwait(false);
             }
-            catch (InvalidOperationException)
+            catch (System.TimeoutException)
             {
-                // It exited at the same moment.
+                // Windows did not end it in time; the job closing below ends it.
             }
 
-            await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             timedOut = true;
         }
 
-        // Waits for the last lines of redirected output.
-        process.WaitForExit();
+        // Anything the script left running is stopped, which also closes the output, so the last lines arrive.
+        job.Terminate();
+        try
+        {
+            await process.WaitForExitAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        }
+        catch (System.TimeoutException)
+        {
+            // The output stays incomplete rather than letting the wait run on.
+        }
+
         string text;
         lock (output)
         {

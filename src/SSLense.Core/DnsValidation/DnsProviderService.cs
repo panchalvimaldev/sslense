@@ -168,13 +168,24 @@ internal sealed class DnsProviderService(
         }
 
         // A script's word is not enough: the record must really reach the zone's name servers.
+        bool confirmed;
         try
         {
-            await _propagation.WaitAsync([new DnsTxtRecord(recordName, value)], null, cancellationToken).ConfigureAwait(false);
+            confirmed = await _propagation.ConfirmAsync([new DnsTxtRecord(recordName, value)], cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             await provider.RemoveTxtRecordAsync(profile, recordName, value, CancellationToken.None).ConfigureAwait(false);
+        }
+
+        if (!confirmed)
+        {
+            throw new InvalidOperationException(
+                $"The test could not finish: the script reported adding a temporary TXT record at '{recordName}', but this server " +
+                "cannot query DNS servers, so SSLense could not check that the record exists. Outbound port 53 may be blocked. " +
+                "The script then removed the record. Issuing still works without this check: SSLense waits 2 minutes instead, " +
+                "and the certificate authority checks the record itself. To test the script, allow outbound DNS, or check your " +
+                "DNS service's records while the script runs by hand.");
         }
 
         return $"The script can change the zone {profile.ZoneName}: it added a temporary TXT record at '{recordName}', " +

@@ -133,6 +133,62 @@ public sealed class DnsScriptTests : IDisposable
         Assert.True(result.Duration < TimeSpan.FromSeconds(60), $"Took {result.Duration}.");
     }
 
+    /// <summary>A script that starts a program sharing its output, prints the program's ID, then does the rest.</summary>
+    private string ScriptLeavingAChild(string rest) => Original($$"""
+        $start = New-Object System.Diagnostics.ProcessStartInfo 'ping.exe', '-n 120 127.0.0.1'
+        $start.UseShellExecute = $false
+        $child = [System.Diagnostics.Process]::Start($start)
+        "child=$($child.Id)"
+        {{rest}}
+        """);
+
+    private static void AssertStopped(string output)
+    {
+        var id = int.Parse(System.Text.RegularExpressions.Regex.Match(output, @"child=(\d+)").Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        try
+        {
+            using var child = System.Diagnostics.Process.GetProcessById(id);
+            Assert.True(child.WaitForExit(5000), $"The program the script started ({id}) is still running.");
+        }
+        catch (ArgumentException)
+        {
+            // Already gone.
+        }
+    }
+
+    [Fact]
+    public async Task Runner_AScriptThatExitsLeavingAProgramHoldingItsOutput_StillReturnsAtOnce()
+    {
+        var result = await new PowerShellScriptRunner().RunAsync(ScriptLeavingAChild("exit 0"), [], null, TimeSpan.FromSeconds(60), CancellationToken.None);
+
+        Assert.False(result.TimedOut);
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(result.Duration < TimeSpan.FromSeconds(30), $"Took {result.Duration}.");
+        AssertStopped(result.Output);
+    }
+
+    [Fact]
+    public async Task Runner_Timeout_StopsTheProgramsTheScriptStarted()
+    {
+        var result = await new PowerShellScriptRunner().RunAsync(ScriptLeavingAChild("Start-Sleep -Seconds 120"), [], null, TimeSpan.FromSeconds(5), CancellationToken.None);
+
+        Assert.True(result.TimedOut);
+        Assert.True(result.Duration < TimeSpan.FromSeconds(40), $"Took {result.Duration}.");
+        AssertStopped(result.Output);
+    }
+
+    [Fact]
+    public async Task Runner_Cancellation_StopsTheScript()
+    {
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new PowerShellScriptRunner().RunAsync(
+            ScriptLeavingAChild("Start-Sleep -Seconds 120"), [], null, TimeSpan.FromSeconds(120), cancellation.Token));
+
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(40), $"Took {stopwatch.Elapsed}.");
+    }
+
     [Fact]
     public async Task Runner_KeepsOnlyTheFirstPartOfAHugeOutput()
     {
@@ -358,6 +414,19 @@ public sealed class DnsScriptTests : IDisposable
 
         Assert.Contains("every authoritative name server returned it", message, StringComparison.Ordinal);
         Assert.Equal(["Check", "Check", "Add", "Remove"], _runner.Calls.Select(call => call.Arguments[0]["-Action:".Length..]));
+    }
+
+    [Fact]
+    public async Task Test_DnsCannotBeQueried_FailsInsteadOfClaimingTheNameServersHadIt_AndRemovesTheRecord()
+    {
+        await Service().AddAsync(ScriptRequest(Original(), ""));
+        _lookup.Unavailable = true;
+
+        var message = (await Assert.ThrowsAsync<InvalidOperationException>(() => Service().TestAsync("Registrar"))).Message;
+
+        Assert.Contains("could not check that the record exists", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("every authoritative name server returned it", message, StringComparison.Ordinal);
+        Assert.Equal("-Action:Remove", _runner.Calls[^1].Arguments[0]);
     }
 
     [Fact]

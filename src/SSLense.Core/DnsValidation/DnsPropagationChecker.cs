@@ -21,9 +21,26 @@ internal sealed class DnsPropagationChecker(IDnsLookup lookup, DnsPropagationOpt
 {
     private readonly DnsPropagationOptions _options = options ?? new DnsPropagationOptions();
 
+    /// <summary>
+    /// For issuance. When DNS servers cannot be queried, it waits a fixed time and continues, because the CA checks anyway.
+    /// </summary>
     public async Task WaitAsync(
         IReadOnlyList<DnsTxtRecord> records,
         IProgress<ProgressEvent>? progress,
+        CancellationToken cancellationToken) =>
+        await WaitCoreAsync(records, progress, waitWhenUnchecked: true, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// For a test, which must not report what it could not see: true once every authoritative name server has the records,
+    /// false at once when DNS servers cannot be queried. Throws when the records do not appear in time.
+    /// </summary>
+    public Task<bool> ConfirmAsync(IReadOnlyList<DnsTxtRecord> records, CancellationToken cancellationToken) =>
+        WaitCoreAsync(records, null, waitWhenUnchecked: false, cancellationToken);
+
+    private async Task<bool> WaitCoreAsync(
+        IReadOnlyList<DnsTxtRecord> records,
+        IProgress<ProgressEvent>? progress,
+        bool waitWhenUnchecked,
         CancellationToken cancellationToken)
     {
         var deadline = DateTimeOffset.UtcNow + _options.Timeout;
@@ -32,19 +49,27 @@ internal sealed class DnsPropagationChecker(IDnsLookup lookup, DnsPropagationOpt
             var round = await CheckOnceAsync(records, cancellationToken).ConfigureAwait(false);
             if (round.Unreachable)
             {
-                progress?.Report(new ProgressEvent(
-                    "dns-propagation",
-                    "DNS servers could not be queried from this server, so propagation cannot be checked; outbound port 53 may be blocked. " +
-                    $"Waiting {_options.UncheckedWait.TotalMinutes:0.#} minutes before continuing."));
-                await Task.Delay(_options.UncheckedWait, cancellationToken).ConfigureAwait(false);
-                return;
+                if (waitWhenUnchecked)
+                {
+                    progress?.Report(new ProgressEvent(
+                        "dns-propagation",
+                        "DNS servers could not be queried from this server, so propagation cannot be checked; outbound port 53 may be blocked. " +
+                        $"Waiting {_options.UncheckedWait.TotalMinutes:0.#} minutes before continuing."));
+                    await Task.Delay(_options.UncheckedWait, cancellationToken).ConfigureAwait(false);
+                }
+
+                return false;
             }
 
             if (round.Missing.Count == 0)
             {
                 progress?.Report(new ProgressEvent("dns-propagation", "The authoritative name servers have every record."));
-                await Task.Delay(_options.SettleDelay, cancellationToken).ConfigureAwait(false);
-                return;
+                if (waitWhenUnchecked)
+                {
+                    await Task.Delay(_options.SettleDelay, cancellationToken).ConfigureAwait(false);
+                }
+
+                return true;
             }
 
             if (DateTimeOffset.UtcNow >= deadline)

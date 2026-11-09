@@ -62,7 +62,7 @@ SSLense runs:
 - **No trust in the result:** after `Add`, SSLense still checks the authoritative name servers, as it does for Cloudflare. A script that reports success without adding the record fails there, before the CA is asked.
 - **Same records as Cloudflare:** the existing journal records each value before `Add`, so an interrupted validation is cleaned up through `Remove` at the next start.
 
-`dns test` runs `Check`, then `Add` for `_sslense-test.<zone>`, waits until every authoritative name server has it, then runs `Remove`. That is a stronger test than the Cloudflare one, which does not wait for DNS.
+`dns test` runs `Check`, then `Add` for `_sslense-test.<zone>`, waits until every authoritative name server has it, then runs `Remove`. That is a stronger test than the Cloudflare one, which does not wait for DNS. When this server cannot query DNS servers, the test fails and says so, rather than passing on the fixed wait that issuance uses in that case.
 
 `-ExecutionPolicy Bypass` applies to this one process. A Group Policy execution policy still takes precedence, so a server that requires signed scripts needs a signed script. The documentation says so.
 
@@ -76,7 +76,7 @@ SSLense runs:
 | Someone other than an administrator adds a script | Adding, updating, and removing need elevation, as every SSLense change does. The service never adds or changes a script |
 | The secret leaks | DPAPI-protected like tokens. Passed only in the child's environment. The script's output is redacted for the secret's exact value and the existing secret patterns before it is logged or shown. The diagnostic bundle includes the script's name and hash, never its secret. The seeded-secret bundle test is extended |
 | A different program runs in place of PowerShell | The full path to `powershell.exe` in the system folder is used, never `PATH` |
-| A runaway script | The timeout stops it. Output beyond 64 KB is dropped |
+| A runaway script | The script runs in a Windows job object with every program it starts. The timeout, or cancellation, ends the whole job, and anything still running when the script exits is ended too, because it could hold the output open and stall the renewal service. Output beyond 64 KB is dropped |
 
 **Honest limits:**
 
