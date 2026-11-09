@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
+using SSLense.Core.Iis;
 using SSLense.Core.Reminders;
 using SSLense.Core.Renewal;
 
@@ -17,6 +18,11 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private readonly ILogger<CertificateDetailsViewModel> _logger;
     private readonly INavigationService _navigation;
     private readonly IReminderService _reminderService;
+    private readonly ICertificateSharingService _sharingService;
+    private readonly IIisService _iisService;
+    private readonly AsyncRelayCommand _addSiteCommand;
+    private readonly AsyncRelayCommand<SharedSiteRow> _stopManagingCommand;
+    private readonly AsyncRelayCommand _catchUpCommand;
     private readonly AsyncRelayCommand _applyReminderCommand;
     private readonly AsyncRelayCommand _refreshCommand;
     private readonly AsyncRelayCommand _renewCommand;
@@ -41,15 +47,28 @@ public partial class CertificateDetailsViewModel : ObservableObject
     [ObservableProperty] private ReminderChoice? selectedReminderChoice;
     [ObservableProperty] private string reminderState = string.Empty;
     [ObservableProperty] private string lastReminded = string.Empty;
+    [ObservableProperty] private bool canShare;
+    [ObservableProperty] private string sharingNote = string.Empty;
+    [ObservableProperty] private string? siteToAdd;
+    [ObservableProperty] private string hostsToAdd = string.Empty;
+    [ObservableProperty] private bool replaceExistingCertificate;
+    [ObservableProperty] private bool hasSitesLeftBehind;
 
     public CertificateDetailsViewModel(
         ICertificateManagementService managementService,
         IRenewalService renewalService,
         ILogger<CertificateDetailsViewModel> logger,
         INavigationService navigation,
-        IReminderService reminderService)
+        IReminderService reminderService,
+        ICertificateSharingService sharingService,
+        IIisService iisService)
     {
         _reminderService = reminderService;
+        _sharingService = sharingService;
+        _iisService = iisService;
+        _addSiteCommand = new AsyncRelayCommand(AddSiteAsync, () => CanOperate() && CanShare && SiteToAdd is not null);
+        _stopManagingCommand = new AsyncRelayCommand<SharedSiteRow>(StopManagingAsync, row => CanOperate() && row is { CanStopManaging: true });
+        _catchUpCommand = new AsyncRelayCommand(CatchUpAsync, () => CanOperate() && HasSitesLeftBehind);
         _applyReminderCommand = new AsyncRelayCommand(ApplyReminderAsync, () => CanOperate() && SelectedReminderChoice is not null);
         _managementService = managementService;
         _renewalService = renewalService;
@@ -67,6 +86,18 @@ public partial class CertificateDetailsViewModel : ObservableObject
 
     public ObservableCollection<string> Sites { get; } = [];
     public ObservableCollection<string> RecentLogLines { get; } = [];
+
+    /// <summary>Every site using the selected certificate, starting with the first site.</summary>
+    public ObservableCollection<SharedSiteRow> SharedSites { get; } = [];
+
+    /// <summary>IIS sites not using the selected certificate yet.</summary>
+    public ObservableCollection<string> SitesToAdd { get; } = [];
+
+    public IAsyncRelayCommand AddSiteCommand => _addSiteCommand;
+    public IAsyncRelayCommand<SharedSiteRow> StopManagingCommand => _stopManagingCommand;
+
+    /// <summary>Moves sites left behind to the current certificate, without ordering a new one.</summary>
+    public IAsyncRelayCommand CatchUpCommand => _catchUpCommand;
     public IAsyncRelayCommand RefreshCommand => _refreshCommand;
     public IAsyncRelayCommand RenewCommand => _renewCommand;
     public IAsyncRelayCommand RemoveCommand => _removeCommand;
@@ -127,9 +158,84 @@ public partial class CertificateDetailsViewModel : ObservableObject
             BoundSites = detail.BoundSites.Count == 0 ? "None" : string.Join(", ", detail.BoundSites);
             Environment = detail.AuthorityName;
             IsImported = detail.Source == CertificateSource.Imported;
+            LoadSharedSites(detail);
             await LoadReminderAsync(token).ConfigureAwait(true);
+            await LoadSitesToAddAsync(token).ConfigureAwait(true);
             RecentLogLines.Clear();
             foreach (var line in detail.RecentLogLines) RecentLogLines.Add(line);
+        }, cancellationToken);
+    }
+
+    private void LoadSharedSites(CertificateDetails detail)
+    {
+        CertificateTarget[] targets = [new(detail.SiteName, detail.Hosts, detail.SitePendingSince), .. detail.AdditionalTargets ?? []];
+        SharedSites.Clear();
+        foreach (var target in targets)
+        {
+            SharedSites.Add(new SharedSiteRow(
+                target.SiteName,
+                string.Join(", ", target.Hosts),
+                target.PendingSince is { } since
+                    ? $"Left behind on its previous certificate since {since.ToLocalTime():dd MMM yyyy HH:mm}. SSLense keeps trying to move it."
+                    : "Using this certificate",
+                target.PendingSince is not null,
+                targets.Length > 1));
+        }
+
+        HasSitesLeftBehind = targets.Any(target => target.PendingSince is not null);
+    }
+
+    private async Task LoadSitesToAddAsync(CancellationToken cancellationToken)
+    {
+        var sites = await _iisService.GetSitesAsync(cancellationToken).ConfigureAwait(true);
+        SitesToAdd.Clear();
+        foreach (var site in sites.Where(site => SharedSites.All(row => !string.Equals(row.SiteName, site.Name, StringComparison.OrdinalIgnoreCase))))
+        {
+            SitesToAdd.Add(site.Name);
+        }
+
+        SiteToAdd = null;
+        HostsToAdd = string.Empty;
+        ReplaceExistingCertificate = false;
+    }
+
+    private async Task AddSiteAsync(CancellationToken cancellationToken)
+    {
+        if (SelectedSite is null || SiteToAdd is not { } site) return;
+        await RunAsync(async token =>
+        {
+            var hosts = HostsToAdd.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var bound = await _sharingService.AddSiteAsync(SelectedSite, site, hosts, ReplaceExistingCertificate, null, token).ConfigureAwait(true);
+            ResultMessage = $"'{site}' now shares this certificate ({string.Join(", ", bound)}). They renew together.";
+            await InitializeAsync(SelectedSite).ConfigureAwait(true);
+        }, cancellationToken);
+    }
+
+    private async Task StopManagingAsync(SharedSiteRow? row, CancellationToken cancellationToken)
+    {
+        if (row is null || SelectedSite is null) return;
+
+        // The next site becomes the first when the first one goes, and the list is by first site.
+        var remaining = string.Equals(row.SiteName, SelectedSite, StringComparison.OrdinalIgnoreCase)
+            ? SharedSites.First(value => value != row).SiteName
+            : SelectedSite;
+        await RunAsync(async token =>
+        {
+            ResultMessage = await _sharingService.RemoveSiteAsync(row.SiteName, token).ConfigureAwait(true);
+            await InitializeAsync(remaining).ConfigureAwait(true);
+        }, cancellationToken);
+    }
+
+    private async Task CatchUpAsync(CancellationToken cancellationToken)
+    {
+        if (SelectedSite is null) return;
+        await RunAsync(async token =>
+        {
+            var moved = await _sharingService.CatchUpAsync(SelectedSite, null, token).ConfigureAwait(true);
+            ResultMessage = moved.Count == 0
+                ? "No site could move yet. Fix the site in IIS, then try again."
+                : $"Moved to the current certificate: {string.Join(", ", moved)}.";
+            await RefreshAsync(token).ConfigureAwait(true);
         }, cancellationToken);
     }
 
@@ -149,6 +255,12 @@ public partial class CertificateDetailsViewModel : ObservableObject
                 _ => "HTTP (port 80); renews automatically"
             };
         CertificateNames = string.Join(", ", record.CertificateNames ?? record.Hosts);
+        CanShare = record.CanBeShared();
+        SharingNote = CanShare
+            ? string.Empty
+            : record.Source == CertificateSource.Imported
+                ? "Certificates from other providers cannot be shared for now."
+                : "To share this certificate with other sites, issue it again with DNS validation.";
         ReminderState = record.Reminders switch
         {
             ReminderMode.Snoozed when record.SnoozedUntil is { } until && until > DateTimeOffset.UtcNow =>
@@ -197,7 +309,9 @@ public partial class CertificateDetailsViewModel : ObservableObject
         await RunAsync(async token =>
         {
             await _managementService.RemoveAsync(removedSite, token).ConfigureAwait(true);
-            ResultMessage = $"Removed the managed certificate and its matching IIS HTTPS bindings for '{removedSite}'.";
+            ResultMessage = SharedSites.Count > 1
+                ? $"Removed the managed certificate and its IIS HTTPS bindings on {string.Join(", ", SharedSites.Select(row => $"'{row.SiteName}'"))}."
+                : $"Removed the managed certificate and its matching IIS HTTPS bindings for '{removedSite}'.";
             await InitializeAsync().ConfigureAwait(true);
         }, cancellationToken);
     }
@@ -217,16 +331,25 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private bool CanOperate() => !IsBusy && SelectedSite is not null;
     partial void OnIsImportedChanged(bool value) => NotifyCommands();
     partial void OnIsManualDnsChanged(bool value) => NotifyCommands();
+    partial void OnCanShareChanged(bool value) => NotifyCommands();
+    partial void OnSiteToAddChanged(string? value) => NotifyCommands();
+    partial void OnHasSitesLeftBehindChanged(bool value) => NotifyCommands();
     private void NotifyCommands()
     {
         (RenewByHandCommand as RelayCommand)?.NotifyCanExecuteChanged();
         _refreshCommand.NotifyCanExecuteChanged(); _renewCommand.NotifyCanExecuteChanged(); _removeCommand.NotifyCanExecuteChanged();
         (OrderReplacementCommand as RelayCommand)?.NotifyCanExecuteChanged();
         _applyReminderCommand?.NotifyCanExecuteChanged();
+        _addSiteCommand?.NotifyCanExecuteChanged();
+        _stopManagingCommand?.NotifyCanExecuteChanged();
+        _catchUpCommand?.NotifyCanExecuteChanged();
     }
     partial void OnSelectedReminderChoiceChanged(ReminderChoice? value) => _applyReminderCommand?.NotifyCanExecuteChanged();
     private static RenewalResult AssertSingle(IReadOnlyList<RenewalResult> results) => results.Single();
 }
+
+/// <summary>One line of "Sites using this certificate".</summary>
+public sealed record SharedSiteRow(string SiteName, string Hosts, string State, bool IsLeftBehind, bool CanStopManaging);
 
 public sealed record ReminderChoice(string Label, ReminderMode Mode, int? SnoozeDays)
 {

@@ -5,6 +5,7 @@ using SSLense.Core.Certificates;
 using SSLense.Core.Config;
 using SSLense.Core.DnsValidation;
 using SSLense.Core.Iis;
+using SSLense.Core.Reminders;
 using SSLense.Core.Validation;
 
 namespace SSLense.Core.Acme;
@@ -57,9 +58,11 @@ internal sealed class AcmeService : IAcmeService
         ArgumentNullException.ThrowIfNull(request);
         ValidateRequest(request);
 
+        var lockedSites = await FindSitesToLockAsync(request.SiteName, cancellationToken).ConfigureAwait(false);
         await using var operationLock = await _operationLock
-            .AcquireAsync(request.SiteName, cancellationToken)
+            .AcquireAllAsync(lockedSites, cancellationToken)
             .ConfigureAwait(false);
+        var sharedRecord = await FindSharedRecordAsync(request.SiteName, lockedSites, cancellationToken).ConfigureAwait(false);
         await EnsureExpectedCertificateAsync(request, cancellationToken).ConfigureAwait(false);
         var authority = await _authorities.GetAsync(request.AuthorityId, cancellationToken).ConfigureAwait(false);
         var environmentName = CertificateAuthorities.Label(authority.Id);
@@ -70,8 +73,20 @@ internal sealed class AcmeService : IAcmeService
             : "Checking the IIS site and HTTP bindings."));
         var sites = await _iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
         var site = sites.SingleOrDefault(candidate =>
-            string.Equals(candidate.Name, request.SiteName, StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException($"IIS site '{request.SiteName}' was not found.");
+            string.Equals(candidate.Name, request.SiteName, StringComparison.OrdinalIgnoreCase));
+        if (sharedRecord is null && site is null)
+        {
+            throw new InvalidOperationException($"IIS site '{request.SiteName}' was not found.");
+        }
+
+        if (sharedRecord is not null && !usesDns)
+        {
+            throw new InvalidOperationException(
+                $"The certificate for '{sharedRecord.SiteName}' is shared across several IIS sites, which needs DNS validation.");
+        }
+
+        // A deleted site does not hold back the others that share its certificate; the plan below leaves it out.
+        site ??= new IisSite(0, sharedRecord!.SiteName, "Missing", null, []);
         if (!usesDns && string.IsNullOrWhiteSpace(site.PhysicalPath))
         {
             throw new InvalidOperationException($"IIS site '{site.Name}' has no physical root path.");
@@ -84,12 +99,12 @@ internal sealed class AcmeService : IAcmeService
             : string.Equals(binding.Protocol, "http", StringComparison.OrdinalIgnoreCase) && binding.Port == 80;
 
         var requestedNames = NormalizeCertificateNames(request.CertificateNames, usesDns);
-        var requestedHosts = request.Hosts.Count == 0
-            ? site.Bindings
+        var requestedHosts = request.Hosts.Count > 0
+            ? request.Hosts
+            : sharedRecord?.Hosts ?? site.Bindings
                 .Where(binding => IsUsableBinding(binding) && !string.IsNullOrWhiteSpace(binding.HostName))
                 .Select(binding => binding.HostName)
-                .Where(host => requestedNames is null || CertificateInspector.Covers(requestedNames, host))
-            : request.Hosts;
+                .Where(host => requestedNames is null || CertificateInspector.Covers(requestedNames, host));
         var hosts = NormalizeAndValidateHosts(
             requestedHosts,
             requestedNames is not null
@@ -104,7 +119,7 @@ internal sealed class AcmeService : IAcmeService
                 $"Host name '{uncovered}' is not covered by the certificate names {string.Join(", ", names)}.");
         }
 
-        foreach (var host in hosts)
+        foreach (var host in sharedRecord is null ? hosts : [])
         {
             var hasBinding = site.Bindings.Any(binding =>
                 IsUsableBinding(binding) &&
@@ -123,6 +138,10 @@ internal sealed class AcmeService : IAcmeService
             await ThrowIfAlreadyCoveredAsync(site, hosts, authority, cancellationToken)
                 .ConfigureAwait(false);
         }
+
+        var sharedPlan = sharedRecord is null
+            ? null
+            : await PlanSharedSitesAsync(sharedRecord, hosts, names, sites, progress, cancellationToken).ConfigureAwait(false);
 
         var dnsChallenges = usesDns
             ? _dnsChallenges ?? throw new InvalidOperationException("DNS validation is not available.")
@@ -159,7 +178,7 @@ internal sealed class AcmeService : IAcmeService
         }
         else
         {
-            await CompleteHttpChallengesAsync(order, site.PhysicalPath!, hosts, environmentName, progress, cancellationToken)
+            await CompleteHttpChallengesAsync(order, site.Name, site.PhysicalPath!, hosts, environmentName, progress, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -199,6 +218,11 @@ internal sealed class AcmeService : IAcmeService
                 Issuer: publicCertificate.GetNameInfo(X509NameType.SimpleName, forIssuer: true),
                 ValidationMethod: request.ValidationMethod,
                 CertificateNames: names.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(hosts) ? null : names);
+            if (sharedPlan is not null)
+            {
+                preparedRecord = preparedRecord.WithTargets(sharedPlan.Targets);
+            }
+
             var transaction = await _transactionJournal.BeginAsync(
                     preparedRecord,
                     request.ExpectedCurrentThumbprint,
@@ -226,18 +250,44 @@ internal sealed class AcmeService : IAcmeService
                     CertificateTransactionStage.CertificateImported,
                     CancellationToken.None)
                 .ConfigureAwait(false);
+            IReadOnlyList<LeftOutSite> leftOut = sharedPlan?.LeftOut ?? [];
             try
             {
                 progress?.Report(new ProgressEvent(
                     "binding",
                     "Creating or updating IIS HTTPS bindings with SNI, then confirming over HTTPS that the new certificate is served."));
-                await _iisService.ConfigureHttpsBindingsAsync(
-                        site.Name,
-                        hosts,
-                        installedCertificate.Thumbprint,
-                        "My",
-                        cancellationToken)
-                    .ConfigureAwait(false);
+                if (sharedPlan is null)
+                {
+                    await _iisService.ConfigureHttpsBindingsAsync(
+                            site.Name,
+                            hosts,
+                            installedCertificate.Thumbprint,
+                            "My",
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                else
+                {
+                    leftOut =
+                    [
+                        .. leftOut,
+                        .. await SharedBindingTransaction
+                            .ApplyAsync(
+                                _iisService,
+                                sharedPlan.Targets.Where(target => target.PendingSince is null).ToArray(),
+                                installedCertificate.Thumbprint,
+                                sharedPlan.InLastDays,
+                                progress,
+                                cancellationToken,
+                                sitesLeftOut => _transactionJournal.UpdateCertificateAsync(
+                                    transaction.Id,
+                                    pendingRecord.WithTargets(MarkLeftOut(pendingRecord.AllTargets(), [.. sharedPlan.LeftOut, .. sitesLeftOut])),
+                                    CancellationToken.None))
+                            .ConfigureAwait(false)
+                    ];
+                    pendingRecord = pendingRecord.WithTargets(MarkLeftOut(pendingRecord.AllTargets(), leftOut));
+                }
+
                 await _transactionJournal.UpdateStageAsync(
                         transaction.Id,
                         CertificateTransactionStage.BindingsUpdated,
@@ -273,14 +323,15 @@ internal sealed class AcmeService : IAcmeService
                 .ConfigureAwait(false);
             if (replaced is not null)
             {
-                await RemoveReplacedCertificateAsync(replaced, installedCertificate.Thumbprint, progress).ConfigureAwait(false);
+                await RemoveReplacedCertificateAsync(replaced, installedCertificate.Thumbprint, leftOut, progress).ConfigureAwait(false);
             }
 
             return artifacts with
             {
                 CertificateThumbprint = installedCertificate.Thumbprint,
                 NotBefore = installedCertificate.NotBefore,
-                NotAfter = installedCertificate.NotAfter
+                NotAfter = installedCertificate.NotAfter,
+                LeftOutSites = leftOut
             };
         }
         finally
@@ -314,12 +365,22 @@ internal sealed class AcmeService : IAcmeService
         }
     }
 
-    private async Task RemoveReplacedCertificateAsync(string oldThumbprint, string newThumbprint, IProgress<ProgressEvent>? progress)
+    private async Task RemoveReplacedCertificateAsync(
+        string oldThumbprint,
+        string newThumbprint,
+        IReadOnlyList<LeftOutSite> leftOut,
+        IProgress<ProgressEvent>? progress)
     {
         try
         {
             if (await ReplacedCertificateCleanup
-                    .RemoveIfUnusedAsync(_iisService, _certificateStore, oldThumbprint, newThumbprint, CancellationToken.None)
+                    .RemoveIfUnusedAsync(
+                        _iisService,
+                        _certificateStore,
+                        oldThumbprint,
+                        newThumbprint,
+                        CancellationToken.None,
+                        leftOut.Select(site => site.SiteName).ToArray())
                     .ConfigureAwait(false) is { } message)
             {
                 progress?.Report(new ProgressEvent("cleanup", $"The new certificate is installed, but {message}"));
@@ -335,6 +396,7 @@ internal sealed class AcmeService : IAcmeService
 
     private async Task CompleteHttpChallengesAsync(
         IAcmeOrderSession order,
+        string siteName,
         string sitePhysicalPath,
         IReadOnlyList<string> hosts,
         string environmentName,
@@ -356,7 +418,7 @@ internal sealed class AcmeService : IAcmeService
 
             progress?.Report(new ProgressEvent("challenge", $"Preparing HTTP-01 for {challenge.Host}."));
             await using var cleanup = await _challengeHandler
-                .PrepareAsync(sitePhysicalPath, challenge, cancellationToken)
+                .PrepareAsync(siteName, sitePhysicalPath, challenge, cancellationToken)
                 .ConfigureAwait(false);
 
             progress?.Report(new ProgressEvent("self-check", $"Checking HTTP access for {challenge.Host}."));
@@ -404,6 +466,126 @@ internal sealed class AcmeService : IAcmeService
             await order.ValidateAsync(challenge, cancellationToken).ConfigureAwait(false);
         }
     }
+
+    /// <summary>Every site whose certificate this issue can change. Taken before anything is read under the locks.</summary>
+    private async Task<IReadOnlyList<string>> FindSitesToLockAsync(string siteName, CancellationToken cancellationToken)
+    {
+        var records = await _managedCertificateStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        ManagedCertificateTargets.ThrowIfAdditionalSite(records, siteName);
+        return records.FirstOrDefault(record => string.Equals(record.SiteName, siteName, StringComparison.OrdinalIgnoreCase))
+            ?.AllSiteNames() ?? [siteName];
+    }
+
+    /// <summary>The site's shared record, read again under the locks, because the sites can change while waiting for them.</summary>
+    private async Task<ManagedCertificate?> FindSharedRecordAsync(
+        string siteName,
+        IReadOnlyList<string> lockedSites,
+        CancellationToken cancellationToken)
+    {
+        var records = await _managedCertificateStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        ManagedCertificateTargets.ThrowIfAdditionalSite(records, siteName);
+        var record = records.FirstOrDefault(value => string.Equals(value.SiteName, siteName, StringComparison.OrdinalIgnoreCase));
+        if (!(record?.AllSiteNames() ?? [siteName]).ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(lockedSites))
+        {
+            throw new CertificateStateChangedException(
+                $"The sites sharing the certificate for IIS site '{siteName}' changed while the operation was waiting. " +
+                "Refresh status before trying again.");
+        }
+
+        return record is { } shared && shared.IsShared() ? shared : null;
+    }
+
+    /// <summary>
+    /// Decides which sites take the new certificate before anything is ordered, so a site that is already broken does not use
+    /// up a certificate (docs/design/shared-certificates.md, section 6).
+    /// </summary>
+    private async Task<SharedPlan> PlanSharedSitesAsync(
+        ManagedCertificate record,
+        IReadOnlyList<string> firstSiteHosts,
+        IReadOnlyList<string> names,
+        IReadOnlyList<IisSite> sites,
+        IProgress<ProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        var inLastDays = record.NotAfter - DateTimeOffset.UtcNow <= ManagedCertificateTargets.LeaveOutWindow;
+        var targets = record.AllTargets()
+            .Select((target, index) => index == 0 ? target with { Hosts = firstSiteHosts } : target)
+            .ToArray();
+        var leftOut = new List<LeftOutSite>();
+        foreach (var target in targets)
+        {
+            if (target.Hosts.FirstOrDefault(host => !CertificateInspector.Covers(names, host)) is { } uncovered)
+            {
+                throw new InvalidOperationException(
+                    $"Host name '{uncovered}' on IIS site '{target.SiteName}' shares this certificate, but is not covered by the " +
+                    $"certificate names {string.Join(", ", names)}. Keep the names, or stop sharing with 'SSLense.Cli share remove --site \"{target.SiteName}\"'.");
+            }
+
+            var site = sites.FirstOrDefault(value => string.Equals(value.Name, target.SiteName, StringComparison.OrdinalIgnoreCase));
+            if (site is null)
+            {
+                leftOut.Add(new LeftOutSite(target.SiteName, $"IIS site '{target.SiteName}' no longer exists."));
+                continue;
+            }
+
+            if (target.Hosts.FirstOrDefault(host => !HasWebBinding(site, host)) is { } unbound)
+            {
+                leftOut.Add(new LeftOutSite(target.SiteName, $"Host name '{unbound}' no longer has a binding on IIS site '{target.SiteName}'."));
+                continue;
+            }
+
+            if (site.State != ServedCertificateCheck.StartedState ||
+                await _iisService.GetHttpsProblemAsync(site, target.Hosts, cancellationToken).ConfigureAwait(false) is not { } problem)
+            {
+                continue;
+            }
+
+            if (!inLastDays)
+            {
+                throw new InvalidOperationException(
+                    $"IIS site '{target.SiteName}' shares this certificate, but it has a problem: {problem} " +
+                    "Nothing was ordered and no site changed. Fix the site, or stop sharing with " +
+                    $"'SSLense.Cli share remove --site \"{target.SiteName}\"'.");
+            }
+
+            leftOut.Add(new LeftOutSite(target.SiteName, problem));
+        }
+
+        if (leftOut.Count == targets.Length)
+        {
+            throw new InvalidOperationException(
+                $"No IIS site can use this certificate, so nothing was ordered: {string.Join(" ", leftOut.Select(site => site.Reason))}");
+        }
+
+        foreach (var site in leftOut)
+        {
+            progress?.Report(new ProgressEvent("preflight", $"IIS site '{site.SiteName}' stays on its previous certificate: {site.Reason}"));
+        }
+
+        return new SharedPlan(MarkLeftOut(targets, leftOut), leftOut, inLastDays);
+    }
+
+    private static bool HasWebBinding(IisSite site, string host) =>
+        site.Bindings.Any(binding =>
+            (string.Equals(binding.Protocol, "http", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase)) &&
+            string.Equals(NormalizeHost(binding.HostName), host, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>A site left out keeps the date it first fell behind; every other site is up to date.</summary>
+    private static IReadOnlyList<CertificateTarget> MarkLeftOut(
+        IReadOnlyList<CertificateTarget> targets,
+        IReadOnlyList<LeftOutSite> leftOut) =>
+        targets
+            .Select(target => target with
+            {
+                PendingSince = leftOut.Any(site => string.Equals(site.SiteName, target.SiteName, StringComparison.OrdinalIgnoreCase))
+                    ? target.PendingSince ?? DateTimeOffset.UtcNow
+                    : null
+            })
+            .ToArray();
+
+    /// <param name="Targets">Every site; those left out have <see cref="CertificateTarget.PendingSince"/> set.</param>
+    private sealed record SharedPlan(IReadOnlyList<CertificateTarget> Targets, IReadOnlyList<LeftOutSite> LeftOut, bool InLastDays);
 
     private async Task EnsureExpectedCertificateAsync(
         AcmeIssueRequest request,
@@ -457,8 +639,9 @@ internal sealed class AcmeService : IAcmeService
             if (shared is not null)
             {
                 throw new InvalidOperationException(
-                    $"'{shared}' is already managed for IIS site '{record.SiteName}'. One wildcard certificate can belong to " +
-                    "only one site in this version, and issuing a copy per site would use up the certificate authority's weekly limit.");
+                    $"'{shared}' is already managed for IIS site '{record.SiteName}'. Issuing a copy per site would use up the " +
+                    "certificate authority's weekly limit. Share the certificate instead: " +
+                    $"'SSLense.Cli share add --from \"{record.SiteName}\" --to \"{siteName}\"'.");
             }
         }
     }

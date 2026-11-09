@@ -26,4 +26,6 @@ public sealed record ManagedCertificateStatus(
     DateTimeOffset? SnoozedUntil = null,
     DateTimeOffset? LastRemindedAt = null,
     ValidationMethod ValidationMethod = ValidationMethod.Http01,
-    IReadOnlyList<string>? CertificateNames = null);
+    IReadOnlyList<string>? CertificateNames = null,
+    IReadOnlyList<CertificateTarget>? AdditionalTargets = null,
+    DateTimeOffset? SitePendingSince = null);

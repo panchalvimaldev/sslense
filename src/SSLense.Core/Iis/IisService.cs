@@ -1,9 +1,21 @@
+using System.Diagnostics;
 using Microsoft.Web.Administration;
+using SSLense.Core.Config;
 
 namespace SSLense.Core.Iis;
 
-internal sealed class IisService(ITlsBindingProbe tlsProbe) : IIisService
+internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSystem) : IIisService
 {
+    /// <summary>A reserved name, so no site can ever use this entry.</summary>
+    private const string TrialHostNamePort = "sslense-certificate-trial.invalid:443";
+
+    /// <summary>The application ID IIS uses for its own HTTP.sys certificate entries.</summary>
+    private const string TrialAppId = "{4dc3e181-e14b-4a21-b022-59fc669b0914}";
+
+    private static readonly TimeSpan TrialTimeout = TimeSpan.FromSeconds(30);
+    private static readonly string[] TrialDeleteArguments = ["http", "delete", "sslcert", $"hostnameport={TrialHostNamePort}"];
+    private static string TrialLockPath => Path.Combine(AppPaths.OperationLockDirectory, "certificate-trial.lock");
+
     private static readonly TimeSpan LiveVerificationTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan LiveVerificationInterval = TimeSpan.FromMilliseconds(500);
 
@@ -46,6 +58,128 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe) : IIisService
         string certificateStoreName = "My",
         CancellationToken cancellationToken = default)
     {
+        await TryCertificateAsync(certificateThumbprint, certificateStoreName, cancellationToken).ConfigureAwait(false);
+        await SwitchHttpsBindingsAsync(siteName, hosts, certificateThumbprint, certificateStoreName, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task TryCertificateAsync(
+        string certificateThumbprint,
+        string certificateStoreName = "My",
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(certificateThumbprint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(certificateStoreName);
+        await using var trialLock = await fileSystem
+            .AcquireExclusiveFileLockAsync(TrialLockPath, cancellationToken)
+            .ConfigureAwait(false);
+        (int ExitCode, string Output) result;
+        try
+        {
+            await RunNetshAsync(TrialDeleteArguments, cancellationToken).ConfigureAwait(false);
+            result = await RunNetshAsync(
+                    [
+                        "http", "add", "sslcert",
+                        $"hostnameport={TrialHostNamePort}",
+                        $"certhash={NormalizeThumbprint(certificateThumbprint)}",
+                        $"certstorename={certificateStoreName}",
+                        $"appid={TrialAppId}"
+                    ],
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            throw new IisBindingException(
+                $"Windows could not try the new certificate, so no site was changed: {exception.Message}",
+                previousBindingsRestored: true,
+                exception);
+        }
+        finally
+        {
+            await DeleteTrialQuietlyAsync().ConfigureAwait(false);
+        }
+
+        if (result.ExitCode != 0)
+        {
+            // Only the exit code decides, because netsh translates its text.
+            throw new IisBindingException(
+                $"Windows refused certificate {NormalizeThumbprint(certificateThumbprint)} for HTTPS, so no site was changed. " +
+                $"Check that the certificate is in LocalMachine\\{certificateStoreName} and that its private key is usable. {result.Output}".TrimEnd(),
+                previousBindingsRestored: true,
+                new InvalidOperationException($"netsh exited with code {result.ExitCode}."));
+        }
+    }
+
+    public async Task RemoveCertificateTrialAsync(CancellationToken cancellationToken = default)
+    {
+        await using var trialLock = await fileSystem
+            .AcquireExclusiveFileLockAsync(TrialLockPath, cancellationToken)
+            .ConfigureAwait(false);
+        await RunNetshAsync(TrialDeleteArguments, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task DeleteTrialQuietlyAsync()
+    {
+        try
+        {
+            await RunNetshAsync(TrialDeleteArguments, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Harmless: nothing uses this host name, and it is deleted before the next trial and at the next start.
+        }
+    }
+
+    private static async Task<(int ExitCode, string Output)> RunNetshAsync(
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken)
+    {
+        var startInfo = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "netsh.exe"))
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("netsh could not be started.");
+        var output = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        var errors = process.StandardError.ReadToEndAsync(CancellationToken.None);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TrialTimeout);
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            process.Kill(entireProcessTree: true);
+            if (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+
+            throw new TimeoutException($"netsh did not finish within {TrialTimeout.TotalSeconds:0} seconds.");
+        }
+
+        var text = string.Join(' ', (await output.ConfigureAwait(false) + " " + await errors.ConfigureAwait(false))
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return (process.ExitCode, text);
+    }
+
+    public async Task<HttpsBindingUndo> SwitchHttpsBindingsAsync(
+        string siteName,
+        IReadOnlyList<string> hosts,
+        string certificateThumbprint,
+        string certificateStoreName = "My",
+        CancellationToken cancellationToken = default)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(siteName);
         ArgumentNullException.ThrowIfNull(hosts);
         ArgumentException.ThrowIfNullOrWhiteSpace(certificateThumbprint);
@@ -58,7 +192,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe) : IIisService
         }
 
         var certificateHash = Convert.FromHexString(NormalizeThumbprint(certificateThumbprint));
-        var changes = new List<BindingChange>();
+        var changes = new List<HttpsBindingChange>();
         var probeTargets = new List<(string IpAddress, string Host)>();
         var siteStarted = false;
         try
@@ -78,16 +212,17 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe) : IIisService
                             certificateHash,
                             certificateStoreName,
                             SslFlags.Sni);
-                        changes.Add(new BindingChange(host, WasAdded: true, null, null, SslFlags.None));
+                        changes.Add(new HttpsBindingChange(host, WasAdded: true, binding.BindingInformation, null, null, (int)SslFlags.None));
                     }
-                    else
+                    else if (!AlreadyUses(binding, certificateHash, certificateStoreName))
                     {
-                        changes.Add(new BindingChange(
+                        changes.Add(new HttpsBindingChange(
                             host,
                             WasAdded: false,
+                            binding.BindingInformation,
                             binding.CertificateHash?.ToArray(),
                             binding.CertificateStoreName,
-                            binding.SslFlags));
+                            (int)binding.SslFlags));
                         binding.CertificateHash = certificateHash;
                         binding.CertificateStoreName = certificateStoreName;
 
@@ -98,7 +233,11 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe) : IIisService
                     probeTargets.Add((ParseBindingInformation(binding.BindingInformation).IpAddress, host));
                 }
 
-                serverManager.CommitChanges();
+                // Rewriting a binding that is already right would drop its new connections for nothing.
+                if (changes.Count > 0)
+                {
+                    serverManager.CommitChanges();
+                }
             }
 
             using var verificationManager = new ServerManager();
@@ -118,7 +257,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe) : IIisService
                 }
             }
 
-            // A stopped site has no HTTP.sys listener, so there is nothing live to verify yet.
+            // A stopped site may have no listener, so there may be nothing live to verify yet.
             if (siteStarted)
             {
                 foreach (var (ipAddress, host) in probeTargets)
@@ -127,6 +266,8 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe) : IIisService
                         .ConfigureAwait(false);
                 }
             }
+
+            return new HttpsBindingUndo(siteName, siteStarted, changes);
         }
         catch (Exception exception)
         {
@@ -134,13 +275,13 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe) : IIisService
             {
                 if (changes.Count > 0)
                 {
-                    RollBackBindings(siteName, changes);
+                    await RestoreAsync(new HttpsBindingUndo(siteName, siteStarted, changes)).ConfigureAwait(false);
                 }
             }
             catch (Exception rollbackException)
             {
                 throw new IisBindingException(
-                    "IIS binding configuration failed and the previous bindings could not be fully restored.",
+                    $"IIS binding configuration failed for site '{siteName}' and the previous bindings could not be fully restored: {rollbackException.Message}",
                     previousBindingsRestored: false,
                     new AggregateException(exception, rollbackException));
             }
@@ -154,11 +295,154 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe) : IIisService
             }
 
             throw new IisBindingException(
-                $"Could not configure HTTPS bindings for IIS site '{siteName}'. No existing binding was intentionally removed.",
+                $"Could not configure HTTPS bindings for IIS site '{siteName}': {exception.Message} The site's previous bindings were restored and checked.",
                 previousBindingsRestored: true,
                 exception);
         }
     }
+
+    public async Task UndoHttpsBindingsAsync(HttpsBindingUndo undo, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(undo);
+        if (undo.Changes.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await RestoreAsync(undo).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            throw new IisBindingException(
+                $"The previous bindings of IIS site '{undo.SiteName}' could not be fully restored: {exception.Message}",
+                previousBindingsRestored: false,
+                exception);
+        }
+    }
+
+    public async Task<string?> GetHttpsProblemAsync(
+        IisSite site,
+        IReadOnlyList<string> hosts,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(site);
+        foreach (var host in hosts)
+        {
+            foreach (var binding in site.Bindings.Where(binding =>
+                         string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase) &&
+                         binding.Port == 443 &&
+                         string.Equals(binding.HostName, host, StringComparison.OrdinalIgnoreCase)))
+            {
+                var address = binding.IpAddress is "*" or "" ? "127.0.0.1" : binding.IpAddress.Trim('[', ']');
+                try
+                {
+                    await tlsProbe.GetServedThumbprintAsync(address, host, 443, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    return $"{host} did not answer on port 443 ({exception.Message}).";
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// On real IIS, a restore can report success and leave a binding without its certificate, depending on how it is done
+    /// (docs/design/shared-certificates.md, section 5.1). So nothing counts as restored until it is checked, and a failed
+    /// check gets one attempt by removing and re-adding the binding.
+    /// </summary>
+    private async Task RestoreAsync(HttpsBindingUndo undo)
+    {
+        string? problem;
+        try
+        {
+            RollBackBindings(undo.SiteName, undo.Changes);
+            problem = await FindRestoreProblemAsync(undo).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not UnauthorizedAccessException)
+        {
+            problem = exception.Message;
+        }
+
+        if (problem is null)
+        {
+            return;
+        }
+
+        ReAddBindings(undo.SiteName, undo.Changes);
+        problem = await FindRestoreProblemAsync(undo).ConfigureAwait(false);
+        if (problem is not null)
+        {
+            throw new InvalidOperationException(problem);
+        }
+    }
+
+    private async Task<string?> FindRestoreProblemAsync(HttpsBindingUndo undo)
+    {
+        var probes = new List<(string IpAddress, string Host, string Thumbprint)>();
+        using (var serverManager = new ServerManager())
+        {
+            var site = FindSite(serverManager, undo.SiteName);
+            foreach (var change in undo.Changes)
+            {
+                var binding = FindHttpsBinding(site, change.Host);
+                if (change.WasAdded)
+                {
+                    if (binding is not null)
+                    {
+                        return $"the new HTTPS binding for '{change.Host}' was not removed.";
+                    }
+
+                    continue;
+                }
+
+                if (binding is null)
+                {
+                    return $"the HTTPS binding for '{change.Host}' no longer exists.";
+                }
+
+                if (change.CertificateHash is null)
+                {
+                    continue;
+                }
+
+                if (binding.CertificateHash is null || !binding.CertificateHash.SequenceEqual(change.CertificateHash))
+                {
+                    return $"the HTTPS binding for '{change.Host}' does not have its previous certificate.";
+                }
+
+                probes.Add((ParseBindingInformation(binding.BindingInformation).IpAddress, change.Host, Convert.ToHexString(change.CertificateHash)));
+            }
+        }
+
+        if (undo.SiteStarted)
+        {
+            foreach (var (ipAddress, host, thumbprint) in probes)
+            {
+                try
+                {
+                    await VerifyServedCertificateAsync(ipAddress, host, thumbprint, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException exception)
+                {
+                    return exception.Message;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static bool AlreadyUses(Binding binding, byte[] certificateHash, string certificateStoreName) =>
+        binding.CertificateHash is { } hash &&
+        hash.SequenceEqual(certificateHash) &&
+        string.Equals(binding.CertificateStoreName, certificateStoreName, StringComparison.OrdinalIgnoreCase) &&
+        (binding.SslFlags & SslFlags.Sni) == SslFlags.Sni &&
+        (binding.SslFlags & SslFlags.CentralCertStore) == 0;
 
     public Task RemoveHttpsBindingsAsync(
         string siteName,
@@ -332,7 +616,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe) : IIisService
             return port == 443 && string.Equals(bindingHost, host, StringComparison.OrdinalIgnoreCase);
         });
 
-    private static void RollBackBindings(string siteName, IReadOnlyList<BindingChange> changes)
+    private static void RollBackBindings(string siteName, IReadOnlyList<HttpsBindingChange> changes)
     {
         using var serverManager = new ServerManager();
         var site = FindSite(serverManager, siteName);
@@ -357,7 +641,32 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe) : IIisService
 
             binding.CertificateHash = change.CertificateHash;
             binding.CertificateStoreName = change.CertificateStoreName;
-            binding.SslFlags = change.SslFlags;
+            binding.SslFlags = (SslFlags)change.SslFlags;
+        }
+
+        serverManager.CommitChanges();
+    }
+
+    private static void ReAddBindings(string siteName, IReadOnlyList<HttpsBindingChange> changes)
+    {
+        using var serverManager = new ServerManager();
+        var site = FindSite(serverManager, siteName);
+        foreach (var change in changes)
+        {
+            if (FindHttpsBinding(site, change.Host) is { } binding)
+            {
+                site.Bindings.Remove(binding);
+            }
+
+            if (change.WasAdded)
+            {
+                continue;
+            }
+
+            var restored = change.CertificateHash is { } hash
+                ? site.Bindings.Add(change.BindingInformation, hash, change.CertificateStoreName ?? "My", (SslFlags)change.SslFlags)
+                : site.Bindings.Add(change.BindingInformation, "https");
+            restored.SslFlags = (SslFlags)change.SslFlags;
         }
 
         serverManager.CommitChanges();
@@ -378,11 +687,4 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe) : IIisService
 
         return (value[..portSeparator], port, value[(hostSeparator + 1)..]);
     }
-
-    private sealed record BindingChange(
-        string Host,
-        bool WasAdded,
-        byte[]? CertificateHash,
-        string? CertificateStoreName,
-        SslFlags SslFlags);
 }

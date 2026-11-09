@@ -24,6 +24,7 @@ Complete:
 - Expiry reminders (0.11): one daily digest, sent only when a certificate needs attention, from a configurable number of days before expiry and repeating until it is renewed; a notice before each automatic renewal; per-certificate snooze, off until replaced, or off permanently; an optional weekly summary; and detection of certificates renewed outside SSLense
 - Daily report-only checks (0.12): the pre-flight checks in the 30 days before each automatic renewal, and a comparison of the certificate this server serves with the one SSLense expects, with problems reported in the digest after two daily failures in a row; an option to keep reminding about automatic certificates until they renew; a log line for each reminder decision; and an estimate of the next check, email, and reminder for each certificate
 - DNS validation and wildcard certificates (0.13): Cloudflare, CNAME delegation from any DNS service, and a manual method; propagation checks at the zone's authoritative name servers; CAA checks before ordering; DPAPI-protected, per-zone tokens; a journal that removes records left by an interrupted validation; one wildcard per IIS site; in the GUI and CLI ([design](docs/design/dns-validation.md))
+- One certificate across several IIS sites (0.14): `share add` and `share remove`, a trial of each new certificate before any real site changes, sites moved one at a time and checked over HTTPS, checked restores, and rules for a site with a problem, so that it cannot take the others down ([design](docs/design/shared-certificates.md)). Tried on Windows 11 and IIS 10 with Let's Encrypt staging
 - Cross-process per-site locking, durable operation journals, and non-fatal startup recovery
 - Health check (CLI and GUI) and redacted diagnostic bundles for support
 - Versioned state schemas with backup before migration and safe refusal of newer schemas
@@ -55,16 +56,15 @@ References:
 
 In priority order. Feedback from real users can change the order.
 
-1. **One wildcard across several IIS sites (0.14).** The most common reason to want a wildcard, and the riskiest part: one failed renewal or rollback affects several sites. One transaction covers every site, so sites never end up split between old and new certificates ([design](docs/design/dns-validation.md), section 7).
-2. **More DNS services.** Support as many as practical. A script method first, which covers almost any service with an API, after its own security design, because the service runs as SYSTEM. Then built-in providers one at a time, starting with Amazon Route 53, Azure DNS, and GoDaddy, then whichever users ask for most. Each stays labelled untested until it has run on a real account. Providers are compiled in, not loaded as plugins, for the same reason.
-3. **More ACME certificate authorities.** The certificate authority profiles from 0.10 are in place. Adding ACME CAs with External Account Binding (ZeroSSL, Google Trust Services, SSL.com, internal ACME servers), a CA choice in the Issue wizard, and Pebble-based tests in CI (steps 4 and 5 of [docs/design/certificate-sources.md](docs/design/certificate-sources.md)). SSLense never fails over to another CA without explicit configuration.
-4. **Certificates on other machines.** Add host names that are not on this server, such as load balancers and appliances, to the daily served-certificate check, so one place reminds about every certificate.
-5. **Script hooks.** Optional PowerShell commands before and after a renewal or install, with the certificate's details passed in, for restarting a service or copying a certificate elsewhere.
-6. **Certificate export and shared stores.** IIS Central Certificate Store, Azure Key Vault, and PFX or PEM export. Export needs an exportable key, so it stays off by default and is an explicit choice per certificate.
-7. **Key options for ACME certificates.** A choice of RSA or ECDSA (issuance currently uses ECDSA P-256), and optional private-key reuse for sites that pin keys.
-8. **HTTP-to-HTTPS redirect helper** using an IIS URL Rewrite rule, with a check that it does not block validation.
-9. **Bulk operations.** Adopt every unmanaged certificate at once, and issue for many sites from a CSV file.
-10. **New version notice.** Tell the administrator when a newer release is available, with a setting to turn the check off. Never install anything automatically.
+1. **More DNS services.** Support as many as practical. A script method first, which covers almost any service with an API, after its own security design, because the service runs as SYSTEM. Then built-in providers one at a time, starting with Amazon Route 53, Azure DNS, and GoDaddy, then whichever users ask for most. Each stays labelled untested until it has run on a real account. Providers are compiled in, not loaded as plugins, for the same reason.
+2. **More ACME certificate authorities.** The certificate authority profiles from 0.10 are in place. Adding ACME CAs with External Account Binding (ZeroSSL, Google Trust Services, SSL.com, internal ACME servers), a CA choice in the Issue wizard, and Pebble-based tests in CI (steps 4 and 5 of [docs/design/certificate-sources.md](docs/design/certificate-sources.md)). SSLense never fails over to another CA without explicit configuration.
+3. **Certificates on other machines.** Add host names that are not on this server, such as load balancers and appliances, to the daily served-certificate check, so one place reminds about every certificate.
+4. **Script hooks.** Optional PowerShell commands before and after a renewal or install, with the certificate's details passed in, for restarting a service or copying a certificate elsewhere.
+5. **Certificate export and shared stores.** IIS Central Certificate Store, Azure Key Vault, and PFX or PEM export. Export needs an exportable key, so it stays off by default and is an explicit choice per certificate.
+6. **Key options for ACME certificates.** A choice of RSA or ECDSA (issuance currently uses ECDSA P-256), and optional private-key reuse for sites that pin keys.
+7. **HTTP-to-HTTPS redirect helper** using an IIS URL Rewrite rule, with a check that it does not block validation.
+8. **Bulk operations.** Adopt every unmanaged certificate at once, and issue for many sites from a CSV file.
+9. **New version notice.** Tell the administrator when a newer release is available, with a setting to turn the check off. Never install anything automatically.
 
 ## 5. Before 1.0
 

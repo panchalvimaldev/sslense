@@ -63,6 +63,28 @@ public sealed class JsonManagedCertificateStore : IManagedCertificateStore
             .ConfigureAwait(false);
     }
 
+    public async Task ReplaceAsync(
+        string existingSiteName,
+        ManagedCertificate certificate,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(certificate);
+        await UpdateAsync(
+                records =>
+                {
+                    var existing = records.FindIndex(value => IsSite(value, existingSiteName));
+                    if (existing < 0)
+                    {
+                        return false;
+                    }
+
+                    records[existing] = WithReminderState(certificate with { Id = records[existing].Id }, records[existing]);
+                    return true;
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     public async Task<ManagedCertificate?> RecordRenewalFailureAsync(
         string siteName,
         DateTimeOffset attemptedAt,
@@ -134,7 +156,7 @@ public sealed class JsonManagedCertificateStore : IManagedCertificateStore
         await UpdateAsync(
                 records =>
                 {
-                    var index = records.FindIndex(value => IsSite(value, siteName));
+                    var index = records.FindIndex(value => value.ManagesSite(siteName));
                     if (index < 0)
                     {
                         return false;

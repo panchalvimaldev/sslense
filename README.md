@@ -13,6 +13,7 @@ SSLense is a Windows application for IIS administrators. It gets free Let's Encr
 ## Why SSLense
 
 - **A failed renewal never takes a site down.** After every change, SSLense connects to the site over HTTPS to check the new certificate is really served. If it isn't, the previous binding is restored automatically.
+- **One certificate across several IIS sites.** A DNS-validated certificate, such as `*.example.com`, can serve several sites that renew together. If one site has a problem, the others are protected.
 - **Wildcard certificates and sites without port 80.** DNS validation issues `*.example.com`, and works for internal servers and sites that cannot open port 80. It renews automatically through Cloudflare, or through a CNAME from any DNS service to a domain on Cloudflare.
 - **Certificates from any provider, not only Let's Encrypt.** It creates the certificate request with a private key that never leaves the server, installs what the provider issues with the same safety checks, or simply starts watching a certificate that is already in IIS.
 - **No need to log on to the server to check expiry dates.** One digest a day, sent only when something needs attention, by email (any SMTP setup, including Microsoft 365 relays), Teams, Slack, Discord, Telegram, ntfy, or the Windows Event Log.
@@ -211,9 +212,42 @@ _acme-challenge.example.com  CNAME  example-com.acme.example.net
 - **The token can change every record in its zone,** because Cloudflare grants DNS permissions per zone. Anyone who takes over the server could use it to redirect that domain. For an important domain, use CNAME delegation to a separate zone, so the token can't touch the main one.
 - **SSLense only removes TXT records it published.** It leaves other values at the same name alone. If it can't remove one, it tries again when it next starts.
 - **It checks before asking Let's Encrypt,** including CAA records and the zone's own name servers, to avoid using up the failed validation limit. If outbound port 53 is blocked, it can't check, so it says so, waits 2 minutes, and continues.
-- **One wildcard belongs to one IIS site in this version.** Requesting the same wildcard for another site is refused. Bound by hand to another site, a certificate isn't updated on that site at renewal, so SSLense warns you about it.
+- **To use one wildcard on several IIS sites, share it** with `share add`, described below. Requesting the same wildcard again for another site is refused. Bound by hand and not shared, a certificate isn't updated on that site at renewal, so SSLense warns you about it.
 - **`*.example.com` can't be an IIS binding that SSLense manages.** Use real host names in `--hosts`. A host added to the site later isn't bound automatically: the health check reports it, and you run `issue --force` again with the new host in `--hosts`.
 - **Other DNS services:** more are planned; see [ROADMAP.md](ROADMAP.md).
+
+### One certificate across several IIS sites
+
+A certificate that uses DNS validation can serve several sites. Issue it for the first site, then add the others. Adding a site orders nothing from the certificate authority.
+
+```powershell
+SSLense.Cli issue --site "Shop" --email ops@example.com --validation dns --names "*.example.com,example.com" --hosts "shop.example.com,example.com"
+SSLense.Cli share add --from "Shop" --to "Blog" --hosts "blog.example.com"
+SSLense.Cli share remove --site "Blog"
+```
+
+In the app, use **Sites using this certificate** on Certificate Details.
+
+- **`share add`:** without `--hosts`, it uses every named binding on the site that the certificate covers. If SSLense already manages another certificate for that site, add `--replace-existing`, which stops managing that certificate. A certificate from another provider stays in the store.
+- **`share remove`:** SSLense stops managing the site and leaves its binding as it is, so the site keeps working until the certificate expires. If you remove the first site, the next one takes its place. A certificate with one site left is removed with `remove`, and `remove` on a shared certificate removes the bindings on every site.
+- **Renewing:** `renew --site` with any of the sites renews them all. Other commands that install a certificate, such as `import` and `csr`, are refused on a site added this way until you run `share remove`. They are refused on the first site too, because an imported certificate can't be shared; `share remove` on the first site hands the shared certificate to the next site.
+- **Only DNS validation for now:** HTTP validation would have to reach every site, and certificates from other providers can't be shared yet.
+
+SSLense tries each new certificate before touching a real site, moves sites one at a time, and confirms over HTTPS what each one serves. Moving a site refuses new connections on that site for a moment, about 10 to 20 ms in testing, as any certificate change in IIS does. Browsers normally retry. When a site has a problem:
+
+| Site | More than 7 days left | 7 days or fewer left |
+|---|---|---|
+| Stopped | Included, without the HTTPS check | Same |
+| Deleted, or its binding was removed | Left behind; the others renew | Same |
+| Started, but not answering HTTPS | Nothing is ordered or changed | Left behind; the others renew |
+| Windows refuses the new certificate | No site changes; tries again after at least 24 hours | Same |
+| Fails the HTTPS check after moving | Every site goes back; tries again after at least 24 hours | Only that site goes back; the others renew |
+
+A site left behind keeps its previous certificate, and you're notified with its name. Each service cycle tries to move it without ordering a new certificate, and **Try moving now** or `renew --site` tries straight away. A deleted site stays listed until you run `share remove`, because a renamed site looks the same as a deleted one. The previous certificate stays in the store after a site was left behind, even once it catches up, until you remove it. It does no harm.
+
+The HTTPS checks run from this server, so they show what IIS serves, not what visitors receive through a CDN or load balancer.
+
+**Going back to an older version:** the first save after upgrading to 0.14 changes the format of `managed-certificates.json`, and older versions refuse the new format. SSLense keeps a copy of the old file as `managed-certificates.json.v4.bak`. It doesn't include any changes made since, so going back means restoring that copy and issuing again anything added after it.
 
 ### Certificates from other providers (bring your own)
 
@@ -406,6 +440,7 @@ Windows displays an administrator elevation prompt because the application manif
 - Renewal checks for all due certificates
 - Cancellable operations with live progress
 - A live log viewer with level filtering and access to the log folder
+- Sites using this certificate on Certificate Details: add a site, stop managing one, or move a site left behind. The Dashboard shows one row per certificate, such as `Shop +2 sites`
 - A visual three-step issuance wizard with IIS selection, HTTP or DNS validation, certificate names for wildcards, guarded environment choice, pre-flight checks, the records to create for manual DNS validation, live progress, and cancellation
 - Certificate details, renewal, confirmed removal, bindings, issuer, validity, and recent logs
 - An **Other Providers** page for certificates bought elsewhere: create a request (CSR) to copy or save, complete it with the issued certificate and bundle, import a PFX, or adopt a certificate already bound in IIS. Imported certificates show as "Imported" on the Dashboard, with "Order renewal" when 30 days or fewer remain
@@ -507,14 +542,16 @@ The command prints a `PASS` or `FAIL` line for each check. Fix the first failing
 - **DNS does not point to this server:** `HTTP reachability: <host>` fails, or the hostname resolves to an unexpected address. From a machine outside the server's network, run `nslookup example.com` (or `Resolve-DnsName example.com` in PowerShell) and compare every A and AAAA record with the public endpoint that should reach IIS. Correct stale or missing records and allow their TTL to expire. If a tunnel provides the public endpoint, route the hostname to the IIS HTTP binding and preserve the original host header.
 - **Port 80 is blocked or unreachable:** `HTTP reachability: <host>` fails, or Let's Encrypt validation times out, although DNS is correct. From outside the server's network, check `Test-NetConnection example.com -Port 80` in PowerShell. Allow inbound TCP port 80 through the server firewall, cloud security group, router/NAT, and any network firewall; keep it reachable for the full validation.
 - **The IIS site has no matching HTTP binding:** `HTTP binding: <host>` fails, or requests for the host reach a different site. In IIS Manager, open the selected site's **Bindings** and add an **http** binding on port **80** for each requested host name. Remove or correct any conflicting binding on another site, then confirm that the public hostname routes to this site.
-- **A proxy or CDN intercepts the challenge:** DNS and the IIS binding look correct, but HTTP-01 returns a 404, redirect, authentication page, or unrelated response. Configure the proxy, CDN, or tunnel to forward `/.well-known/acme-challenge/` to the same IIS site over HTTP, preserve the requested host header, and bypass authentication, rewriting, and caching for that path. Confirm the route from outside the server before retrying issuance.
+- **A proxy or CDN intercepts the challenge:** DNS and the IIS binding look correct, but HTTP-01 returns a 404, redirect, authentication page, or unrelated response. Configure the proxy, CDN, or tunnel to forward `/.well-known/acme-challenge/` to the same IIS site over HTTP, preserve the requested host header, and bypass authentication, rewriting, and caching for that path. Confirm the route from outside the server before retrying issuance. With Cloudflare, a record set to **Proxied** (orange cloud) resolves to Cloudflare's addresses, not the server's; set it to **DNS only**, or use DNS validation.
+- **HTTP-01 returns 500 on IIS without ASP.NET (SSLense 0.13 and earlier):** IIS answers 500.19 for the challenge, because the `web.config` SSLense writes in `.well-known\acme-challenge` changed a section that IIS locks unless ASP.NET is installed. Upgrade to 0.14 or later, which writes only the sections IIS allows there.
 - **HTTP-01 returns 404 or unexpected content:** check the IIS binding, tunnel host header, authentication, URL Rewrite, MVC routing, proxies, and cached responses for `/.well-known/acme-challenge/<token>`.
 - **ACME validation times out:** confirm public DNS and tunnel routing, and that inbound HTTP remains available throughout validation.
 - **No DNS provider manages a record:** add a provider for that zone, or check the CNAME at `_acme-challenge.<name>`. SSLense follows the CNAME, and the zone it ends in needs a provider.
 - **Cloudflare rejects the token (HTTP 401 or 403):** check that the token still exists, hasn't expired, and has **Zone → DNS → Edit** on that zone, and that the zone ID belongs to the same domain. To change the token, use `SSLense.Cli dns update-token`, or **Replace token** in **Settings → DNS providers**.
 - **The DNS records did not appear in time:** SSLense waits up to 5 minutes and doesn't ask Let's Encrypt to validate. Check the records at your DNS service, then try again. For manual records, check for a typo and that every value exists.
 - **CAA records block Let's Encrypt:** the message names the record to add. For a wildcard, an `issuewild` record takes priority over `issue`.
-- **A wildcard is refused because it is managed for another site:** one wildcard belongs to one IIS site in this version. Remove it from the other site first.
+- **A wildcard is refused because it is managed for another site:** add the site to that certificate with `share add` instead of requesting the wildcard again.
+- **A site is left behind on its previous certificate:** the notification and Certificate Details name it. Fix the site in IIS, then use **Try moving now** or `renew --site`, or stop managing it with `share remove`.
 - **Access denied:** run PowerShell as Administrator.
 - **IIS sites cannot be read:** install IIS Management Scripts and Tools.
 - **SMTP test fails:** verify the port, TLS mode, credentials, outbound firewall policy, and provider-specific authentication requirements.

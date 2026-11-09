@@ -165,7 +165,7 @@ This is the most common reason to want a wildcard, and it is the riskiest part: 
 - A record gains extra site and host targets, with `SiteName` as the first target.
 - Operations take every site's lock, in sorted order to avoid deadlock.
 - One transaction covers all sites. Any verification failure rolls back all of them, so sites never end up split between old and new certificates.
-- If a stopped or misconfigured site blocks a renewal, the other sites and the expiry deadline need a defined behaviour. This needs its own short design section before that release.
+- If a stopped or misconfigured site blocks a renewal, the other sites and the expiry deadline need a defined behaviour. This needs its own short design section before that release. See [shared-certificates.md](shared-certificates.md), which replaces this list.
 
 ## 8. Checks and diagnostics
 
