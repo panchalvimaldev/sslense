@@ -451,6 +451,39 @@ public sealed class DnsScriptTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateScript_TwoUpdatesToTheSameScript_TheLoserLeavesTheSharedCopyInPlace()
+    {
+        await Service().AddAsync(ScriptRequest(Original("'old'"), ""));
+        var newScript = Original("'new'", "new.ps1");
+        string? winner = null;
+        _runner.During = () =>
+        {
+            // The other update finishes first, with the same script, so it uses the same copy.
+            winner = _store.SaveAsync("Registrar", newScript, CancellationToken.None).GetAwaiter().GetResult();
+            ChangeSavedProvider(profile => profile with { ScriptSha256 = winner });
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().UpdateScriptAsync("Registrar", newScript));
+
+        Assert.Equal(winner, _config.Config.DnsProviders.Single().ScriptSha256);
+        Assert.Empty(_store.Inspect("Registrar", winner!));
+    }
+
+    [Fact]
+    public async Task UpdateScript_ACopyRemovedBeforeTheSave_IsNeverSaved()
+    {
+        await Service().AddAsync(ScriptRequest(Original("'old'"), ""));
+        var before = _config.Config.DnsProviders.Single().ScriptSha256!;
+        var newScript = Original("'new'", "new.ps1");
+        _runner.During = () => File.Delete(Directory.GetFiles(Copies).Single(path => !path.Contains(before[..16], StringComparison.OrdinalIgnoreCase)));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().UpdateScriptAsync("Registrar", newScript));
+
+        Assert.Equal(before, _config.Config.DnsProviders.Single().ScriptSha256);
+        Assert.Empty(_store.Inspect("Registrar", before));
+    }
+
+    [Fact]
     public async Task Config_UpdateAppliesTheChangeToTheFileAsItIsNow()
     {
         var files = new InMemoryFileSystem();

@@ -131,29 +131,33 @@ internal sealed class DnsProviderService(
         {
             var sha256 = await _scripts.SaveAsync(name, request.ScriptPath!, cancellationToken).ConfigureAwait(false);
             profile = profile with { ScriptSha256 = sha256, ScriptTimeoutSeconds = request.ScriptTimeoutSeconds };
-            try
-            {
-                await GetProvider(profile).VerifyAccessAsync(profile, cancellationToken).ConfigureAwait(false);
-            }
-            catch
-            {
-                _scripts.Delete(name, sha256);
-                throw;
-            }
-        }
-        else
-        {
-            await GetProvider(profile).VerifyAccessAsync(profile, cancellationToken).ConfigureAwait(false);
         }
 
-        // Added to the providers as they are now, so a change made while the provider was contacted is not overwritten.
-        await configStore.UpdateAsync(
-                current => current.DnsProviders.Any(value =>
-                        string.Equals(value.Name, name, StringComparison.OrdinalIgnoreCase) || DnsNames.Normalize(value.ZoneName) == zone)
-                    ? throw new InvalidOperationException($"A DNS provider named '{name}' or for the zone '{zone}' was added while this one was being checked.")
-                    : current with { DnsProviders = [.. current.DnsProviders, profile] },
-                cancellationToken)
-            .ConfigureAwait(false);
+        try
+        {
+            await GetProvider(profile).VerifyAccessAsync(profile, cancellationToken).ConfigureAwait(false);
+
+            // Added to the providers as they are now, so a change made while the provider was contacted is not overwritten.
+            await configStore.UpdateAsync(
+                    current =>
+                    {
+                        if (current.DnsProviders.Any(value =>
+                                string.Equals(value.Name, name, StringComparison.OrdinalIgnoreCase) || DnsNames.Normalize(value.ZoneName) == zone))
+                        {
+                            throw new InvalidOperationException($"A DNS provider named '{name}' or for the zone '{zone}' was added while this one was being checked.");
+                        }
+
+                        RequireCopy(profile);
+                        return current with { DnsProviders = [.. current.DnsProviders, profile] };
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception) when (profile.ScriptSha256 is not null)
+        {
+            await DeleteCopyIfUnusedAsync(name, profile.ScriptSha256).ConfigureAwait(false);
+            throw;
+        }
     }
 
     public async Task<string> TestAsync(string name, CancellationToken cancellationToken = default)
@@ -220,26 +224,74 @@ internal sealed class DnsProviderService(
             await SaveProfileChangeAsync(
                     profile.Name,
                     "its new script was being checked",
-                    current => string.Equals(current.ScriptSha256, profile.ScriptSha256, StringComparison.OrdinalIgnoreCase)
-                        ? current with { ScriptSha256 = sha256 }
-                        : throw new InvalidOperationException(
-                            $"The script for DNS provider '{profile.Name}' was replaced by another update while this one was being checked. " +
-                            "Nothing was changed by this update. Run it again if it is still needed."),
+                    current =>
+                    {
+                        if (!string.Equals(current.ScriptSha256, profile.ScriptSha256, StringComparison.OrdinalIgnoreCase))
+                        {
+                            throw new InvalidOperationException(
+                                $"The script for DNS provider '{profile.Name}' was replaced by another update while this one was being checked. " +
+                                "Nothing was changed by this update. Run it again if it is still needed.");
+                        }
+
+                        RequireCopy(updated);
+                        return current with { ScriptSha256 = sha256 };
+                    },
                     cancellationToken)
                 .ConfigureAwait(false);
         }
-        catch
+        catch (Exception)
         {
-            _scripts.Delete(profile.Name, sha256);
+            // Another update may have saved this same copy meanwhile, so it is only removed when nothing uses it.
+            await DeleteCopyIfUnusedAsync(profile.Name, sha256).ConfigureAwait(false);
             throw;
         }
 
         if (profile.ScriptSha256 is { } previous)
         {
-            _scripts.Delete(profile.Name, previous);
+            await DeleteCopyIfUnusedAsync(profile.Name, previous).ConfigureAwait(false);
         }
 
         return sha256;
+    }
+
+    /// <summary>
+    /// Called under the config store's lock, just before a hash is saved: the copy must still exist, because an update that
+    /// failed meanwhile may have removed it. Saved settings then never point at a missing copy.
+    /// </summary>
+    private void RequireCopy(DnsProviderProfile profile)
+    {
+        if (profile.ScriptSha256 is { } sha256)
+        {
+            _ = _scripts.GetVerifiedPath(profile.Name, sha256);
+        }
+    }
+
+    /// <summary>
+    /// Removes a script copy under the config store's lock, and only when no saved provider uses it: two updates to the same
+    /// script share one copy. A failure to remove it is ignored; an unused copy is never run.
+    /// </summary>
+    private async Task DeleteCopyIfUnusedAsync(string name, string sha256)
+    {
+        try
+        {
+            await configStore.UpdateAsync(
+                    config =>
+                    {
+                        if (!config.DnsProviders.Any(value =>
+                                string.Equals(value.Name, name, StringComparison.OrdinalIgnoreCase) &&
+                                string.Equals(value.ScriptSha256, sha256, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            _scripts.Delete(name, sha256);
+                        }
+
+                        return config;
+                    },
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+        }
     }
 
     public async Task UpdateTokenAsync(string name, string token, CancellationToken cancellationToken = default)
@@ -299,7 +351,7 @@ internal sealed class DnsProviderService(
             .ConfigureAwait(false);
         if (profile.ScriptSha256 is { } sha256)
         {
-            _scripts.Delete(profile.Name, sha256);
+            await DeleteCopyIfUnusedAsync(profile.Name, sha256).ConfigureAwait(false);
         }
     }
 
