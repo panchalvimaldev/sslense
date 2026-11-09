@@ -110,7 +110,7 @@ Must hold before merge:
 |---|---|---|
 | 1 | This design | Docs |
 | 2 | Core and CLI: the script runner, `Script` provider, copy and hash, checks before each run, schema 7, `dns add --provider script`, `dns update-script`, readiness and health checks. Unit tests with a fake runner, and tests that run real PowerShell with a test script that writes to a file. **Built** November 9, 2026, with the two example scripts in `dns-scripts\`, which tests also run. The checks on the copy's owner and ACL need elevation, so only the acceptance run covers them | CLI |
-| 3 | GUI, README, the two example scripts in the MSI, roadmap and website; acceptance; release as 0.15 | Both |
+| 3 | GUI, README, the two example scripts in the MSI, roadmap and website; acceptance; release as 0.15. **Accepted** November 9, 2026, on Windows 11 and IIS 10, installed from the MSI, with Let's Encrypt staging and the Cloudflare example (`scriptcheck`, 33 of 36 checks). The copy's hash, owner, and ACL; `dns test` against the real name servers; a wildcard issued and renewed by the CLI running as SYSTEM; a changed copy refused until `update-script`; scripts that fail, hang, only claim to add the record, or print their secret; and cleanup through the script after a kill. The 3 failures were faults in the test program, fixed afterwards. The runs also found a CLI problem, now fixed: a command pasted with its line break answered the hidden secret prompt with nothing | Both |
 
 Acceptance, with Let's Encrypt staging and `Cloudflare.ps1`:
 
