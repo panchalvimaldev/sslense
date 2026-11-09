@@ -1,6 +1,6 @@
 # Design: certificate sources (other CAs and bring-your-own certificates)
 
-Status: **approved** October 30, 2026, with every decision in section 8 accepted as proposed. Branch: `feature/certificate-sources`.
+Status: **approved** October 30, 2026, with every decision in section 8 accepted as proposed. Branch: `feature/certificate-sources`. Steps 4 and 5 are detailed in section 9, a **draft for approval** of November 9, 2026, on branch `feature/acme-authorities`, for release 0.16.
 
 ## 1. Goals
 
@@ -129,3 +129,72 @@ Each step builds, passes all tests, and is reviewed before the next. The branch 
 3. **Production guard for all non-test CAs:** one-time explicit acknowledgement per CA profile (proposed).
 4. **Order:** bring-your-own first (steps 2–3), then other ACME CAs (step 4), as proposed, or the reverse.
 5. **Pebble in CI:** downloads Pebble's release binary during the CI run. No NuGet package is needed.
+
+## 9. Steps 4 and 5 in detail (November 2026)
+
+Steps 1 to 3 shipped in 0.10. Since then SSLense gained DNS validation (0.13), shared certificates (0.14), and DNS scripts (0.15), so this section fills in steps 4 and 5 against today's code. Where it differs from sections 2.2 to 6, this section applies.
+
+### 9.1 What exists and what is missing
+
+- **Exists:** the `CertificateAuthority` profile with an EAB key ID and a DPAPI-protected HMAC key; profiles in `config.json`; one ACME account key per profile; every certificate records the profile it came from and renews with it; ARI is read from any CA's directory; rate-limit messages name the CA.
+- **Missing:** EAB is never sent when an account is created; there is no way to add a profile; `issue` can only choose Let's Encrypt staging or production; CAA checks know only Let's Encrypt; nothing tests ACME end to end except manual runs against Let's Encrypt staging.
+
+### 9.2 What the administrator gets
+
+```powershell
+SSLense.Cli ca add --preset zerossl --eab        # prompts for the EAB key ID, and the HMAC key without echo
+SSLense.Cli ca add --preset google-test --eab
+SSLense.Cli ca add --name "Internal" --directory https://acme.internal.example/directory --test
+SSLense.Cli ca list
+SSLense.Cli ca test --ca zerossl                 # reads the directory; creates no account
+SSLense.Cli issue --site "Shop" --email ops@example.com --hosts shop.example.com --ca zerossl --accept-production-risk
+SSLense.Cli ca remove --ca zerossl               # refused while a certificate renews with it
+```
+
+`--staging` and `--production` stay, as short forms of `--ca letsencrypt-staging` and `--ca letsencrypt`. Staging stays the default. HTTP and DNS validation, the script method, and sharing work with every CA.
+
+In the app, **Settings → Certificate authorities** adds from a preset or a directory URL, with EAB fields, **Test**, and **Remove**, and the Issue wizard gains a CA picker.
+
+### 9.3 Presets
+
+| Preset | Directory | EAB | CAA domain | Test endpoint |
+|---|---|---|---|---|
+| `zerossl` | `https://acme.zerossl.com/v2/DV90` | Required | `sectigo.com` | No |
+| `google` | `https://dv.acme-v02.api.pki.goog/directory` | Required | `pki.goog` | No |
+| `google-test` | `https://dv.acme-v02.test-api.pki.goog/directory` | Required | `pki.goog` | Yes |
+| `sslcom` | `https://acme.ssl.com/sslcom-dv-ecc` | Required | `ssl.com` | No |
+| `sectigo` | `https://acme.sectigo.com/v2/DV` | Required | `sectigo.com` | No |
+
+Every URL and CAA domain is checked against the CA's current documentation while step 4 is built, and the table is corrected if needed. Sectigo OV and EV are left out: they need organisation checks outside ACME. A custom CA can be given a CAA domain with `--caa-domain`; without one, SSLense says it cannot check CAA for that CA and continues.
+
+### 9.4 Rules
+
+- **EAB is used when the account is created,** which is the first order with that profile. Certes 4.1, which SSLense already uses, supports it. The HMAC key stays encrypted in the profile, because a new account needs it again if the account key is ever lost. It never appears in logs, output, or diagnostic bundles.
+- **The directory decides.** `ca add` and `ca test` read the directory. If it says EAB is required and none was given, `ca add` stops before anything is saved.
+- **Production guard:** issuing from any profile that is not marked as a test needs `--accept-production-risk`, or the matching choice in the wizard, exactly as Let's Encrypt production does today. Renewals do not ask again. This replaces the one-time stored acknowledgement in decision 3 of section 8: it is simpler, and it behaves the same for every CA (decision 2 below). The guard moves into Core, so the CLI and the app cannot differ.
+- **No silent switching.** A certificate always renews with its own profile. Moving to another CA is an explicit `issue --ca <other> --force`. A profile cannot be removed while a certificate renews with it.
+- **Slow CAs.** Some CAs keep an order processing for a while before the certificate is ready. Certes waits for it; SSLense's per-command timeout is checked to allow for it.
+
+### 9.5 Tests with Pebble
+
+Pebble is Let's Encrypt's small ACME server for testing. It runs locally and supports EAB.
+
+- **In CI:** the workflow downloads one pinned Pebble release, checks its SHA-256, and starts it with EAB required and validation switched off (`PEBBLE_VA_ALWAYS_VALID`), so no DNS or IIS is needed. No NuGet package is added.
+- **Tests:** an account created with EAB; an account without EAB refused; a wrong HMAC key refused; an order through HTTP and through DNS validation that downloads a certificate; a second order through the same account, which must not send EAB again; and the ARI fallback for a CA without ARI. These exercise SSLense's real Certes client, which no test does today.
+- **Trust:** Pebble serves its API with its own test certificate. Only the tests trust it, through an HTTP client handed to the ACME client. Production code keeps the system's normal trust.
+- **Locally:** the same tests run when `SSLENSE_PEBBLE_URL` points at a running Pebble, and are skipped otherwise, so `dotnet test` needs nothing new.
+
+### 9.6 Acceptance and release
+
+- **Acceptance, on the maintainer's PC:** Google Trust Services' **test** endpoint, which is free and issues untrusted certificates like Let's Encrypt staging: `ca add`, a wildcard through DNS validation, a renewal, and a shared certificate.
+- **Production test, by the maintainer:** one ZeroSSL certificate, which is free through ACME.
+- **Delivery:** step 4a, Core and CLI with the Pebble tests; step 4b, the app, documents, website, and roadmap; acceptance; release as 0.16.
+
+### 9.7 Decisions for approval
+
+1. **The presets in 9.3 (proposed),** checked against each CA's documentation while they are built. Sectigo OV and EV left out.
+2. **`--accept-production-risk` on every issue from a non-test CA (proposed),** in place of a stored one-time acknowledgement, so every CA behaves like Let's Encrypt production does today.
+3. **The HMAC key is kept, encrypted (proposed),** so a lost account key can be replaced without asking for EAB credentials again.
+4. **`--caa-domain` for custom CAs (proposed);** without it, the CAA check is skipped with a message.
+5. **Pebble in CI, from a pinned release checked by SHA-256 (proposed),** with the same tests runnable locally when Pebble is running.
+6. **Acceptance on Google's test endpoint and a ZeroSSL production test (proposed).**
