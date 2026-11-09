@@ -1,6 +1,6 @@
 # Design: DNS validation through a script
 
-Status: **draft for approval**, November 9, 2026. Target release: 0.15. Branch: `feature/dns-script`. This is the design section promised by [dns-validation.md](dns-validation.md), section 10, and item 1 of the [roadmap](../../ROADMAP.md).
+Status: **approved** November 9, 2026, with decisions 1 to 7 in section 8 accepted as proposed. Target release: 0.15. Branch: `feature/dns-script`. This is the design section promised by [dns-validation.md](dns-validation.md), section 10, and item 1 of the [roadmap](../../ROADMAP.md).
 
 ## 1. Problem
 
@@ -70,7 +70,7 @@ SSLense runs:
 
 | Risk | Rule |
 |---|---|
-| Someone changes the script and gains SYSTEM | SSLense copies the script into `C:\ProgramData\SSLense\dns-scripts\<name>.ps1` when it is added or updated. That folder already allows only Administrators and SYSTEM, and rejects links. SSLense runs only its copy, never the original |
+| Someone changes the script and gains SYSTEM | SSLense copies the script into `C:\ProgramData\SSLense\dns-scripts\<name>-<start of hash>.ps1` when it is added or updated, so an update is checked before the copy it replaces is removed. That folder already allows only Administrators and SYSTEM, and rejects links. SSLense runs only its copy, never the original |
 | The copy is changed in place | SSLense stores the copy's SHA-256 and checks it before every run. A mismatch stops the run, says which file changed, and asks for `dns update-script`, which an administrator must run |
 | A link or a file outside the folder | Before every run, SSLense checks that the copy is a plain file in that folder, not a link and with one hard link, and that its ACL still allows only Administrators and SYSTEM to change it |
 | Someone other than an administrator adds a script | Adding, updating, and removing need elevation, as every SSLense change does. The service never adds or changes a script |
@@ -88,13 +88,13 @@ SSLense runs:
 - **Before each order:** `Check`, as the Cloudflare provider checks its token today. A failure stops before the rate-limited order is created.
 - **Readiness check:** in the 30 days before each automatic renewal, the service runs `Check` once a day as SYSTEM. Two failures in a row are reported in the digest, like the other readiness checks.
 - **Health check:** reports a script whose copy is missing, has the wrong hash, or has a wrong ACL.
-- **Diagnostic bundle:** the script's name, hash, and the last call's exit code and duration.
-- **Logs:** each call's action, record name, exit code, and duration at Information; the redacted output at Debug.
+- **Diagnostic bundle:** the script's name and the first 16 characters of its hash. The whole hash is long enough that the bundle's redaction removes it as a possible secret, and an exception for hex values would let through API keys that happen to be hex.
+- **Errors:** a failed call reports the action, the exit code or timeout, and the script's last 20 lines of output with the secret removed. The CLI, GUI, and service log that message as they log any other failure. Output from a call that worked is not kept.
 
 ## 6. Data changes
 
 - `DnsProviderType` gains `Script`.
-- `DnsProviderProfile` gains `ScriptSha256` and `ScriptTimeoutSeconds`. The script's path is not stored, because it is always `dns-scripts\<name>.ps1`. `ProtectedToken` may be empty, for a script without a secret. `ZoneId` is not used.
+- `DnsProviderProfile` gains `ScriptSha256` and `ScriptTimeoutSeconds`. The script's path is not stored, because it follows from the provider's name and the hash. A script provider's name must therefore be usable as a file name: letters, digits, spaces, dots, hyphens, and underscores. `ProtectedToken` may be empty, for a script without a secret. `ZoneId` is not used.
 - **Config schema 6 to 7.** 0.14 would read a script provider as an unknown type and fail confusingly, so it must refuse the newer file instead. As in earlier releases, the existing file is backed up before the first save in the new version.
 
 ## 7. Safety requirements and delivery
@@ -109,7 +109,7 @@ Must hold before merge:
 | Step | Contents | Ships |
 |---|---|---|
 | 1 | This design | Docs |
-| 2 | Core and CLI: the script runner, `Script` provider, copy and hash, checks before each run, schema 7, `dns add --provider script`, `dns update-script`, readiness and health checks. Unit tests with a fake runner, and tests that run real PowerShell with a test script that writes to a file | CLI |
+| 2 | Core and CLI: the script runner, `Script` provider, copy and hash, checks before each run, schema 7, `dns add --provider script`, `dns update-script`, readiness and health checks. Unit tests with a fake runner, and tests that run real PowerShell with a test script that writes to a file. **Built** November 9, 2026, with the two example scripts in `dns-scripts\`, which tests also run. The checks on the copy's owner and ACL need elevation, so only the acceptance run covers them | CLI |
 | 3 | GUI, README, the two example scripts in the MSI, roadmap and website; acceptance; release as 0.15 | Both |
 
 Acceptance, with Let's Encrypt staging and `Cloudflare.ps1`:

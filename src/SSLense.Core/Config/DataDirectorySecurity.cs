@@ -94,6 +94,35 @@ public static class DataDirectorySecurity
         return [];
     }
 
+    /// <summary>
+    /// Gives a file just written inside the data directory the directory's restricted ACL, owned by Administrators.
+    /// Requires elevation.
+    /// </summary>
+    internal static void SecureFile(string path) => ResetToInherited(new FileInfo(path), takeOwnership: true);
+
+    /// <summary>
+    /// Reports why a file could be changed by anyone other than Administrators and SYSTEM: a link, a second hard link,
+    /// another owner, or another principal granted access. Empty when the file is safe to trust.
+    /// </summary>
+    internal static IReadOnlyList<string> VerifyFile(string path)
+    {
+        var problems = new List<string>();
+        var file = new FileInfo(path);
+        if (file.Attributes.HasFlag(FileAttributes.ReparsePoint))
+        {
+            problems.Add($"'{path}' is a link.");
+            return problems;
+        }
+
+        if (GetLinkCount(path) > 1)
+        {
+            problems.Add($"'{path}' has more than one hard link, so it can be changed through another path.");
+        }
+
+        CheckSecurity(path, file.GetAccessControl(), AllowedPrincipals([]).ToHashSet(), problems);
+        return problems;
+    }
+
     internal static IReadOnlyList<string> Verify(string path, IReadOnlyList<SecurityIdentifier> additionalPrincipals)
     {
         var problems = new List<string>();

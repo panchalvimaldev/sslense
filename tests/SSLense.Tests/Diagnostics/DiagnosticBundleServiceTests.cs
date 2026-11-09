@@ -23,6 +23,8 @@ public sealed class DiagnosticBundleServiceTests : IDisposable
     private const string AccountEmail = "admin@example.com";
     private const string DnsToken = "AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAProtectedDnsTokenBlobValue1234==";
     private const string DnsZoneId = "0123456789abcdef0123456789abcdef";
+    private const string DnsScriptSecret = "AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAProtectedScriptSecretBlob99==";
+    private const string DnsScriptSha256 = "0A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F60718293A4B5C6D7E8F9";
 
     private readonly string _output = Path.Combine(Path.GetTempPath(), $"sslense-bundle-{Guid.NewGuid():N}.zip");
 
@@ -41,11 +43,14 @@ public sealed class DiagnosticBundleServiceTests : IDisposable
         foreach (var secret in new[]
                  {
                      SmtpPassword, WebhookUrl, HeartbeatUrl, LoggedPassword, LoggedWebhookToken, LoggedBearer, PrivateKeyBody,
-                     DnsToken, DnsZoneId, AccountEmail, "smtp-user@example.com", "alerts@example.com"
+                     DnsToken, DnsZoneId, DnsScriptSecret, AccountEmail, "smtp-user@example.com", "alerts@example.com"
                  })
         {
             Assert.DoesNotContain(secret, everything, StringComparison.Ordinal);
         }
+
+        // The script's hash is not a secret, and shows which script the service runs.
+        Assert.Contains(DnsScriptSha256[..16], everything, StringComparison.Ordinal);
 
         // Diagnostic value is kept.
         Assert.Contains("acme-test.sslense.com", everything, StringComparison.Ordinal);
@@ -232,8 +237,13 @@ public sealed class DiagnosticBundleServiceTests : IDisposable
         var config = new AppConfig
         {
             DefaultEmail = AccountEmail,
-            DnsProviders = [new SSLense.Core.DnsValidation.DnsProviderProfile(
-                "Main", SSLense.Core.DnsValidation.DnsProviderType.Cloudflare, "example.com", DnsZoneId, DnsToken)],
+            DnsProviders =
+            [
+                new SSLense.Core.DnsValidation.DnsProviderProfile(
+                    "Main", SSLense.Core.DnsValidation.DnsProviderType.Cloudflare, "example.com", DnsZoneId, DnsToken),
+                new SSLense.Core.DnsValidation.DnsProviderProfile(
+                    "Registrar", SSLense.Core.DnsValidation.DnsProviderType.Script, "example.net", null, DnsScriptSecret, DnsScriptSha256)
+            ],
             Notifications = new NotificationConfig
             {
                 Email = new EmailNotificationConfig(

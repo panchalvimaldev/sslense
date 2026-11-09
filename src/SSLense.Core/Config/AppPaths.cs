@@ -44,6 +44,9 @@ public static class AppPaths
 
     public static string DnsChallengeJournalDirectory => Path.Combine(DataDirectory, "dns-challenges");
 
+    /// <summary>SSLense's own copies of DNS scripts; the service runs only these (docs/design/dns-script.md).</summary>
+    public static string DnsScriptDirectory => Path.Combine(DataDirectory, "dns-scripts");
+
     public static string PendingRequestsFile => Path.Combine(DataDirectory, "pending-requests.json");
 
     public static string ReminderStateFile => Path.Combine(DataDirectory, "reminder-state.json");

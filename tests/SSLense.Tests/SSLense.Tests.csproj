@@ -14,4 +14,8 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
   </ItemGroup>
+  <ItemGroup>
+    <!-- The example DNS scripts that ship with SSLense, run by DnsScriptTests. -->
+    <None Include="..\..\dns-scripts\*.ps1" Link="dns-scripts\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
