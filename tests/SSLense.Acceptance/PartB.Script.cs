@@ -123,7 +123,10 @@ internal static partial class PartB
         Iis.EnsureSite(A, HostA);
         var issued = await IssueWithRetry("--site", A, "--email", _email, "--validation", "dns", "--staging", "--names", $"*.{Domain}", "--hosts", HostA);
         Report.Check("Issued", issued.ExitCode == 0, $"exit {issued.ExitCode}");
-        Report.Check("Published through the script", issued.Output.Contains($"with {ScriptProvider}", StringComparison.Ordinal));
+        // Staging reuses a validation from an earlier run for 30 days, and then nothing is published. X6 always publishes.
+        Report.Check(
+            "Published through the script, or reused an earlier validation",
+            issued.Output.Contains($"with {ScriptProvider}", StringComparison.Ordinal) || !issued.Output.Contains("[dns-publish]", StringComparison.Ordinal));
         await RequireServing(Get(A).Thumbprint, HostA);
     }
 
@@ -144,13 +147,15 @@ internal static partial class PartB
         var started = Exec("schtasks", "/run", "/tn", SystemTask);
         Report.Check("Started as SYSTEM", started == 0, $"schtasks exit {started}");
 
+        // The task still has the file open while it runs, so it is read with sharing, until the batch file's last line appears.
         var deadline = DateTimeOffset.UtcNow.AddMinutes(10);
-        while (DateTimeOffset.UtcNow < deadline && !(File.Exists(output) && File.ReadAllText(output).Contains("exit ", StringComparison.Ordinal)))
+        while (DateTimeOffset.UtcNow < deadline && !(File.Exists(output) && ReadFrom(output, 0).Contains("exit ", StringComparison.Ordinal)))
         {
             await Task.Delay(TimeSpan.FromSeconds(5));
         }
 
-        var text = File.Exists(output) ? File.ReadAllText(output) : "";
+        await Task.Delay(TimeSpan.FromSeconds(2));
+        var text = File.Exists(output) ? ReadFrom(output, 0) : "";
         foreach (var line in text.Split('\n'))
         {
             Report.Info($"    {line.TrimEnd()}");
