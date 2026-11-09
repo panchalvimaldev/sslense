@@ -93,7 +93,7 @@ finally
 
 static RootCommand CreateRootCommand(IServiceProvider services)
 {
-    var rootCommand = new RootCommand("Manage Let's Encrypt certificates for IIS.");
+    var rootCommand = new RootCommand("Manage certificates for IIS: from Let's Encrypt or any ACME certificate authority, renewed automatically, or bought elsewhere and installed safely.");
     var listSitesCommand = new Command("list-sites", "List IIS sites and their bindings.");
 
     listSitesCommand.SetAction((_, cancellationToken) =>
@@ -222,7 +222,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
 
     var healthCommand = new Command(
         "health",
-        "Check the service, permissions, IIS, certificates, DNS, port 80, and Let's Encrypt connectivity.");
+        "Check the service, permissions, IIS, certificates, DNS, port 80, and each certificate authority in use.");
     healthCommand.SetAction((_, cancellationToken) =>
         HealthAsync(services.GetRequiredService<IHealthCheckService>(), cancellationToken));
     rootCommand.Subcommands.Add(healthCommand);
@@ -295,7 +295,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     rootCommand.Subcommands.Add(removeCommand);
 
     var settingsEmailOption = new Option<string?>("--email") { Description = "Default ACME account email." };
-    var settingsDaysOption = new Option<int>("--renewal-days") { Required = true, Description = "Let's Encrypt fallback schedule when the CA offers no renewal window (ARI), 1-89 days, capped at a third of the lifetime. Reminders are set with 'reminders set'." };
+    var settingsDaysOption = new Option<int>("--renewal-days") { Required = true, Description = "Fallback schedule when the CA offers no renewal window (ARI), 1-89 days, capped at a third of the lifetime. Reminders are set with 'reminders set'." };
     var configureCommand = new Command("configure", "Save general defaults and renewal settings.");
     configureCommand.Options.Add(settingsEmailOption); configureCommand.Options.Add(settingsDaysOption);
     configureCommand.SetAction((result, token) => ConfigureGeneralAsync(

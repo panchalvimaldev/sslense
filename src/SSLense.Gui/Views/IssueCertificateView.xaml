@@ -6,7 +6,7 @@
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <StackPanel Margin="0,0,0,18">
    <TextBlock Text="Issue a certificate" Style="{StaticResource PageTitle}"/>
-   <TextBlock Text="Configure, validate, and install a Let's Encrypt certificate." Style="{StaticResource PageSubtitle}"/>
+   <TextBlock Text="Configure, validate, and install a certificate from Let's Encrypt or another ACME certificate authority." Style="{StaticResource PageSubtitle}"/>
   </StackPanel>
 
   <Grid Grid.Row="1" Margin="16,0,16,20">
@@ -30,7 +30,7 @@
        <TextBlock Text="This site already serves HTTPS" FontWeight="SemiBold"/>
        <TextBlock Text="{Binding SelectedSite.HttpsSummary}" TextWrapping="Wrap" Margin="0,3,0,0"/>
        <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0"
-                  Text="Issuing replaces that certificate for the host names you select, for example to move from a paid certificate to Let's Encrypt. To keep it and only get expiry reminders, adopt it on the Other Providers page instead."/>
+                  Text="Issuing replaces that certificate for the host names you select, for example to move from a certificate you renew by hand to one SSLense renews automatically. To keep it and only get expiry reminders, adopt it on the Other Providers page instead."/>
        <CheckBox Content="Replace the current certificate even if it is still valid" IsChecked="{Binding ReplaceExisting}" Margin="0,8,0,0" AutomationProperties.Name="Replace the current certificate even if it is still valid"/>
       </StackPanel>
      </Border>

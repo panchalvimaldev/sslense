@@ -105,12 +105,12 @@ public partial class IssueCertificateViewModel : ObservableObject
             "SSLense adds a temporary DNS record through a provider set up in Settings, and renews automatically. Port 80 is not needed.",
         ValidationMethod.Dns01Manual =>
             "You create the DNS records yourself, with any DNS service. Port 80 is not needed.",
-        _ => "Let's Encrypt checks the site over port 80, and SSLense renews automatically. This cannot issue wildcard certificates."
+        _ => "The certificate authority checks the site over port 80, and SSLense renews automatically. This cannot issue wildcard certificates."
     };
 
     public string PreflightSubtitle => UsesDns
-        ? "SSLense checks the bindings, certificate names, and DNS before contacting Let's Encrypt. Nothing in DNS changes yet."
-        : "SSLense checks access, bindings, and challenge-folder permissions before contacting Let's Encrypt.";
+        ? "SSLense checks the bindings, certificate names, and DNS before contacting the certificate authority. Nothing in DNS changes yet."
+        : "SSLense checks access, bindings, and challenge-folder permissions before contacting the certificate authority.";
 
     public ObservableCollection<IisSiteOption> Sites { get; } = [];
     public ObservableCollection<HostOptionViewModel> Hosts { get; } = [];

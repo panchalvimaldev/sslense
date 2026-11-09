@@ -66,7 +66,7 @@
      <DockPanel><Button DockPanel.Dock="Right" Content="Browse..." Click="OnBrowseCertificateClick" Margin="8,0,0,0"/><TextBox Text="{Binding CertificatePath, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Certificate file"/></DockPanel>
      <TextBlock Text="INTERMEDIATE BUNDLE (OFTEN NAMED CA-BUNDLE OR CHAIN; OPTIONAL IF INCLUDED ABOVE)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/>
      <DockPanel><Button DockPanel.Dock="Right" Content="Browse..." Click="OnBrowseChainClick" Margin="8,0,0,0"/><TextBox Text="{Binding ChainPath, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Intermediate bundle file"/></DockPanel>
-     <CheckBox Content="Replace a certificate that SSLense renews automatically from Let's Encrypt" IsChecked="{Binding CompleteForce}" Margin="0,12,0,0"/>
+     <CheckBox Content="Replace a certificate that SSLense renews automatically" IsChecked="{Binding CompleteForce}" Margin="0,12,0,0"/>
      <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
       <Button Content="Install certificate" Command="{Binding CompleteCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"/>
       <Button Content="Cancel request" Click="OnCancelRequestClick" Style="{StaticResource DangerButton}"/>
@@ -84,7 +84,7 @@
     </Grid>
     <TextBlock Text="HOST NAMES TO BIND (OPTIONAL; DEFAULT: THE SITE'S HOST NAMES THE CERTIFICATE COVERS)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/>
     <TextBox Text="{Binding ImportHosts, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Host names to bind"/>
-    <CheckBox Content="Replace a certificate that SSLense renews automatically from Let's Encrypt" IsChecked="{Binding ImportForce}" Margin="0,12,0,0"/>
+    <CheckBox Content="Replace a certificate that SSLense renews automatically" IsChecked="{Binding ImportForce}" Margin="0,12,0,0"/>
     <Button Content="Import and bind" Command="{Binding ImportCommand}" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" Margin="0,16,0,0"/>
    </StackPanel></GroupBox>
 

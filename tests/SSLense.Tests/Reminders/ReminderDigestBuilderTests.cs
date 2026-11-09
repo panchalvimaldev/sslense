@@ -44,6 +44,18 @@ public sealed class ReminderDigestBuilderTests
     }
 
     [Theory]
+    [InlineData("zerossl", "(ZeroSSL)")]
+    [InlineData("internal-ca", "(internal-ca)")]
+    public void AutomaticCertificate_NamesItsCertificateAuthority(string authorityId, string shown)
+    {
+        var certificate = Automatic(25) with { AuthorityId = authorityId };
+
+        var body = Build(certificate, Now.AddDays(2)).ToMessage("SERVER01").Body;
+
+        Assert.Contains(shown, body, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData(45, null, false)]                // before the window
     [InlineData(25, null, true)]                 // in the window, never reminded
     [InlineData(25, 1, false)]                   // reminded yesterday, repeat every 3 days
