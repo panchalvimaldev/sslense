@@ -254,7 +254,8 @@ public sealed class AcmeServiceTests
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.IssueAsync(
             new AcmeIssueRequest(
                 "My Site", ["example.com"], "admin@example.com",
-                AuthorityId: CertificateAuthorities.LetsEncryptId)));
+                AuthorityId: CertificateAuthorities.LetsEncryptId,
+                AcceptProductionRisk: true)));
 
         if (expectOrder)
         {
@@ -265,6 +266,45 @@ public sealed class AcmeServiceTests
             Assert.Contains("--force", exception.Message, StringComparison.Ordinal);
             protocol.VerifyNoOtherCalls();
         }
+    }
+
+    [Theory]
+    [InlineData(CertificateAuthorities.LetsEncryptId)]
+    [InlineData("zerossl")]
+    public async Task IssueAsync_TrustedCa_WithoutConfirmation_IsRefusedBeforeAnyOrder(string authorityId)
+    {
+        var managed = new Mock<IManagedCertificateStore>();
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([]);
+        var zeroSsl = new CertificateAuthority("zerossl", "ZeroSSL", new Uri("https://acme.zerossl.com/v2/DV90"), IsTest: false);
+        var protocol = new Mock<IAcmeProtocolClient>(MockBehavior.Strict);
+        var service = new AcmeService(
+            MockIis(CreateSite("example.com")).Object,
+            protocol.Object,
+            Mock.Of<IChallengeHandler>(),
+            Mock.Of<IChallengeProbe>(),
+            Mock.Of<ICertificateArtifactStore>(),
+            Mock.Of<ICertificateStore>(),
+            managed.Object,
+            authorities: new CertificateAuthorityRegistry(new SSLense.Tests.DnsValidation.FakeConfigStore(new AppConfig { CertificateAuthorities = [zeroSsl] })));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.IssueAsync(
+            new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com", AuthorityId: authorityId)));
+
+        Assert.Contains("--accept-production-risk", exception.Message, StringComparison.Ordinal);
+        protocol.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public void ManualRenewalCommand_NamesTheCa_AndConfirmsProduction()
+    {
+        var certificate = new ManagedCertificate(
+            "Shop", ["shop.example.com"], "admin@example.com", "AA", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(60),
+            AuthorityId: "zerossl", ValidationMethod: ValidationMethod.Dns01Manual);
+
+        var command = SSLense.Core.Renewal.ManualDnsRenewal.Command(certificate);
+
+        Assert.EndsWith(" --ca zerossl --accept-production-risk", command, StringComparison.Ordinal);
+        Assert.DoesNotContain("--production", SSLense.Core.Renewal.ManualDnsRenewal.Command(certificate with { AuthorityId = CertificateAuthorities.LetsEncryptStagingId }), StringComparison.Ordinal);
     }
 
     [Theory]

@@ -209,7 +209,10 @@ internal sealed class RenewalService : IRenewalService
                         certificate.AuthorityId,
                         certificate.Thumbprint,
                         certificate.ValidationMethod,
-                        CertificateNames: certificate.CertificateNames),
+                        CertificateNames: certificate.CertificateNames,
+
+                        // Confirmed when the certificate was first issued from this CA.
+                        AcceptProductionRisk: true),
                     progress,
                     cancellationToken)
                 .ConfigureAwait(false);

@@ -360,7 +360,8 @@ public partial class IssueCertificateViewModel : ObservableObject
                     ExpectedCurrentThumbprint: _renewing?.Thumbprint,
                     ValidationMethod: SelectedValidation,
                     ConfirmManualDns: SelectedValidation == ValidationMethod.Dns01Manual ? ConfirmManualDnsAsync : null,
-                    CertificateNames: UsesDns ? SelectedNames() : null),
+                    CertificateNames: UsesDns ? SelectedNames() : null,
+                    AcceptProductionRisk: UseProduction && ProductionRiskAccepted),
                 new Progress<ProgressEvent>(value =>
                     ProgressLines.Add($"[{DateTime.Now:HH:mm:ss}] [{value.Step}] {value.Message}")),
                 token).ConfigureAwait(true);

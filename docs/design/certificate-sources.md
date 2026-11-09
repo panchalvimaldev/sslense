@@ -1,6 +1,6 @@
 # Design: certificate sources (other CAs and bring-your-own certificates)
 
-Status: **approved** October 30, 2026, with every decision in section 8 accepted as proposed. Branch: `feature/certificate-sources`. Steps 4 and 5 are detailed in section 9, a **draft for approval** of November 9, 2026, on branch `feature/acme-authorities`, for release 0.16.
+Status: **approved** October 30, 2026, with every decision in section 8 accepted as proposed. Branch: `feature/certificate-sources`. Steps 4 and 5 are detailed in section 9, **approved** November 9, 2026, with decisions 1 to 6 in section 9.7 accepted as proposed, on branch `feature/acme-authorities`, for release 0.16.
 
 ## 1. Goals
 

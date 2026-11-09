@@ -65,6 +65,14 @@ internal sealed class AcmeService : IAcmeService
         var sharedRecord = await FindSharedRecordAsync(request.SiteName, lockedSites, cancellationToken).ConfigureAwait(false);
         await EnsureExpectedCertificateAsync(request, cancellationToken).ConfigureAwait(false);
         var authority = await _authorities.GetAsync(request.AuthorityId, cancellationToken).ConfigureAwait(false);
+        if (!authority.IsTest && !request.AcceptProductionRisk)
+        {
+            throw new InvalidOperationException(
+                $"{authority.Name} issues certificates that browsers trust, and its limits apply. Try the site with a test CA, " +
+                "such as Let's Encrypt staging, first. Then confirm with --accept-production-risk, or with the production " +
+                "confirmation in the app.");
+        }
+
         var environmentName = CertificateAuthorities.Label(authority.Id);
         var usesDns = request.ValidationMethod != ValidationMethod.Http01;
 

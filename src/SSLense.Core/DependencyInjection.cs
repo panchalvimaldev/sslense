@@ -26,6 +26,8 @@ public static class DependencyInjection
         services.AddSingleton<ISecretProtector, DpapiSecretProtector>();
         services.AddSingleton<IAcmeAccountStore, AcmeAccountStore>();
         services.AddSingleton<ICertificateAuthorityRegistry, CertificateAuthorityRegistry>();
+        services.AddSingleton<IAcmeDirectoryReader, AcmeDirectoryReader>();
+        services.AddTransient<ICertificateAuthorityService, CertificateAuthorityService>();
         services.AddSingleton<IChallengeProbe, HttpChallengeProbe>();
         services.AddSingleton<IChallengeJournal, JsonChallengeJournal>();
         services.AddSingleton<IIisSectionLocks, IisSectionLocks>();

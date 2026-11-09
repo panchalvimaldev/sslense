@@ -12,7 +12,14 @@ namespace SSLense.Core.Acme;
 /// production and needs an explicit acknowledgement before its first use.
 /// </param>
 /// <param name="EabKeyId">External Account Binding key ID, for CAs that require one.</param>
-/// <param name="ProtectedEabHmacKey">DPAPI-protected EAB HMAC key; used once, when the ACME account is created.</param>
+/// <param name="ProtectedEabHmacKey">
+/// DPAPI-protected EAB HMAC key; used when the ACME account is created, and kept so a lost account key can be replaced.
+/// </param>
+/// <param name="ProductionAcknowledged">No longer used: every issue from a non-test CA confirms it (docs/design/certificate-sources.md, 9.4).</param>
+/// <param name="CaaIdentities">
+/// The domains this CA looks for in CAA records, from its directory or given by the administrator. Null or empty when
+/// unknown, and then CAA is not checked.
+/// </param>
 public sealed record CertificateAuthority(
     string Id,
     string Name,
@@ -20,10 +27,16 @@ public sealed record CertificateAuthority(
     bool IsTest,
     string? EabKeyId = null,
     string? ProtectedEabHmacKey = null,
-    bool ProductionAcknowledged = false)
+    bool ProductionAcknowledged = false,
+    IReadOnlyList<string>? CaaIdentities = null)
 {
     public bool IsBuiltIn => CertificateAuthorities.IsBuiltIn(Id);
+
+    public bool HasExternalAccountBinding => !string.IsNullOrEmpty(EabKeyId) && !string.IsNullOrEmpty(ProtectedEabHmacKey);
 }
+
+/// <summary>A certificate authority SSLense knows the address of. EAB and CAA come from its directory when it is added.</summary>
+public sealed record CertificateAuthorityPreset(string Id, string Name, Uri DirectoryUri, bool IsTest);
 
 public static partial class CertificateAuthorities
 {
@@ -34,15 +47,30 @@ public static partial class CertificateAuthorities
         LetsEncryptId,
         "Let's Encrypt production",
         new Uri("https://acme-v02.api.letsencrypt.org/directory"),
-        IsTest: false);
+        IsTest: false,
+        CaaIdentities: ["letsencrypt.org"]);
 
     public static CertificateAuthority LetsEncryptStaging { get; } = new(
         LetsEncryptStagingId,
         "Let's Encrypt staging",
         new Uri("https://acme-staging-v02.api.letsencrypt.org/directory"),
-        IsTest: true);
+        IsTest: true,
+        CaaIdentities: ["letsencrypt.org"]);
 
     public static IReadOnlyList<CertificateAuthority> BuiltIn { get; } = [LetsEncryptStaging, LetsEncrypt];
+
+    /// <summary>
+    /// Checked against each CA's directory on November 9, 2026. Sectigo OV and EV are left out: they need organisation
+    /// checks outside ACME.
+    /// </summary>
+    public static IReadOnlyList<CertificateAuthorityPreset> Presets { get; } =
+    [
+        new("zerossl", "ZeroSSL", new Uri("https://acme.zerossl.com/v2/DV90"), IsTest: false),
+        new("google", "Google Trust Services", new Uri("https://dv.acme-v02.api.pki.goog/directory"), IsTest: false),
+        new("google-test", "Google Trust Services test", new Uri("https://dv.acme-v02.test-api.pki.goog/directory"), IsTest: true),
+        new("sslcom", "SSL.com", new Uri("https://acme.ssl.com/sslcom-dv-ecc"), IsTest: false),
+        new("sectigo", "Sectigo DV", new Uri("https://acme.sectigo.com/v2/DV"), IsTest: false)
+    ];
 
     public static bool IsBuiltIn(string id) => id is LetsEncryptId or LetsEncryptStagingId;
 
@@ -59,9 +87,6 @@ public static partial class CertificateAuthorities
         LetsEncryptId => "production",
         _ => authorityId
     };
-
-    /// <summary>The domain this CA looks for in CAA records, or null when SSLense does not know it.</summary>
-    public static string? CaaDomain(string authorityId) => IsBuiltIn(authorityId) ? "letsencrypt.org" : null;
 
     public static bool IsValidId(string id) => ValidId().IsMatch(id);
 

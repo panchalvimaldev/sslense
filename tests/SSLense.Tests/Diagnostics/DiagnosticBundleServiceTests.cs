@@ -23,6 +23,7 @@ public sealed class DiagnosticBundleServiceTests : IDisposable
     private const string AccountEmail = "admin@example.com";
     private const string DnsToken = "AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAProtectedDnsTokenBlobValue1234==";
     private const string DnsZoneId = "0123456789abcdef0123456789abcdef";
+    private const string EabHmacKey = "AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAProtectedEabHmacKeyBlob777==";
     private const string DnsScriptSecret = "AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAProtectedScriptSecretBlob99==";
     private const string DnsScriptSha256 = "0A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F60718293A4B5C6D7E8F9";
 
@@ -43,7 +44,7 @@ public sealed class DiagnosticBundleServiceTests : IDisposable
         foreach (var secret in new[]
                  {
                      SmtpPassword, WebhookUrl, HeartbeatUrl, LoggedPassword, LoggedWebhookToken, LoggedBearer, PrivateKeyBody,
-                     DnsToken, DnsZoneId, DnsScriptSecret, AccountEmail, "smtp-user@example.com", "alerts@example.com"
+                     DnsToken, DnsZoneId, DnsScriptSecret, EabHmacKey, AccountEmail, "smtp-user@example.com", "alerts@example.com"
                  })
         {
             Assert.DoesNotContain(secret, everything, StringComparison.Ordinal);
@@ -237,6 +238,7 @@ public sealed class DiagnosticBundleServiceTests : IDisposable
         var config = new AppConfig
         {
             DefaultEmail = AccountEmail,
+            CertificateAuthorities = [new SSLense.Core.Acme.CertificateAuthority("zerossl", "ZeroSSL", new Uri("https://acme.zerossl.com/v2/DV90"), IsTest: false, EabKeyId: "kid-1", ProtectedEabHmacKey: EabHmacKey)],
             DnsProviders =
             [
                 new SSLense.Core.DnsValidation.DnsProviderProfile(
