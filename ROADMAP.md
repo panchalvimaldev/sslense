@@ -32,6 +32,7 @@ Complete:
 - Certificates with no IIS site (0.19): issued and renewed through DNS under a name instead of a site, for Remote Desktop, SQL Server, and other services that deployment steps hand them to; removal keeps the certificate in the store ([design](docs/design/no-site-certificates.md))
 - Certificate export (0.20): an exportable key chosen per certificate at issue; deployment steps that write a password-protected PFX, PEM files with an administrators-only key, or one PFX per name to the IIS Central Certificate Store; passwords encrypted with DPAPI ([design](docs/design/certificate-export.md))
 - Key and order options (0.21): ECDSA P-256 or P-384, or RSA 2048, 3072, or 4096; a preferred chain; ACME profiles such as Let's Encrypt's short-lived certificates, checked against the CA's directory; all kept at renewal ([design](docs/design/key-and-order-options.md))
+- Private-key reuse (0.22): the same key at every renewal for pinning and DANE, with the request signed in the Windows key store, and a new key, reported, when it cannot be reused ([design](docs/design/key-reuse.md))
 - Cross-process per-site locking, durable operation journals, and non-fatal startup recovery
 - Health check (CLI and GUI) and redacted diagnostic bundles for support
 - Versioned state schemas with backup before migration and safe refusal of newer schemas
@@ -63,13 +64,12 @@ References:
 
 In priority order. Feedback from real users can change the order.
 
-1. **Private-key reuse.** Keep the same key at renewal for sites that pin it, by building the certificate request from the key already in the Windows store.
-2. **Built-in DNS providers.** The script method (0.15) covers any service with an API; built-in providers save writing one. One at a time, starting with Amazon Route 53, Azure DNS, Google Cloud DNS, DigitalOcean, and Hetzner, then whichever users ask for most. Each stays labelled untested until it has run on a real account. Providers are compiled in, not loaded as plugins, because the service runs as SYSTEM.
-3. **HTTP validation without a port 80 binding.** A short-lived listener of SSLense's own answers the challenge, for sites that have only HTTPS bindings or whose port 80 is used by something else.
-4. **Certificates on other machines.** Add host names that are not on this server, such as load balancers and appliances, to the daily served-certificate check, so one place reminds about every certificate.
-5. **HTTP-to-HTTPS redirect helper** using an IIS URL Rewrite rule, with a check that it does not block validation.
-6. **Bulk operations.** Adopt every unmanaged certificate at once, and issue for many sites from a CSV file.
-7. **New version notice.** Tell the administrator when a newer release is available, with a setting to turn the check off. Never install anything automatically.
+1. **Built-in DNS providers.** The script method (0.15) covers any service with an API; built-in providers save writing one. One at a time, starting with Amazon Route 53, Azure DNS, Google Cloud DNS, DigitalOcean, and Hetzner, then whichever users ask for most. Each stays labelled untested until it has run on a real account. Providers are compiled in, not loaded as plugins, because the service runs as SYSTEM.
+2. **HTTP validation without a port 80 binding.** A short-lived listener of SSLense's own answers the challenge, for sites that have only HTTPS bindings or whose port 80 is used by something else.
+3. **Certificates on other machines.** Add host names that are not on this server, such as load balancers and appliances, to the daily served-certificate check, so one place reminds about every certificate.
+4. **HTTP-to-HTTPS redirect helper** using an IIS URL Rewrite rule, with a check that it does not block validation.
+5. **Bulk operations.** Adopt every unmanaged certificate at once, and issue for many sites from a CSV file.
+6. **New version notice.** Tell the administrator when a newer release is available, with a setting to turn the check off. Never install anything automatically.
 
 Later, by demand: export to Azure Key Vault (it needs a new dependency), certificates for IP addresses, TLS-ALPN-01 validation, IIS FTP sites, and managing several servers from one place.
 

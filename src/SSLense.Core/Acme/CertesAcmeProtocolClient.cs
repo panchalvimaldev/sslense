@@ -349,7 +349,34 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
             }
         }
 
+        public async Task<string> FinalizeWithRequestAsync(byte[] certificateRequest, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var order = await _order.Finalize(certificateRequest).WaitAsync(cancellationToken).ConfigureAwait(false);
+                for (var attempt = 0; order.Status is Certes.Acme.Resource.OrderStatus.Ready or Certes.Acme.Resource.OrderStatus.Processing && attempt < 60; attempt++)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+                    order = await _order.Resource().WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                if (order.Status != Certes.Acme.Resource.OrderStatus.Valid)
+                {
+                    throw new InvalidOperationException(
+                        $"{_authority.Name} did not issue the certificate: the order is {order.Status?.ToString().ToLowerInvariant() ?? "in an unknown state"}.");
+                }
+
+                var chain = await _order.Download(_options.PreferredChain).WaitAsync(cancellationToken).ConfigureAwait(false);
+                return chain.ToPem();
+            }
+            catch (AcmeRequestException exception) when (IsRateLimited(exception))
+            {
+                throw ToRateLimitedException(exception, _authority);
+            }
+        }
+
         private async Task<CertificateBundle> FinalizeCoreAsync(
+
             string commonName,
             string pfxPassword,
             CancellationToken cancellationToken)

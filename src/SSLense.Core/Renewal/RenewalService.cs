@@ -99,7 +99,8 @@ internal sealed class RenewalService : IRenewalService
                 value.ExportableKey,
                 value.KeyType,
                 value.PreferredChain,
-                value.Profile));
+                value.Profile,
+                value.ReuseKey));
         }
 
         return statuses;
@@ -223,6 +224,7 @@ internal sealed class RenewalService : IRenewalService
                         KeyType: certificate.KeyType,
                         PreferredChain: certificate.PreferredChain,
                         Profile: certificate.Profile,
+                        ReuseKey: certificate.ReuseKey,
 
                         // Confirmed when the certificate was first issued from this CA.
                         AcceptProductionRisk: true),

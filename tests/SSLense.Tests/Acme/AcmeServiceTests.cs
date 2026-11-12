@@ -827,7 +827,84 @@ public sealed class AcmeServiceTests
     }
 
     [Fact]
+    public async Task IssueAsync_ReuseKey_SignsWithTheCurrentKey_AndLinksTheNewCertificateToIt()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+        harness.SetManaged(Previous());
+        using var currentKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var current = new CertificateRequest("CN=example.com", currentKey, HashAlgorithmName.SHA256)
+            .CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-60), DateTimeOffset.UtcNow.AddDays(4));
+        harness.Store.Setup(value => value.OpenAsync("OLD", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => X509CertificateLoader.LoadPkcs12(current.Export(X509ContentType.Pkcs12, "pw"), "pw", X509KeyStorageFlags.EphemeralKeySet | X509KeyStorageFlags.Exportable));
+        using var caKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var caRequest = new CertificateRequest("CN=Test CA", caKey, HashAlgorithmName.SHA256);
+        caRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+        using var ca = caRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(90));
+        harness.Order.Setup(value => value.FinalizeWithRequestAsync(It.IsAny<byte[]>(), It.IsAny<CancellationToken>()))
+            .Returns<byte[], CancellationToken>((csr, _) =>
+            {
+                using var leaf = CertificateRequest.LoadSigningRequest(csr, HashAlgorithmName.SHA256)
+                    .Create(ca, DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddDays(60), [1, 2, 3, 4]);
+                return Task.FromResult(leaf.ExportCertificatePem() + "\n" + ca.ExportCertificatePem());
+            });
+        byte[]? linkedKey = null;
+        harness.Store.Setup(value => value.AddAsync(It.IsAny<X509Certificate2>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<X509Certificate2, string, CancellationToken>((certificate, _, _) =>
+            {
+                Assert.True(certificate.HasPrivateKey);
+                linkedKey = certificate.GetECDsaPublicKey()!.ExportSubjectPublicKeyInfo();
+            })
+            .ReturnsAsync(new InstalledCertificate("REUSED", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(60), true));
+
+        var result = await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider, ReuseKey: true));
+
+        Assert.Equal("REUSED", result.CertificateThumbprint);
+        Assert.Equal(currentKey.ExportSubjectPublicKeyInfo(), linkedKey);
+        Assert.DoesNotContain("finalize", harness.Steps);
+        harness.Store.Verify(value => value.ImportPfxAsync(
+            It.IsAny<byte[]>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        harness.Managed.Verify(value => value.UpsertAsync(It.Is<ManagedCertificate>(record => record.ReuseKey), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task IssueAsync_ReuseKey_WithAKeyOfAnotherType_UsesANewKey_AndSaysSo()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+        harness.SetManaged(Previous());
+        using var currentKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var current = new CertificateRequest("CN=example.com", currentKey, HashAlgorithmName.SHA256)
+            .CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-60), DateTimeOffset.UtcNow.AddDays(4));
+        harness.Store.Setup(value => value.OpenAsync("OLD", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => X509CertificateLoader.LoadPkcs12(current.Export(X509ContentType.Pkcs12, "pw"), "pw", X509KeyStorageFlags.EphemeralKeySet | X509KeyStorageFlags.Exportable));
+        harness.Protocol.Setup(value => value.CreateDnsOrderAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateAuthority>(), It.IsAny<AcmeOrderOptions>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(harness.Order.Object);
+        var lines = new List<string>();
+
+        await harness.Service.IssueAsync(
+            new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider,
+                KeyType: CertificateKeyType.Rsa2048, ReuseKey: true),
+            new SynchronousProgress(value => lines.Add(value.Message)));
+
+        Assert.Contains("finalize", harness.Steps);
+        Assert.Contains(lines, line => line.Contains("is not rsa-2048", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(CertificateKeyType.EcdsaP256, true)]
+    [InlineData(CertificateKeyType.EcdsaP384, false)]
+    [InlineData(CertificateKeyType.Rsa2048, false)]
+    public void KeyMatches_OnlyTheSameFamilyAndSize(CertificateKeyType type, bool expected)
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+
+        Assert.Equal(expected, AcmeService.Matches(key, type));
+    }
+
+    [Fact]
     public async Task IssueAsync_KeyChainAndProfile_GoToTheOrder_AndAreSavedWithTheCertificate()
+
     {
         var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
         harness.Directory.Profiles = new Dictionary<string, string> { ["shortlived"] = "Six days" };

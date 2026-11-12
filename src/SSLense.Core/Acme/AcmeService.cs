@@ -250,11 +250,26 @@ internal sealed partial class AcmeService : IAcmeService
             $"Finalizing and downloading the {environmentName} certificate."));
         var passwordBytes = RandomNumberGenerator.GetBytes(32);
         CertificateBundle? bundle = null;
+        ReusedKey? reusedKey = null;
         try
         {
             var pfxPassword = Convert.ToBase64String(passwordBytes);
-            bundle = await order.FinalizeAsync(names[0], pfxPassword, cancellationToken)
-                .ConfigureAwait(false);
+            reusedKey = request.ReuseKey
+                ? await OpenKeyToReuseAsync(existingRecord, request.KeyType, progress, cancellationToken).ConfigureAwait(false)
+                : null;
+            if (reusedKey is not null)
+            {
+                // The request is signed in the Windows key store; the key itself never leaves it.
+                var certificateRequest = ImportedCertificateService.BuildRequest(reusedKey.Key, names).CreateSigningRequest();
+                bundle = new CertificateBundle(
+                    await order.FinalizeWithRequestAsync(certificateRequest, cancellationToken).ConfigureAwait(false),
+                    []);
+            }
+            else
+            {
+                bundle = await order.FinalizeAsync(names[0], pfxPassword, cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
             progress?.Report(new ProgressEvent(
                 "save",
@@ -291,6 +306,7 @@ internal sealed partial class AcmeService : IAcmeService
                 preparedRecord = preparedRecord with { ExportableKey = true };
             }
 
+            preparedRecord = preparedRecord with { ReuseKey = request.ReuseKey };
             preparedRecord = preparedRecord with
             {
                 KeyType = orderOptions.KeyType,
@@ -313,7 +329,9 @@ internal sealed partial class AcmeService : IAcmeService
                 "install",
                 $"Importing the {environmentName} certificate into LocalMachine\\My with a non-exportable key."));
             var friendlyName = $"SSLense: {names[0]} ({DateTimeOffset.UtcNow:yyyy-MM-dd})";
-            var installedCertificate = await (request.ExportableKey
+            var installedCertificate = await (reusedKey is not null
+                    ? InstallWithReusedKeyAsync(bundle.CertificatePem, reusedKey, friendlyName, cancellationToken)
+                    : request.ExportableKey
                     ? _certificateStore.ImportPfxAsync(bundle.PfxBytes, pfxPassword, friendlyName, exportable: true, cancellationToken)
                     : _certificateStore.ImportPfxAsync(bundle.PfxBytes, pfxPassword, friendlyName, cancellationToken))
                 .ConfigureAwait(false);
@@ -425,6 +443,7 @@ internal sealed partial class AcmeService : IAcmeService
         finally
         {
             CryptographicOperations.ZeroMemory(passwordBytes);
+            reusedKey?.Dispose();
             if (bundle is not null)
             {
                 CryptographicOperations.ZeroMemory(bundle.PfxBytes);
@@ -608,7 +627,112 @@ internal sealed partial class AcmeService : IAcmeService
         }
     }
 
+    /// <summary>A key in the Windows store, with the certificate it came from, which must outlive its use.</summary>
+    private sealed class ReusedKey(X509Certificate2 certificate, AsymmetricAlgorithm key) : IDisposable
+    {
+        public AsymmetricAlgorithm Key { get; } = key;
+
+        public void Dispose()
+        {
+            Key.Dispose();
+            certificate.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// The key of the current certificate, when it can be reused for this key type. Otherwise null, with the reason
+    /// reported: the renewal then uses a new key rather than fail (docs/design/key-reuse.md, section 3).
+    /// </summary>
+    private async Task<ReusedKey?> OpenKeyToReuseAsync(
+        ManagedCertificate? current,
+        CertificateKeyType keyType,
+        IProgress<ProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (current is null)
+        {
+            progress?.Report(new ProgressEvent("key", "There is no current key to reuse, so a new one is created and reused from the next renewal."));
+            return null;
+        }
+
+        X509Certificate2? certificate = null;
+        try
+        {
+            certificate = await _certificateStore.OpenAsync(current.Thumbprint, cancellationToken).ConfigureAwait(false);
+            AsymmetricAlgorithm? key = certificate is null ? null : (AsymmetricAlgorithm?)certificate.GetRSAPrivateKey() ?? certificate.GetECDsaPrivateKey();
+            if (certificate is null || key is null)
+            {
+                progress?.Report(new ProgressEvent("key", $"The key of certificate {current.Thumbprint} cannot be reused because it is no longer installed with its key. A new key is used."));
+                certificate?.Dispose();
+                return null;
+            }
+
+            if (!Matches(key, keyType))
+            {
+                progress?.Report(new ProgressEvent("key", $"The current key is not {CertificateKeyTypes.Name(keyType)}, so a new one is created and reused from the next renewal."));
+                key.Dispose();
+                certificate.Dispose();
+                return null;
+            }
+
+            progress?.Report(new ProgressEvent("key", $"Reusing the private key of certificate {current.Thumbprint}."));
+            return new ReusedKey(certificate, key);
+        }
+        catch (CryptographicException exception)
+        {
+            certificate?.Dispose();
+            progress?.Report(new ProgressEvent("key", $"The current key cannot be reused ({exception.Message}). A new key is used."));
+            return null;
+        }
+    }
+
+    internal static bool Matches(AsymmetricAlgorithm key, CertificateKeyType keyType) => (key, keyType) switch
+    {
+        (ECDsa ecdsa, CertificateKeyType.EcdsaP256) => ecdsa.KeySize == 256,
+        (ECDsa ecdsa, CertificateKeyType.EcdsaP384) => ecdsa.KeySize == 384,
+        (RSA rsa, CertificateKeyType.Rsa2048) => rsa.KeySize == 2048,
+        (RSA rsa, CertificateKeyType.Rsa3072) => rsa.KeySize == 3072,
+        (RSA rsa, CertificateKeyType.Rsa4096) => rsa.KeySize == 4096,
+        _ => false
+    };
+
+    /// <summary>Links the issued certificate to the key already in the store, and adds its intermediates.</summary>
+    private async Task<InstalledCertificate> InstallWithReusedKeyAsync(
+        string pem,
+        ReusedKey reused,
+        string friendlyName,
+        CancellationToken cancellationToken)
+    {
+        var chain = new X509Certificate2Collection();
+        chain.ImportFromPem(pem);
+        try
+        {
+            var leaf = chain[0];
+            var intermediates = chain.Skip(1).Where(value => value.SubjectName.Name != value.IssuerName.Name).ToArray();
+            if (intermediates.Length > 0)
+            {
+                await _certificateStore.AddIntermediatesAsync(intermediates, cancellationToken).ConfigureAwait(false);
+            }
+
+            using var withKey = reused.Key switch
+            {
+                RSA rsa => leaf.CopyWithPrivateKey(rsa),
+                ECDsa ecdsa => leaf.CopyWithPrivateKey(ecdsa),
+                _ => throw new InvalidOperationException("The reused key is neither RSA nor ECDSA.")
+            };
+            return await _certificateStore.AddAsync(withKey, friendlyName, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            foreach (var certificate in chain)
+            {
+                certificate.Dispose();
+            }
+        }
+    }
+
     private async Task<ManagedCertificate?> FindSharedRecordAsync(
+
 
         string siteName,
         IReadOnlyList<string> lockedSites,

@@ -113,6 +113,10 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     {
         Description = "The root the chain should end at, as the CA names it, such as \"ISRG Root X1\". The default chain is used when the CA offers none to it."
     };
+    var reuseKeyOption = new Option<bool>("--reuse-key")
+    {
+        Description = "Keep the same private key at every renewal, for key pinning or DANE. The first certificate gets a new key."
+    };
     var profileOption = new Option<string?>("--profile")
     {
         Description = "An ACME profile the CA offers, such as shortlived at Let's Encrypt. 'ca test' lists them."
@@ -176,6 +180,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     issueCommand.Options.Add(keyOption);
     issueCommand.Options.Add(preferredChainOption);
     issueCommand.Options.Add(profileOption);
+    issueCommand.Options.Add(reuseKeyOption);
     issueCommand.Options.Add(namesOption);
     issueCommand.Options.Add(hostsOption);
     issueCommand.Options.Add(emailOption);
@@ -203,6 +208,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         parseResult.GetValue(keyOption),
         parseResult.GetValue(preferredChainOption),
         parseResult.GetValue(profileOption),
+        parseResult.GetValue(reuseKeyOption),
         cancellationToken));
     rootCommand.Subcommands.Add(issueCommand);
     rootCommand.Subcommands.Add(CreateCaCommand(services));
@@ -2334,6 +2340,11 @@ static async Task<int> StatusAsync(
                                   (status.PreferredChain is { } shownChain ? $"; preferred chain: {shownChain}" : string.Empty));
             }
 
+            if (status.ReuseKey)
+            {
+                Console.WriteLine("  Private key: kept at every renewal");
+            }
+
             if (status.ExportableKey)
             {
                 Console.WriteLine("  Private key: exportable");
@@ -2438,6 +2449,7 @@ static async Task<int> IssueAsync(
     string? keyType,
     string? preferredChain,
     string? profile,
+    bool reuseKey,
     CancellationToken cancellationToken)
 {
     try
@@ -2493,7 +2505,8 @@ static async Task<int> IssueAsync(
                     ExportableKey: exportableKey,
                     KeyType: keyType is null ? CertificateKeyType.EcdsaP256 : CertificateKeyTypes.Parse(keyType),
                     PreferredChain: preferredChain,
-                    Profile: profile),
+                    Profile: profile,
+                    ReuseKey: reuseKey),
                 new ConsoleProgress(),
                 cancellationToken)
             .ConfigureAwait(false);

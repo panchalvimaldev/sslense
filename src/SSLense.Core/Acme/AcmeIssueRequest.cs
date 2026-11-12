@@ -18,6 +18,7 @@ namespace SSLense.Core.Acme;
 /// <param name="KeyType">The certificate's key type; ECDSA P-256 unless chosen otherwise.</param>
 /// <param name="PreferredChain">The root the chain should end at, as the CA names it.</param>
 /// <param name="Profile">An ACME profile the CA lists, such as <c>shortlived</c>.</param>
+/// <param name="ReuseKey">Sign the request with the key of the site's current certificate, when it still matches the key type, so the key stays the same.</param>
 public sealed record AcmeIssueRequest(
     string SiteName,
     IReadOnlyList<string> Hosts,
@@ -34,7 +35,8 @@ public sealed record AcmeIssueRequest(
     bool ExportableKey = false,
     CertificateKeyType KeyType = CertificateKeyType.EcdsaP256,
     string? PreferredChain = null,
-    string? Profile = null)
+    string? Profile = null,
+    bool ReuseKey = false)
 {
     public AcmeOrderOptions OrderOptions => new(KeyType, string.IsNullOrWhiteSpace(PreferredChain) ? null : PreferredChain.Trim(), string.IsNullOrWhiteSpace(Profile) ? null : Profile.Trim());
 }

@@ -48,6 +48,7 @@ public partial class IssueCertificateViewModel : ObservableObject
     [ObservableProperty] private KeyTypeChoice? selectedKeyType;
     [ObservableProperty] private string preferredChain = string.Empty;
     [ObservableProperty] private string profile = string.Empty;
+    [ObservableProperty] private bool reuseKey;
     [ObservableProperty] private string noSiteName = string.Empty;
 
     public IssueCertificateViewModel(
@@ -435,7 +436,8 @@ public partial class IssueCertificateViewModel : ObservableObject
                     ExportableKey: _renewing?.ExportableKey ?? ExportableKey,
                     KeyType: _renewing?.KeyType ?? SelectedKeyType?.Type ?? CertificateKeyType.EcdsaP256,
                     PreferredChain: _renewing is not null ? _renewing.PreferredChain : PreferredChain,
-                    Profile: _renewing is not null ? _renewing.Profile : Profile),
+                    Profile: _renewing is not null ? _renewing.Profile : Profile,
+                    ReuseKey: _renewing?.ReuseKey ?? ReuseKey),
                 new Progress<ProgressEvent>(value =>
                     ProgressLines.Add($"[{DateTime.Now:HH:mm:ss}] [{value.Step}] {value.Message}")),
                 token).ConfigureAwait(true);
@@ -496,7 +498,7 @@ public partial class IssueCertificateViewModel : ObservableObject
     private bool CanIssue() =>
         !IsBusy && CurrentStep == 2 && PreflightPassed && (!UseProduction || ProductionRiskAccepted);
     private void Cancel() { _preflightCommand.Cancel(); _issueCommand.Cancel(); }
-    private void StartOver() { CurrentStep = 1; NoSite = false; ExportableKey = false; SelectedKeyType = KeyTypes[0]; PreferredChain = string.Empty; Profile = string.Empty; NoSiteName = string.Empty; PreflightPassed = false; ProductionRiskAccepted = false; ReplaceExisting = false; CertificateNames = string.Empty; SetRenewing(null); PreflightChecks.Clear(); ProgressLines.Clear(); ManualRecords.Clear(); ErrorMessage = null; ResultMessage = string.Empty; }
+    private void StartOver() { CurrentStep = 1; NoSite = false; ExportableKey = false; SelectedKeyType = KeyTypes[0]; PreferredChain = string.Empty; Profile = string.Empty; ReuseKey = false; NoSiteName = string.Empty; PreflightPassed = false; ProductionRiskAccepted = false; ReplaceExisting = false; CertificateNames = string.Empty; SetRenewing(null); PreflightChecks.Clear(); ProgressLines.Clear(); ManualRecords.Clear(); ErrorMessage = null; ResultMessage = string.Empty; }
     private void NotifyCommands()
     {
         (NextCommand as RelayCommand)?.NotifyCanExecuteChanged();

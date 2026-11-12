@@ -23,6 +23,7 @@ namespace SSLense.Core.Config;
 /// <param name="KeyType">The key type, chosen at issue and kept at renewal. See docs/design/key-and-order-options.md.</param>
 /// <param name="PreferredChain">The root the chain should end at, when not the CA's default.</param>
 /// <param name="Profile">The ACME profile the certificate is ordered with, when not the CA's default.</param>
+/// <param name="ReuseKey">Keep the same private key at every renewal. See docs/design/key-reuse.md.</param>
 /// <remarks>
 /// The reminder fields belong to the record, not to a certificate: <see cref="IManagedCertificateStore.UpsertAsync"/> keeps
 /// them across installs and resets them when the thumbprint changes (except <see cref="ReminderMode.Off"/>).
@@ -58,7 +59,8 @@ public sealed record ManagedCertificate(
     bool ExportableKey = false,
     CertificateKeyType KeyType = CertificateKeyType.EcdsaP256,
     string? PreferredChain = null,
-    string? Profile = null);
+    string? Profile = null,
+    bool ReuseKey = false);
 
 /// <summary>An IIS site and the hosts on it that use a certificate.</summary>
 /// <param name="PendingSince">When this site was left on its previous certificate because it had a problem during a renewal. Null when it uses the record's certificate.</param>

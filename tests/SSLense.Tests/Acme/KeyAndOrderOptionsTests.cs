@@ -1,5 +1,6 @@
 using System.Net;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using SSLense.Core.Acme;
 using Xunit;
@@ -44,6 +45,33 @@ public sealed class KeyAndOrderOptionsTests
         Assert.True(new AcmeIssueRequest("Shop", [], "ops@example.com", PreferredChain: " ", Profile: "").OrderOptions.IsDefault);
         Assert.False(new AcmeIssueRequest("Shop", [], "ops@example.com", KeyType: CertificateKeyType.Rsa2048).OrderOptions.IsDefault);
         Assert.Equal("ISRG Root X1", new AcmeIssueRequest("Shop", [], "ops@example.com", PreferredChain: " ISRG Root X1 ").OrderOptions.PreferredChain);
+    }
+
+    [Fact]
+    public void AStoredKeyThatCannotBeExported_CanStillSignARequest_AndBeLinkedToTheNewCertificate()
+    {
+        // As at a renewal with --reuse-key: SSLense's keys are persisted and refuse export.
+        using var cngKey = CngKey.Create(CngAlgorithm.ECDsaP256, $"sslense-test-{Guid.NewGuid():N}", new CngKeyCreationParameters { ExportPolicy = CngExportPolicies.None });
+        try
+        {
+            using var key = new ECDsaCng(cngKey);
+            var csr = SSLense.Core.Certificates.ImportedCertificateService.BuildRequest(key, ["example.com"]).CreateSigningRequest();
+            using var caKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var caRequest = new System.Security.Cryptography.X509Certificates.CertificateRequest("CN=Test CA", caKey, HashAlgorithmName.SHA256);
+            caRequest.CertificateExtensions.Add(new System.Security.Cryptography.X509Certificates.X509BasicConstraintsExtension(true, false, 0, true));
+            using var ca = caRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
+            using var issued = System.Security.Cryptography.X509Certificates.CertificateRequest.LoadSigningRequest(csr, HashAlgorithmName.SHA256)
+                .Create(ca, DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddDays(10), [9, 8, 7]);
+
+            using var linked = issued.CopyWithPrivateKey(key);
+
+            Assert.True(linked.HasPrivateKey);
+            Assert.Equal(key.ExportSubjectPublicKeyInfo(), linked.GetECDsaPublicKey()!.ExportSubjectPublicKeyInfo());
+        }
+        finally
+        {
+            cngKey.Delete();
+        }
     }
 
     [Fact]

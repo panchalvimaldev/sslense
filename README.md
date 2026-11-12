@@ -324,6 +324,7 @@ SSLense.Cli ca test --id letsencrypt-staging                                    
 - **RSA** suits older clients and appliances that do not accept ECDSA.
 - **A preferred chain** is a preference: the default chain is used when the CA offers none to that root.
 - **A profile** must be one the CA lists, or SSLense refuses before ordering. A short-lived certificate renews about two days before it expires; keep the renewal service running.
+- **`--reuse-key` keeps the same private key at every renewal,** for key pinning or DANE TLSA records. The first certificate gets a new key; renewals sign the request with that key in the Windows store, which never leaves it. If the key is gone or no longer matches `--key`, the renewal uses a new key and says so, rather than let the certificate expire.
 
 ### One certificate across several IIS sites
 
@@ -631,6 +632,8 @@ SSLense stores files under `C:\ProgramData\SSLense`:
 `config.json`, `managed-certificates.json`, `pending-requests.json`, and transaction journals carry a `schemaVersion`. Before SSLense first rewrites a file from an older schema, it saves the original as `<file>.v<old version>.bak` (for example `managed-certificates.json.v0.bak`). A file written by a newer SSLense version is never modified: SSLense stops with a message to install the newer version, so a downgrade cannot corrupt state.
 
 Private keys, PFX passwords, SMTP passwords, webhook URLs, DNS provider tokens and script secrets, and the ACME account key must never appear in logs.
+
+**Going back to 0.21:** the first save after upgrading to 0.22 moves `managed-certificates.json` to schema 10, which 0.21 cannot read, and keeps the old file as `managed-certificates.json.v9.bak`. Going back means restoring that copy; certificates then renew with a new key.
 
 **Going back to 0.20:** the first save after upgrading to 0.21 moves `managed-certificates.json` to schema 9, which 0.20 cannot read, and keeps the old file as `managed-certificates.json.v8.bak`. Going back means restoring that copy; certificates renewed since keep working, but renew with the default key and profile.
 

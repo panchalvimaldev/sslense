@@ -366,6 +366,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
         if (record.Profile is { } profile) options.Add($"profile {profile}");
         if (record.PreferredChain is { } chain) options.Add($"chain to {chain}");
         if (record.ExportableKey) options.Add("exportable key");
+        if (record.ReuseKey) options.Add("key kept at renewal");
         if (options.Count > 0) Validation += $". Options: {string.Join(", ", options)}";
         CertificateNames = string.Join(", ", record.CertificateNames ?? record.Hosts);
         CanShare = record.CanBeShared();

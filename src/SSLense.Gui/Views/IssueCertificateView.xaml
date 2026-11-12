@@ -53,6 +53,7 @@
        <TextBlock Text="PROFILE (OPTIONAL)" Style="{StaticResource FieldLabel}"/>
        <TextBox Text="{Binding Profile, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,4" AutomationProperties.Name="ACME profile"/>
        <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Text="A profile the CA offers, such as shortlived at Let's Encrypt for certificates valid about six days. 'SSLense.Cli ca test' lists them. All three are kept at every renewal."/>
+       <CheckBox Content="Reuse the private key at renewal" IsChecked="{Binding ReuseKey}" Margin="0,8,0,0" AutomationProperties.Name="Reuse the private key at renewal" ToolTip="For key pinning or DANE. The first certificate gets a new key, and every renewal keeps it. If it cannot be reused, a new key is used and you are told."/>
       </StackPanel>
      </Expander>
      <TextBlock Text="VALIDATION" Style="{StaticResource FieldLabel}" Margin="0,10,0,6"/>

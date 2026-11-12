@@ -36,4 +36,5 @@ public sealed record ManagedCertificateStatus(
     bool ExportableKey = false,
     CertificateKeyType KeyType = CertificateKeyType.EcdsaP256,
     string? PreferredChain = null,
-    string? Profile = null);
+    string? Profile = null,
+    bool ReuseKey = false);

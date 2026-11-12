@@ -36,3 +36,7 @@ SSLense.Cli issue --site "Shop" --email ops@example.com --reuse-key
 1. **Opt-in per certificate,** off by default.
 2. **Fall back to a new key, and say so,** when the key cannot be reused, instead of failing the renewal.
 3. **Managed certificates schema 10.**
+
+## 6. Delivery
+
+**Built** November 12, 2026, apart from acceptance: `issue --reuse-key`, **Reuse the private key at renewal** under Advanced in Issue Certificate, and the choice shown in `status` and Certificate Details. 6 tests, including a persisted key that refuses export signing the request and being linked to the new certificate, and the fall back to a new key when the type changed.

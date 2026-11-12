@@ -15,4 +15,11 @@ public interface IAcmeOrderSession
         string commonName,
         string pfxPassword,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Finalizes with a certificate request signed by a key SSLense already holds, and returns the certificate and its
+    /// chain as PEM. Used to keep the same key at renewal (docs/design/key-reuse.md).
+    /// </summary>
+    Task<string> FinalizeWithRequestAsync(byte[] certificateRequest, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("This ACME client cannot finalize with an existing key.");
 }
