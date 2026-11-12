@@ -44,7 +44,7 @@ All three are kept with the certificate and used at every renewal. In the app th
 | Step | Contents | Ships |
 |---|---|---|
 | 1 | This design | Docs |
-| 2 | Core and CLI: the three options at issue and renewal, profiles in `ca test`, schema 9, tests | CLI |
+| 2 | Core and CLI: the three options at issue and renewal, profiles in `ca test`, schema 9, tests. **Built** November 12, 2026: 14 tests, creating each key type, reading profiles from a directory, refusing a profile the CA does not list, and keeping all three at renewal | CLI |
 | 3 | The app; README, roadmap, website; release as 0.21 | Both |
 
 ## 6. Decisions taken by delegation

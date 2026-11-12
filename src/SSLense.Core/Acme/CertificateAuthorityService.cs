@@ -179,6 +179,9 @@ internal sealed partial class CertificateAuthorityService(
             authority.CaaIdentities is { Count: > 0 } caa
                 ? $"CAA: checked before each order, for {string.Join(", ", caa)}."
                 : "CAA: not checked, because the CA publishes no CAA identities. The CA still checks CAA itself.",
+            info.Profiles is { Count: > 0 } profiles
+                ? $"Profiles, for --profile: {string.Join("; ", profiles.Select(profile => profile.Value.Length == 0 ? profile.Key : $"{profile.Key} ({profile.Value})"))}."
+                : "Profiles: none offered, so certificates use the CA's default.",
             authority.IsTest
                 ? "Certificates from it are not trusted by browsers."
                 : "Certificates from it are trusted, so issuing asks for confirmation (--accept-production-risk)."

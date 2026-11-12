@@ -15,6 +15,9 @@ namespace SSLense.Core.Acme;
 /// Needs DNS validation; the certificate covers <paramref name="CertificateNames"/>, or <paramref name="Hosts"/> when there are none.
 /// </param>
 /// <param name="ExportableKey">Install the private key as exportable, so export steps can write it to files.</param>
+/// <param name="KeyType">The certificate's key type; ECDSA P-256 unless chosen otherwise.</param>
+/// <param name="PreferredChain">The root the chain should end at, as the CA names it.</param>
+/// <param name="Profile">An ACME profile the CA lists, such as <c>shortlived</c>.</param>
 public sealed record AcmeIssueRequest(
     string SiteName,
     IReadOnlyList<string> Hosts,
@@ -28,4 +31,10 @@ public sealed record AcmeIssueRequest(
     IReadOnlyList<string>? CertificateNames = null,
     bool AcceptProductionRisk = false,
     bool NoSite = false,
-    bool ExportableKey = false);
+    bool ExportableKey = false,
+    CertificateKeyType KeyType = CertificateKeyType.EcdsaP256,
+    string? PreferredChain = null,
+    string? Profile = null)
+{
+    public AcmeOrderOptions OrderOptions => new(KeyType, string.IsNullOrWhiteSpace(PreferredChain) ? null : PreferredChain.Trim(), string.IsNullOrWhiteSpace(Profile) ? null : Profile.Trim());
+}

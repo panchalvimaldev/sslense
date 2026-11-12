@@ -33,4 +33,7 @@ public sealed record ManagedCertificateStatus(
     DeploymentState? Deployment = null,
     bool DeploymentPending = false,
     bool NoSite = false,
-    bool ExportableKey = false);
+    bool ExportableKey = false,
+    CertificateKeyType KeyType = CertificateKeyType.EcdsaP256,
+    string? PreferredChain = null,
+    string? Profile = null);

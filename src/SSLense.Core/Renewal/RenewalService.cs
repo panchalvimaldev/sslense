@@ -96,7 +96,10 @@ internal sealed class RenewalService : IRenewalService
                 value.Deployment,
                 value.HasPendingDeployment(),
                 value.NoSite,
-                value.ExportableKey));
+                value.ExportableKey,
+                value.KeyType,
+                value.PreferredChain,
+                value.Profile));
         }
 
         return statuses;
@@ -217,6 +220,9 @@ internal sealed class RenewalService : IRenewalService
                         CertificateNames: certificate.CertificateNames,
                         NoSite: certificate.NoSite,
                         ExportableKey: certificate.ExportableKey,
+                        KeyType: certificate.KeyType,
+                        PreferredChain: certificate.PreferredChain,
+                        Profile: certificate.Profile,
 
                         // Confirmed when the certificate was first issued from this CA.
                         AcceptProductionRisk: true),

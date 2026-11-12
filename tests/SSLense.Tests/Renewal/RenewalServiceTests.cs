@@ -303,7 +303,35 @@ public sealed class RenewalServiceTests
     }
 
     [Fact]
+    public async Task RenewAsync_KeepsTheKeyTypeChainProfileAndExportableKey()
+    {
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(5)) with
+            {
+                KeyType = CertificateKeyType.Rsa4096,
+                PreferredChain = "ISRG Root X1",
+                Profile = "tlsserver",
+                ExportableKey = true
+            }]);
+        var acme = new Mock<IAcmeService>(MockBehavior.Strict);
+        acme.Setup(value => value.IssueAsync(
+                It.Is<AcmeIssueRequest>(request => request.KeyType == CertificateKeyType.Rsa4096 && request.PreferredChain == "ISRG Root X1" &&
+                                                   request.Profile == "tlsserver" && request.ExportableKey),
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AcmeIssueResult("pem", "pfx", ["example.com"], "NEW", PreviousCertificateKept: true));
+        var service = CreateService(managed, MockConfig(), acme, new Mock<IIisService>(MockBehavior.Strict), new Mock<ICertificateStore>(MockBehavior.Strict));
+
+        var result = Assert.Single(await service.RenewAsync(new RenewalRequest(All: true)));
+
+        Assert.True(result.Succeeded, result.Message);
+        acme.VerifyAll();
+    }
+
+    [Fact]
     public async Task RenewAsync_DeploymentStepsPending_KeepsTheOldCertificate_AndReportsTheSteps()
+
     {
         var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
         managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))

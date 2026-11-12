@@ -827,7 +827,42 @@ public sealed class AcmeServiceTests
     }
 
     [Fact]
+    public async Task IssueAsync_KeyChainAndProfile_GoToTheOrder_AndAreSavedWithTheCertificate()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+        harness.Directory.Profiles = new Dictionary<string, string> { ["shortlived"] = "Six days" };
+        AcmeOrderOptions? used = null;
+        harness.Protocol.Setup(value => value.CreateDnsOrderAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateAuthority>(), It.IsAny<AcmeOrderOptions>(), It.IsAny<CancellationToken>()))
+            .Callback<string, IReadOnlyList<string>, CertificateAuthority, AcmeOrderOptions, CancellationToken>((_, _, _, options, _) => used = options)
+            .ReturnsAsync(harness.Order.Object);
+
+        await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider,
+            KeyType: CertificateKeyType.Rsa3072, PreferredChain: "ISRG Root X1", Profile: "shortlived"));
+
+        Assert.Equal(new AcmeOrderOptions(CertificateKeyType.Rsa3072, "ISRG Root X1", "shortlived"), used);
+        harness.Managed.Verify(value => value.UpsertAsync(
+            It.Is<ManagedCertificate>(record => record.KeyType == CertificateKeyType.Rsa3072 && record.PreferredChain == "ISRG Root X1" && record.Profile == "shortlived"),
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task IssueAsync_AProfileTheCaDoesNotOffer_IsRefusedBeforeOrdering_WithTheOnesItDoes()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+        harness.Directory.Profiles = new Dictionary<string, string> { ["classic"] = "", ["tlsserver"] = "" };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider, Profile: "shortlived")));
+
+        Assert.Contains("classic, tlsserver", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("finalize", harness.Steps);
+    }
+
+    [Fact]
     public async Task IssueAsync_NoSite_InstallsWithoutBindingAnything_AndSavesANoSiteRecord()
+
     {
         var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
 
@@ -964,7 +999,16 @@ public sealed class AcmeServiceTests
         Assert.Contains("port 80", exception.Message, StringComparison.Ordinal);
     }
 
+    private sealed class FakeDirectoryReader : IAcmeDirectoryReader
+    {
+        public IReadOnlyDictionary<string, string>? Profiles { get; set; }
+
+        public Task<AcmeDirectoryInfo> ReadAsync(Uri directoryUri, CancellationToken cancellationToken) =>
+            Task.FromResult(new AcmeDirectoryInfo(false, [], true, null, Profiles));
+    }
+
     private sealed class FakeDeploymentRunner : IDeploymentRunner
+
     {
         public List<(string Site, string? Replaced)> Calls { get; } = [];
 
@@ -1024,8 +1068,11 @@ public sealed class AcmeServiceTests
                 Store.Object,
                 Managed.Object,
                 dnsChallenges: Dns,
-                deployment: Deployment);
+                deployment: Deployment,
+                directoryReader: Directory);
         }
+
+        public FakeDirectoryReader Directory { get; } = new();
 
         public FakeDeploymentRunner Deployment { get; } = new();
 

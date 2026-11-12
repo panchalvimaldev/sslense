@@ -105,6 +105,18 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     {
         Description = "IIS site name."
     };
+    var keyOption = new Option<string?>("--key")
+    {
+        Description = "The key type: ecdsa-p256 (default), ecdsa-p384, rsa-2048, rsa-3072, or rsa-4096. Kept at every renewal."
+    };
+    var preferredChainOption = new Option<string?>("--preferred-chain")
+    {
+        Description = "The root the chain should end at, as the CA names it, such as \"ISRG Root X1\". The default chain is used when the CA offers none to it."
+    };
+    var profileOption = new Option<string?>("--profile")
+    {
+        Description = "An ACME profile the CA offers, such as shortlived at Let's Encrypt. 'ca test' lists them."
+    };
     var exportableKeyOption = new Option<bool>("--exportable-key")
     {
         Description = "Install the private key as exportable, so deployment steps can export it to PFX or PEM files, or the IIS Central Certificate Store. Kept at every renewal."
@@ -161,6 +173,9 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     issueCommand.Options.Add(siteOption);
     issueCommand.Options.Add(noSiteOption);
     issueCommand.Options.Add(exportableKeyOption);
+    issueCommand.Options.Add(keyOption);
+    issueCommand.Options.Add(preferredChainOption);
+    issueCommand.Options.Add(profileOption);
     issueCommand.Options.Add(namesOption);
     issueCommand.Options.Add(hostsOption);
     issueCommand.Options.Add(emailOption);
@@ -185,6 +200,9 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         parseResult.GetValue(namesOption),
         parseResult.GetValue(caOption),
         parseResult.GetValue(exportableKeyOption),
+        parseResult.GetValue(keyOption),
+        parseResult.GetValue(preferredChainOption),
+        parseResult.GetValue(profileOption),
         cancellationToken));
     rootCommand.Subcommands.Add(issueCommand);
     rootCommand.Subcommands.Add(CreateCaCommand(services));
@@ -2309,6 +2327,13 @@ static async Task<int> StatusAsync(
                     : "  Validation: DNS provider");
             }
 
+            if (status.KeyType != CertificateKeyType.EcdsaP256 || status.Profile is not null || status.PreferredChain is not null)
+            {
+                Console.WriteLine($"  Key: {CertificateKeyTypes.Name(status.KeyType)}" +
+                                  (status.Profile is { } shownProfile ? $"; profile: {shownProfile}" : string.Empty) +
+                                  (status.PreferredChain is { } shownChain ? $"; preferred chain: {shownChain}" : string.Empty));
+            }
+
             if (status.ExportableKey)
             {
                 Console.WriteLine("  Private key: exportable");
@@ -2410,6 +2435,9 @@ static async Task<int> IssueAsync(
     string? namesValue,
     string? ca,
     bool exportableKey,
+    string? keyType,
+    string? preferredChain,
+    string? profile,
     CancellationToken cancellationToken)
 {
     try
@@ -2462,7 +2490,10 @@ static async Task<int> IssueAsync(
                     CertificateNames: namesValue?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
                     AcceptProductionRisk: acceptProductionRisk,
                     NoSite: noSite is not null,
-                    ExportableKey: exportableKey),
+                    ExportableKey: exportableKey,
+                    KeyType: keyType is null ? CertificateKeyType.EcdsaP256 : CertificateKeyTypes.Parse(keyType),
+                    PreferredChain: preferredChain,
+                    Profile: profile),
                 new ConsoleProgress(),
                 cancellationToken)
             .ConfigureAwait(false);

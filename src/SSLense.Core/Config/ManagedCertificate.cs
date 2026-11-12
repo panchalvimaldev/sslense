@@ -20,6 +20,9 @@ namespace SSLense.Core.Config;
 /// <param name="Deployment">How the deployment steps last ran. Null until they first run.</param>
 /// <param name="NoSite">True for a certificate with no IIS site, used by other services through its deployment steps. <paramref name="SiteName"/> is then a name the administrator chose, and <paramref name="Hosts"/> the certificate's names. See docs/design/no-site-certificates.md.</param>
 /// <param name="ExportableKey">Whether the private key is installed as exportable, chosen at issue and kept at renewal, so export steps can write it to files. See docs/design/certificate-export.md.</param>
+/// <param name="KeyType">The key type, chosen at issue and kept at renewal. See docs/design/key-and-order-options.md.</param>
+/// <param name="PreferredChain">The root the chain should end at, when not the CA's default.</param>
+/// <param name="Profile">The ACME profile the certificate is ordered with, when not the CA's default.</param>
 /// <remarks>
 /// The reminder fields belong to the record, not to a certificate: <see cref="IManagedCertificateStore.UpsertAsync"/> keeps
 /// them across installs and resets them when the thumbprint changes (except <see cref="ReminderMode.Off"/>).
@@ -52,7 +55,10 @@ public sealed record ManagedCertificate(
     IReadOnlyList<DeploymentStep>? DeploymentSteps = null,
     DeploymentState? Deployment = null,
     bool NoSite = false,
-    bool ExportableKey = false);
+    bool ExportableKey = false,
+    CertificateKeyType KeyType = CertificateKeyType.EcdsaP256,
+    string? PreferredChain = null,
+    string? Profile = null);
 
 /// <summary>An IIS site and the hosts on it that use a certificate.</summary>
 /// <param name="PendingSince">When this site was left on its previous certificate because it had a problem during a renewal. Null when it uses the record's certificate.</param>

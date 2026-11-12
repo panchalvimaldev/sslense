@@ -22,6 +22,7 @@ internal sealed partial class AcmeService : IAcmeService
     private readonly IManagedCertificateStore _managedCertificateStore;
     private readonly ICertificateOperationLock _operationLock;
     private readonly IDeploymentRunner? _deployment;
+    private readonly IAcmeDirectoryReader? _directoryReader;
     private readonly ICertificateTransactionJournal _transactionJournal;
     private readonly ICertificateAuthorityRegistry _authorities;
     private readonly IDnsChallengeService? _dnsChallenges;
@@ -40,8 +41,10 @@ internal sealed partial class AcmeService : IAcmeService
         ICertificateAuthorityRegistry? authorities = null,
         IDnsChallengeService? dnsChallenges = null,
         ICertificateAuthorityLock? authorityLock = null,
-        IDeploymentRunner? deployment = null)
+        IDeploymentRunner? deployment = null,
+        IAcmeDirectoryReader? directoryReader = null)
     {
+        _directoryReader = directoryReader;
         _deployment = deployment;
         _authorityLock = authorityLock ?? NoOpCertificateAuthorityLock.Instance;
         _iisService = iisService;
@@ -202,15 +205,26 @@ internal sealed partial class AcmeService : IAcmeService
                 .ConfigureAwait(false);
         }
 
+        var orderOptions = request.OrderOptions;
+        if (orderOptions.Profile is { } profile)
+        {
+            await ThrowIfProfileNotOfferedAsync(authority, profile, cancellationToken).ConfigureAwait(false);
+        }
+
         progress?.Report(new ProgressEvent(
             "account",
             $"Loading or creating the {environmentName} ACME account."));
         IAcmeOrderSession order;
         try
         {
+            // The defaults go through the original calls, so clients that offer no options keep working.
             order = await (usesDns
-                    ? _protocolClient.CreateDnsOrderAsync(request.Email.Trim(), names, authority, cancellationToken)
-                    : _protocolClient.CreateOrderAsync(request.Email.Trim(), hosts, authority, cancellationToken))
+                    ? orderOptions.IsDefault
+                        ? _protocolClient.CreateDnsOrderAsync(request.Email.Trim(), names, authority, cancellationToken)
+                        : _protocolClient.CreateDnsOrderAsync(request.Email.Trim(), names, authority, orderOptions, cancellationToken)
+                    : orderOptions.IsDefault
+                        ? _protocolClient.CreateOrderAsync(request.Email.Trim(), hosts, authority, cancellationToken)
+                        : _protocolClient.CreateOrderAsync(request.Email.Trim(), hosts, authority, orderOptions, cancellationToken))
                 .ConfigureAwait(false);
         }
         catch (HttpRequestException exception)
@@ -276,6 +290,13 @@ internal sealed partial class AcmeService : IAcmeService
             {
                 preparedRecord = preparedRecord with { ExportableKey = true };
             }
+
+            preparedRecord = preparedRecord with
+            {
+                KeyType = orderOptions.KeyType,
+                PreferredChain = orderOptions.PreferredChain,
+                Profile = orderOptions.Profile
+            };
 
             if (request.NoSite)
             {
@@ -570,7 +591,25 @@ internal sealed partial class AcmeService : IAcmeService
     }
 
     /// <summary>The site's shared record, read again under the locks, because the sites can change while waiting for them.</summary>
+    /// <summary>A profile the CA does not list would fail at the order; checked first, with the ones it does list.</summary>
+    private async Task ThrowIfProfileNotOfferedAsync(CertificateAuthority authority, string profile, CancellationToken cancellationToken)
+    {
+        if (_directoryReader is null)
+        {
+            return;
+        }
+
+        var offered = (await _directoryReader.ReadAsync(authority.DirectoryUri, cancellationToken).ConfigureAwait(false)).Profiles;
+        if (offered is null || !offered.ContainsKey(profile))
+        {
+            throw new InvalidOperationException(offered is { Count: > 0 }
+                ? $"{authority.Name} does not offer the profile '{profile}'. It offers: {string.Join(", ", offered.Keys)}."
+                : $"{authority.Name} offers no profiles, so '{profile}' cannot be used. Leave out --profile.");
+        }
+    }
+
     private async Task<ManagedCertificate?> FindSharedRecordAsync(
+
         string siteName,
         IReadOnlyList<string> lockedSites,
         CancellationToken cancellationToken)

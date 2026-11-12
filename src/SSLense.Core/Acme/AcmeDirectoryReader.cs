@@ -6,11 +6,13 @@ namespace SSLense.Core.Acme;
 /// <param name="ExternalAccountRequired">The CA refuses new accounts without External Account Binding.</param>
 /// <param name="CaaIdentities">The domains the CA recognises in CAA records; empty when it publishes none.</param>
 /// <param name="SupportsRenewalInfo">The CA suggests renewal times through ARI.</param>
+/// <param name="Profiles">The ACME profiles the CA offers, by name, with its description of each.</param>
 public sealed record AcmeDirectoryInfo(
     bool ExternalAccountRequired,
     IReadOnlyList<string> CaaIdentities,
     bool SupportsRenewalInfo,
-    string? TermsOfService);
+    string? TermsOfService,
+    IReadOnlyDictionary<string, string>? Profiles = null);
 
 internal interface IAcmeDirectoryReader
 {
@@ -68,6 +70,7 @@ internal sealed class AcmeDirectoryReader(HttpClient httpClient) : IAcmeDirector
             var required = false;
             string[] caa = [];
             string? terms = null;
+            var profiles = new Dictionary<string, string>(StringComparer.Ordinal);
             if (root.TryGetProperty("meta", out var meta) && meta.ValueKind == JsonValueKind.Object)
             {
                 required = meta.TryGetProperty("externalAccountRequired", out var value) && value.ValueKind == JsonValueKind.True;
@@ -82,9 +85,16 @@ internal sealed class AcmeDirectoryReader(HttpClient httpClient) : IAcmeDirector
                 }
 
                 terms = meta.TryGetProperty("termsOfService", out var tos) && tos.ValueKind == JsonValueKind.String ? tos.GetString() : null;
+                if (meta.TryGetProperty("profiles", out var offered) && offered.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var profile in offered.EnumerateObject())
+                    {
+                        profiles[profile.Name] = profile.Value.ValueKind == JsonValueKind.String ? profile.Value.GetString() ?? string.Empty : string.Empty;
+                    }
+                }
             }
 
-            return new AcmeDirectoryInfo(required, caa, root.TryGetProperty("renewalInfo", out _), terms);
+            return new AcmeDirectoryInfo(required, caa, root.TryGetProperty("renewalInfo", out _), terms, profiles);
         }
         catch (JsonException exception)
         {
