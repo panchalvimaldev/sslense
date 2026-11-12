@@ -22,7 +22,22 @@ public partial class CertificateDetailsView : UserControl
         if (answer == MessageBoxResult.Yes) await viewModel.RemoveCommand.ExecuteAsync(null);
     }
 
-    private async void OnStopManagingClick(object sender, RoutedEventArgs e)
+    private void OnBrowseScriptClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not CertificateDetailsViewModel viewModel) return;
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Choose a deployment script",
+            Filter = "PowerShell scripts (*.ps1)|*.ps1",
+            CheckFileExists = true
+        };
+        var examples = System.IO.Path.Combine(AppContext.BaseDirectory, "..", "deploy-scripts");
+        if (System.IO.Directory.Exists(examples)) dialog.InitialDirectory = System.IO.Path.GetFullPath(examples);
+        if (dialog.ShowDialog(Window.GetWindow(this)) == true) viewModel.DeploymentValue = dialog.FileName;
+    }
+
+    private async void OnStopManagingClick(
+object sender, RoutedEventArgs e)
     {
         if (DataContext is not CertificateDetailsViewModel viewModel || sender is not FrameworkElement { DataContext: SharedSiteRow row }) return;
         var answer = MessageBox.Show(

@@ -68,7 +68,7 @@ Example scripts installed with SSLense, in `C:\Program Files\SSLense\deploy-scri
 |---|---|---|
 | 1 | This design | Docs |
 | 2 | Core and CLI: steps, running and retrying them, key access, service restart, scripts, schema 6, the `deploy` commands. Unit tests, and a real-key test for key access. **Built** November 12, 2026: 17 tests, including access granted on a real CNG key file, a changed script copy refused, and a failed step keeping the previous certificate until an hourly retry succeeds | CLI |
-| 3 | Example scripts for Remote Desktop, SQL Server, and Exchange; the app; README, roadmap, website; acceptance; release as 0.18 | Both |
+| 3 | Example scripts for Remote Desktop, SQL Server, and Exchange; the app; README, roadmap, website; acceptance; release as 0.18. **Built** November 12, 2026, apart from acceptance: the four example scripts in the installer, each run in the tests with SSLense's arguments; **Deployment steps** in Certificate Details; copies of removed steps deleted in the service cycle | Both |
 | 4 | Later: certificates with no IIS site, for servers whose only certificate is for Remote Desktop or SQL Server | Both |
 
 ## 7. Decisions taken by delegation

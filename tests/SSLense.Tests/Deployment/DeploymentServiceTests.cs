@@ -232,6 +232,27 @@ public sealed class DeploymentServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RunPendingAsync_DeletesCopiesOfRemovedCertificates_ButNotOnesJustAdded()
+    {
+        await SaveRecordAsync();
+        await _service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.Script, WriteScript("deploy.ps1", "exit 0")));
+        await _service.RunAsync("Shop");
+        var copy = Assert.Single(_runner.Calls).Path;
+        var fresh = Path.Combine(Path.GetDirectoryName(copy)!, "step-0123456789abcdef0123456789abcdef-0123456789abcdef.ps1");
+        File.WriteAllText(fresh, "exit 0");
+        File.SetLastWriteTimeUtc(copy, DateTime.UtcNow.AddHours(-2));
+
+        await _service.RunPendingAsync();
+        Assert.True(File.Exists(copy));
+
+        await _store.RemoveAsync("Shop");
+        await _service.RunPendingAsync();
+
+        Assert.False(File.Exists(copy));
+        Assert.True(File.Exists(fresh));
+    }
+
+    [Fact]
     public async Task ManagedCertificateState_WithSteps_RoundTripsInSchema6()
     {
         var fileSystem = new InMemoryFileSystem();
@@ -324,6 +345,23 @@ public sealed class DeploymentServiceTests : IDisposable
         Assert.Contains("-Hosts:shop.example.com,blog.example.com", arguments);
         Assert.Contains("-PreviousThumbprint:PREV", arguments);
         Assert.All(arguments, argument => Assert.Matches("^-[A-Za-z]+:", argument));
+    }
+
+    [Theory]
+    [InlineData("Template.ps1", "Deployment failed:")]
+    [InlineData("RemoteDesktop.ps1", "is not in LocalMachine\\My")]
+    [InlineData("SqlServer.ps1", "is not in LocalMachine\\My")]
+    public async Task ExampleScripts_AcceptSSLensesArguments_AndFailClearly(string script, string expected)
+    {
+        var result = await new PowerShellScriptRunner().RunAsync(
+            Path.Combine(AppContext.BaseDirectory, "deploy-scripts", script),
+            DeploymentService.ScriptArguments(Record(), "PREV"),
+            null,
+            TimeSpan.FromSeconds(60),
+            CancellationToken.None);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(expected, result.Output, StringComparison.Ordinal);
     }
 
     private static ManagedCertificate Record(string thumbprint = OldThumbprint) =>

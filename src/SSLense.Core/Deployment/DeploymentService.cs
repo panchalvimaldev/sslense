@@ -274,7 +274,16 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
         CancellationToken cancellationToken = default)
     {
         var results = new List<DeploymentRunResult>();
-        foreach (var candidate in (await _store.GetAllAsync(cancellationToken).ConfigureAwait(false)).Where(record => record.HasPendingDeployment()))
+        var records = await _store.GetAllAsync(cancellationToken).ConfigureAwait(false);
+
+        // Copies of steps that no longer exist, such as those of a removed certificate. A copy younger than an hour may
+        // belong to a step being added right now, whose record is not saved yet.
+        _scripts.DeleteUnused(
+            records.SelectMany(record => record.DeploymentSteps ?? []).Select(step => ScriptName(step.Id)).ToHashSet(StringComparer.OrdinalIgnoreCase),
+            TimeSpan.FromHours(1));
+
+        foreach (var candidate in records.Where(record => record.HasPendingDeployment()))
+
         {
             cancellationToken.ThrowIfCancellationRequested();
 

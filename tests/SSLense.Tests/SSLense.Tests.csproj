@@ -17,5 +17,7 @@
   <ItemGroup>
     <!-- The example DNS scripts that ship with SSLense, run by DnsScriptTests. -->
     <None Include="..\..\dns-scripts\*.ps1" Link="dns-scripts\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The example deployment scripts, run by DeploymentServiceTests. -->
+    <None Include="..\..\deploy-scripts\*.ps1" Link="deploy-scripts\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

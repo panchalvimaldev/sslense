@@ -15,6 +15,7 @@ SSLense is a Windows application for IIS administrators. It gets free Let's Encr
 - **A failed renewal never takes a site down.** After every change, SSLense connects to the site over HTTPS to check the new certificate is really served. If it isn't, the previous binding is restored automatically.
 - **One certificate across several IIS sites.** A DNS-validated certificate, such as `*.example.com`, can serve several sites that renew together. If one site has a problem, the others are protected.
 - **Wildcard certificates and sites without port 80.** DNS validation issues `*.example.com`, and works for internal servers and sites that cannot open port 80. It renews automatically through Cloudflare, through acme-dns with one CNAME at any DNS host, through your own PowerShell script for any DNS service with an API, or through a CNAME from any DNS service to a domain on Cloudflare.
+- **Certificates for more than IIS.** After every renewal, SSLense can give an application pool or service access to the private key, restart a service, or run a script, with ready-made scripts for Remote Desktop, SQL Server, and Exchange.
 - **Any ACME certificate authority, not only Let's Encrypt.** ZeroSSL, Google Trust Services, SSL.com, Sectigo, or your own internal CA, with External Account Binding, renewed automatically like Let's Encrypt.
 - **Certificates from any provider.** For one bought without ACME, it creates the certificate request with a private key that never leaves the server, installs what the provider issues with the same safety checks, or simply starts watching a certificate that is already in IIS.
 - **No need to log on to the server to check expiry dates.** One digest a day, sent only when something needs attention, by email (any SMTP setup, including Microsoft 365 relays), Teams, Slack, Discord, Telegram, ntfy, or the Windows Event Log.
@@ -171,7 +172,7 @@ Exercise the complete staging renewal and safe-binding swap immediately:
 dotnet run --project .\src\SSLense.Cli -- renew --site "My IIS Site" --force
 ```
 
-SSLense removes an old certificate only after the replacement binding is confirmed and no other IIS binding references the old thumbprint.
+SSLense removes an old certificate only after the replacement binding is confirmed and no other IIS binding references the old thumbprint, and, when the certificate has [deployment steps](#deployment-steps-remote-desktop-sql-server-exchange-and-more), after they succeed.
 
 ### DNS validation and wildcard certificates
 
@@ -249,7 +250,38 @@ _acme-challenge.example.com  CNAME  example-com.acme.example.net
 - **`*.example.com` can't be an IIS binding that SSLense manages.** Use real host names in `--hosts`. A host added to the site later isn't bound automatically: the health check reports it, and you run `issue --force` again with the new host in `--hosts`.
 - **Other DNS services:** use a script for now. Built-in providers for more services are planned; see [ROADMAP.md](ROADMAP.md).
 
+### Deployment steps: Remote Desktop, SQL Server, Exchange, and more
+
+Other services on the server use certificates too. Deployment steps hand each new certificate to them, after every install and renewal, in order.
+
+```powershell
+SSLense.Cli deploy add --site "Shop" --grant-key-access "IIS AppPool\Shop"      # read access to the private key
+SSLense.Cli deploy add --site "Shop" --restart-service MSSQLSERVER               # restart, and wait until it runs
+SSLense.Cli deploy add --site "Shop" --script C:\Scripts\my-deploy.ps1           # run a PowerShell script
+SSLense.Cli deploy list --site "Shop"
+SSLense.Cli deploy run --site "Shop"          # run them now, for the certificate in use
+SSLense.Cli deploy remove --site "Shop" --step 2
+```
+
+In the app, they are under **Deployment steps** in **Certificate Details**.
+
+Ready-made scripts are in `C:\Program Files\SSLense\deploy-scripts\`, with the steps to add at the top of each:
+
+| Script | What it does | Also add |
+|---|---|---|
+| `RemoteDesktop.ps1` | Sets the certificate of this server's Remote Desktop listener | `--grant-key-access "NT AUTHORITY\NETWORK SERVICE"` before it |
+| `SqlServer.ps1` | Sets the certificate of a SQL Server instance (`MSSQLSERVER` unless you change it) | `--grant-key-access "NT Service\MSSQLSERVER"` before it, `--restart-service MSSQLSERVER` after it |
+| `Exchange.ps1` | Enables the certificate for Exchange's SMTP service | `--timeout 600` |
+| `Template.ps1` | A starting point for your own | |
+
+- **A failed step never undoes the renewal.** The new certificate is installed and bound in IIS. The failure is reported in notifications, and SSLense retries the steps every hour until they succeed. The previous certificate stays installed until then, because services may still use it.
+- **A new step runs after the next renewal,** or at once with `deploy run`. Adding a restart step never restarts the service unasked.
+- **Scripts follow the DNS script rules:** SSLense runs its own copy, in `C:\ProgramData\SSLense\deploy-scripts`, checked by hash before every run, as SYSTEM, with a timeout (5 minutes unless `--timeout` says otherwise). A script gets `-Thumbprint`, `-PreviousThumbprint`, `-Hosts` (comma-separated), `-NotAfter`, and `-Site`. After editing the original, remove the step and add it again.
+- **Key access adds one read rule** for the account you name, which must exist. It never removes rules.
+- Steps belong to the certificate, so a certificate shared by several sites runs them once.
+
 ### One certificate across several IIS sites
+
 
 A certificate that uses DNS validation can serve several sites. Issue it for the first site, then add the others. Adding a site orders nothing from the certificate authority.
 
@@ -544,6 +576,7 @@ SSLense stores files under `C:\ProgramData\SSLense`:
 - `challenges\`: records of HTTP-01 challenge files written into a site, so files left by an interrupted validation are removed at the next start (only once the process that wrote them has exited)
 - `dns-challenges\`: records of DNS TXT records being published, so a record left by an interrupted validation is removed at the next start
 - `dns-scripts\`: SSLense's own copy of each DNS script, the only copy the service runs, named after the provider and the start of its SHA-256
+- `deploy-scripts\`: SSLense's own copy of each deployment script, named after its step and the start of its SHA-256
 - `service-heartbeat.json`: when the renewal service last started and completed a cycle, used by the health check
 - `reminder-state.json`: the day the last reminder digest and weekly summary were handled, so a restart never sends one twice
 - `logs\sslense-YYYYMMDD.log`: rolling logs retained for 30 days
@@ -551,6 +584,8 @@ SSLense stores files under `C:\ProgramData\SSLense`:
 `config.json`, `managed-certificates.json`, `pending-requests.json`, and transaction journals carry a `schemaVersion`. Before SSLense first rewrites a file from an older schema, it saves the original as `<file>.v<old version>.bak` (for example `managed-certificates.json.v0.bak`). A file written by a newer SSLense version is never modified: SSLense stops with a message to install the newer version, so a downgrade cannot corrupt state.
 
 Private keys, PFX passwords, SMTP passwords, webhook URLs, DNS provider tokens and script secrets, and the ACME account key must never appear in logs.
+
+**Going back to 0.17:** the first save after upgrading to 0.18 moves `managed-certificates.json` to schema 6, which 0.17 cannot read, and keeps the old file as `managed-certificates.json.v5.bak`. Going back means restoring that copy, which has no deployment steps, and losing any certificate issued since.
 
 **Going back to 0.16:** the first save after upgrading to 0.17 moves `config.json` to schema 8, which 0.16 cannot read, and keeps the old file as `config.json.v7.bak`. Going back means restoring that copy, which has no acme-dns providers.
 
@@ -620,7 +655,11 @@ The command prints a `PASS` or `FAIL` line for each check. Fix the first failing
 - **SSLense will not run a DNS script:** its copy is missing, was changed, or has the wrong permissions. Check your original script, then run `SSLense.Cli dns update-script`. The health check reports this too.
 - **acme-dns says the CNAME is missing:** create the record it shows at your DNS host, exactly as shown, and set it to DNS only if your host can proxy records. Then run `SSLense.Cli dns test`.
 - **acme-dns refuses the username or password, or this server's address:** the account was removed or its allowed networks don't include this server. Remove the provider and register the account again.
-- **A DNS script was stopped:** it ran longer than its timeout, 2 minutes by default. Raise it by removing the provider and adding it again with `--timeout`, or find what it waits for.
+- **A deployment step fails:** the certificate is installed and bound anyway. `SSLense.Cli deploy list` shows the step that failed and why; fix it and run `deploy run`, or wait for the hourly retry. A script's message includes its exit code and last 20 lines.
+- **Key access fails because the account is unknown:** an application pool's account, `IIS AppPool\<pool>`, exists only while the pool does. Use the pool's exact name.
+- **A service does not restart:** use its service name, as `sc.exe query` shows it, not its display name. A service that other running services depend on cannot be stopped on its own; restart the dependent services in a script instead.
+- **A DNS script was stopped:**
+ it ran longer than its timeout, 2 minutes by default. Raise it by removing the provider and adding it again with `--timeout`, or find what it waits for.
 - **The DNS records did not appear in time:** SSLense waits up to 5 minutes and doesn't ask Let's Encrypt to validate. Check the records at your DNS service, then try again. For manual records, check for a typo and that every value exists.
 - **CAA records block Let's Encrypt:** the message names the record to add. For a wildcard, an `issuewild` record takes priority over `issue`.
 - **A wildcard is refused because it is managed for another site:** add the site to that certificate with `share add` instead of requesting the wildcard again.

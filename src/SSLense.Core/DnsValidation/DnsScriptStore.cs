@@ -21,6 +21,10 @@ internal interface IDnsScriptStore
 
     /// <summary>Removes a copy that is no longer used. A copy that cannot be removed is left; it is never run.</summary>
     void Delete(string providerName, string sha256);
+
+    /// <summary>Removes copies whose owner is not in <paramref name="keep"/> and that are older than <paramref name="minimumAge"/>.</summary>
+    /// <returns>How many copies were removed.</returns>
+    int DeleteUnused(IReadOnlySet<string> keep, TimeSpan minimumAge);
 }
 
 internal sealed partial class DnsScriptStore : IDnsScriptStore
@@ -173,6 +177,38 @@ internal sealed partial class DnsScriptStore : IDnsScriptStore
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
         }
+    }
+
+    public int DeleteUnused(IReadOnlySet<string> keep, TimeSpan minimumAge)
+    {
+        if (!Directory.Exists(_directory))
+        {
+            return 0;
+        }
+
+        var removed = 0;
+        foreach (var path in Directory.EnumerateFiles(_directory, "*.ps1"))
+        {
+            // The name is "<owner>-<16 hex characters>.ps1"; anything else is not SSLense's.
+            var name = Path.GetFileNameWithoutExtension(path);
+            var dash = name.LastIndexOf('-');
+            if (dash <= 0 || name.Length - dash - 1 != 16 || keep.Contains(name[..dash]) ||
+                DateTime.UtcNow - File.GetLastWriteTimeUtc(path) < minimumAge)
+            {
+                continue;
+            }
+
+            try
+            {
+                File.Delete(path);
+                removed++;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+
+        return removed;
     }
 
     /// <summary>The hash is part of the name, so an update can be checked before the copy it replaces is removed.</summary>
