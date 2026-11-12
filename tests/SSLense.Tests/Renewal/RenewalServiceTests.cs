@@ -320,11 +320,12 @@ public sealed class RenewalServiceTests
                                                    request.Profile == "tlsserver" && request.ExportableKey),
                 null,
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AcmeIssueResult("pem", "pfx", ["example.com"], "NEW", PreviousCertificateKept: true));
+            .ReturnsAsync(new AcmeIssueResult("pem", "pfx", ["example.com"], "NEW", PreviousCertificateKept: true, KeyReused: false));
         var service = CreateService(managed, MockConfig(), acme, new Mock<IIisService>(MockBehavior.Strict), new Mock<ICertificateStore>(MockBehavior.Strict));
 
         var result = Assert.Single(await service.RenewAsync(new RenewalRequest(All: true)));
 
+        Assert.Contains("update any pins", result.Message, StringComparison.Ordinal);
         Assert.True(result.Succeeded, result.Message);
         acme.VerifyAll();
     }

@@ -235,6 +235,9 @@ internal sealed class RenewalService : IRenewalService
                 ?? throw new InvalidOperationException("The renewed certificate has no thumbprint.");
 
             IReadOnlyList<LeftOutSite> leftOut = issued.LeftOutSites ?? [];
+            var keyNotice = issued.KeyReused == false
+                ? "The private key could not be reused, so the certificate has a new key; update any pins or TLSA records."
+                : null;
             // Kept while deployment steps are pending: services such as Remote Desktop may still use it.
             var cleanupMessage = issued.PreviousCertificateKept
                 ? null
@@ -251,7 +254,8 @@ internal sealed class RenewalService : IRenewalService
                         $"The {CertificateAuthorities.Label(certificate.AuthorityId)} certificate for {certificate.DescribeSites()} " +
                         $"was renewed successfully. New thumbprint: {newThumbprint}." +
                         (cleanupMessage is null ? string.Empty : $" {cleanupMessage}") +
-                        (issued.Deployment is { } steps ? $" {steps.Message}" : string.Empty)),
+                        (issued.Deployment is { } steps ? $" {steps.Message}" : string.Empty) +
+                        (keyNotice is null ? string.Empty : $" {keyNotice}")),
                     progress,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -273,7 +277,7 @@ internal sealed class RenewalService : IRenewalService
                 certificate.SiteName,
                 true,
                 true,
-                string.Join(" ", new[] { cleanupMessage ?? "Renewed and rebound successfully.", leftOutMessage, issued.Deployment?.Message }.OfType<string>()),
+                string.Join(" ", new[] { cleanupMessage ?? "Renewed and rebound successfully.", leftOutMessage, issued.Deployment?.Message, keyNotice }.OfType<string>()),
                 certificate.Thumbprint,
                 newThumbprint);
         }

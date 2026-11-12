@@ -860,6 +860,7 @@ public sealed class AcmeServiceTests
             "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider, ReuseKey: true));
 
         Assert.Equal("REUSED", result.CertificateThumbprint);
+        Assert.True(result.KeyReused);
         Assert.Equal(currentKey.ExportSubjectPublicKeyInfo(), linkedKey);
         Assert.DoesNotContain("finalize", harness.Steps);
         harness.Store.Verify(value => value.ImportPfxAsync(
@@ -882,13 +883,14 @@ public sealed class AcmeServiceTests
             .ReturnsAsync(harness.Order.Object);
         var lines = new List<string>();
 
-        await harness.Service.IssueAsync(
+        var result = await harness.Service.IssueAsync(
             new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider,
                 KeyType: CertificateKeyType.Rsa2048, ReuseKey: true),
             new SynchronousProgress(value => lines.Add(value.Message)));
 
         Assert.Contains("finalize", harness.Steps);
         Assert.Contains(lines, line => line.Contains("is not rsa-2048", StringComparison.Ordinal));
+        Assert.False(result.KeyReused);
     }
 
     [Theory]

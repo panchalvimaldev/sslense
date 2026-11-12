@@ -437,7 +437,8 @@ internal sealed partial class AcmeService : IAcmeService
                 NotAfter = installedCertificate.NotAfter,
                 LeftOutSites = leftOut,
                 Deployment = deployment?.Result,
-                PreviousCertificateKept = deployment?.KeepReplaced == true
+                PreviousCertificateKept = deployment?.KeepReplaced == true,
+                KeyReused = request.ReuseKey ? reusedKey is not null : null
             };
         }
         finally
