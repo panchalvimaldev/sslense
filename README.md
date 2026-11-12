@@ -15,7 +15,7 @@ SSLense is a Windows application for IIS administrators. It gets free Let's Encr
 - **A failed renewal never takes a site down.** After every change, SSLense connects to the site over HTTPS to check the new certificate is really served. If it isn't, the previous binding is restored automatically.
 - **One certificate across several IIS sites.** A DNS-validated certificate, such as `*.example.com`, can serve several sites that renew together. If one site has a problem, the others are protected.
 - **Wildcard certificates and sites without port 80.** DNS validation issues `*.example.com`, and works for internal servers and sites that cannot open port 80. It renews automatically through Cloudflare, through acme-dns with one CNAME at any DNS host, through your own PowerShell script for any DNS service with an API, or through a CNAME from any DNS service to a domain on Cloudflare.
-- **Certificates for more than IIS.** After every renewal, SSLense can give an application pool or service access to the private key, restart a service, or run a script, with ready-made scripts for Remote Desktop, SQL Server, and Exchange.
+- **Certificates for more than IIS.** After every renewal, SSLense can give an application pool or service access to the private key, restart a service, or run a script, with ready-made scripts for Remote Desktop, SQL Server, and Exchange. A certificate only for such a service needs no IIS site.
 - **Any ACME certificate authority, not only Let's Encrypt.** ZeroSSL, Google Trust Services, SSL.com, Sectigo, or your own internal CA, with External Account Binding, renewed automatically like Let's Encrypt.
 - **Certificates from any provider.** For one bought without ACME, it creates the certificate request with a private key that never leaves the server, installs what the provider issues with the same safety checks, or simply starts watching a certificate that is already in IIS.
 - **No need to log on to the server to check expiry dates.** One digest a day, sent only when something needs attention, by email (any SMTP setup, including Microsoft 365 relays), Teams, Slack, Discord, Telegram, ntfy, or the Windows Event Log.
@@ -279,6 +279,20 @@ Ready-made scripts are in `C:\Program Files\SSLense\deploy-scripts\`, with the s
 - **Scripts follow the DNS script rules:** SSLense runs its own copy, in `C:\ProgramData\SSLense\deploy-scripts`, checked by hash before every run, as SYSTEM, with a timeout (5 minutes unless `--timeout` says otherwise). A script gets `-Thumbprint`, `-PreviousThumbprint`, `-Hosts` (comma-separated), `-NotAfter`, and `-Site`. After editing the original, remove the step and add it again.
 - **Key access adds one read rule** for the account you name, which must exist. It never removes rules.
 - Steps belong to the certificate, so a certificate shared by several sites runs them once.
+
+**A certificate with no IIS site.** For a server whose certificate is only for Remote Desktop, SQL Server, or another service, issue it under a name of your choice instead of a site. Nothing is bound in IIS; its deployment steps hand it to the service.
+
+```powershell
+SSLense.Cli issue --no-site "Remote Desktop" --names rdp.example.com --validation dns --email ops@example.com
+SSLense.Cli deploy add --site "Remote Desktop" --grant-key-access "NT AUTHORITY\NETWORK SERVICE"
+SSLense.Cli deploy add --site "Remote Desktop" --script "C:\Program Files\SSLense\deploy-scripts\RemoteDesktop.ps1"
+SSLense.Cli deploy run --site "Remote Desktop"
+```
+
+- Every command that takes `--site` takes the name too. In the app, tick **No IIS site** in **Issue Certificate**.
+- It needs DNS validation, because HTTP validation needs a site to serve the file. The name must not be an IIS site's.
+- Removing it stops managing it and **keeps the certificate in the store**, because services outside IIS may still use it. Delete it in certlm when they no longer do.
+
 
 ### One certificate across several IIS sites
 
@@ -584,6 +598,8 @@ SSLense stores files under `C:\ProgramData\SSLense`:
 `config.json`, `managed-certificates.json`, `pending-requests.json`, and transaction journals carry a `schemaVersion`. Before SSLense first rewrites a file from an older schema, it saves the original as `<file>.v<old version>.bak` (for example `managed-certificates.json.v0.bak`). A file written by a newer SSLense version is never modified: SSLense stops with a message to install the newer version, so a downgrade cannot corrupt state.
 
 Private keys, PFX passwords, SMTP passwords, webhook URLs, DNS provider tokens and script secrets, and the ACME account key must never appear in logs.
+
+**Going back to 0.18:** the first save after upgrading to 0.19 moves `managed-certificates.json` to schema 7, which 0.18 cannot read, and keeps the old file as `managed-certificates.json.v6.bak`. Going back means restoring that copy, which has no certificates without an IIS site.
 
 **Going back to 0.17:** the first save after upgrading to 0.18 moves `managed-certificates.json` to schema 6, which 0.17 cannot read, and keeps the old file as `managed-certificates.json.v5.bak`. Going back means restoring that copy, which has no deployment steps, and losing any certificate issued since.
 

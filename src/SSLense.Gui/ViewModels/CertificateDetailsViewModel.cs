@@ -33,6 +33,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private readonly AsyncRelayCommand _renewCommand;
     private readonly AsyncRelayCommand _removeCommand;
     private bool _suppressSelectionRefresh;
+    private bool _isNoSite;
 
     [ObservableProperty] private string? selectedSite;
     [ObservableProperty] private bool isBusy;
@@ -353,8 +354,11 @@ public partial class CertificateDetailsViewModel : ObservableObject
             };
         CertificateNames = string.Join(", ", record.CertificateNames ?? record.Hosts);
         CanShare = record.CanBeShared();
+        _isNoSite = record.NoSite;
         SharingNote = CanShare
             ? string.Empty
+            : record.NoSite
+                ? "This certificate has no IIS site, so nothing is bound. Its deployment steps hand it to its services."
             : record.Source == CertificateSource.Imported
                 ? "Certificates from other providers cannot be shared for now."
                 : "To share this certificate with other sites, issue it again with DNS validation.";
@@ -406,7 +410,9 @@ public partial class CertificateDetailsViewModel : ObservableObject
         await RunAsync(async token =>
         {
             await _managementService.RemoveAsync(removedSite, token).ConfigureAwait(true);
-            ResultMessage = SharedSites.Count > 1
+            ResultMessage = _isNoSite
+                ? $"Stopped managing '{removedSite}'. The certificate stays in LocalMachine\\My for the services that may use it; delete it in certlm when they no longer do."
+                : SharedSites.Count > 1
                 ? $"Removed the managed certificate and its IIS HTTPS bindings on {string.Join(", ", SharedSites.Select(row => $"'{row.SiteName}'"))}."
                 : $"Removed the managed certificate and its matching IIS HTTPS bindings for '{removedSite}'.";
             await InitializeAsync().ConfigureAwait(true);

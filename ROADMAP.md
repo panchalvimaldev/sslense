@@ -29,6 +29,7 @@ Complete:
 - Other ACME certificate authorities (0.16): presets for ZeroSSL, Google Trust Services, SSL.com, and Sectigo, or any ACME directory; External Account Binding with a DPAPI-protected HMAC key; the CA's directory read before it is added, including the CAA identities it publishes, so CAA checks work for every CA; a confirmation for every CA that is not a test endpoint, enforced in Core; a CA choice in the Issue wizard and Settings; and the ACME client tested end to end against Pebble in CI ([design](docs/design/certificate-sources.md), section 9)
 - DNS validation through acme-dns (0.17): one CNAME, created once at any DNS host, and an acme-dns account whose credential can change only the validation record; registration or import from SSLense, an optional allowed network, the CNAME checked before each order and daily, and the account's two-value limit checked before ordering ([design](docs/design/acme-dns.md))
 - Deployment steps (0.18): after every install and renewal, read access to the private key for an account such as an IIS application pool, a Windows service restart, or a PowerShell script run as SSLense's own checked copy; ready-made scripts for Remote Desktop, SQL Server, and Exchange; a failed step retried hourly while the previous certificate is kept ([design](docs/design/deployment-steps.md))
+- Certificates with no IIS site (0.19): issued and renewed through DNS under a name instead of a site, for Remote Desktop, SQL Server, and other services that deployment steps hand them to; removal keeps the certificate in the store ([design](docs/design/no-site-certificates.md))
 - Cross-process per-site locking, durable operation journals, and non-fatal startup recovery
 - Health check (CLI and GUI) and redacted diagnostic bundles for support
 - Versioned state schemas with backup before migration and safe refusal of newer schemas
@@ -60,15 +61,14 @@ References:
 
 In priority order. Feedback from real users can change the order.
 
-1. **Certificates with no IIS site.** Deployment steps (0.18) hand a certificate to Remote Desktop, SQL Server, Exchange, and other services, but the certificate still belongs to an IIS site. Servers whose only certificate is for such a service should not need a site for it.
-2. **Certificate export and shared stores.** PFX and PEM export, the IIS Central Certificate Store for web farms, and Azure Key Vault. Export needs an exportable key, so it stays off by default and is an explicit choice per certificate.
-3. **Key and order options.** A choice of RSA or ECDSA (issuance currently uses ECDSA P-256), optional private-key reuse for sites that pin keys, the CA's preferred chain, and ACME profiles where the CA offers them, such as short-lived certificates.
-4. **Built-in DNS providers.** The script method (0.15) covers any service with an API; built-in providers save writing one. One at a time, starting with Amazon Route 53, Azure DNS, Google Cloud DNS, DigitalOcean, and Hetzner, then whichever users ask for most. Each stays labelled untested until it has run on a real account. Providers are compiled in, not loaded as plugins, because the service runs as SYSTEM.
-5. **HTTP validation without a port 80 binding.** A short-lived listener of SSLense's own answers the challenge, for sites that have only HTTPS bindings or whose port 80 is used by something else.
-6. **Certificates on other machines.** Add host names that are not on this server, such as load balancers and appliances, to the daily served-certificate check, so one place reminds about every certificate.
-7. **HTTP-to-HTTPS redirect helper** using an IIS URL Rewrite rule, with a check that it does not block validation.
-8. **Bulk operations.** Adopt every unmanaged certificate at once, and issue for many sites from a CSV file.
-9. **New version notice.** Tell the administrator when a newer release is available, with a setting to turn the check off. Never install anything automatically.
+1. **Certificate export and shared stores.** PFX and PEM export, the IIS Central Certificate Store for web farms, and Azure Key Vault. Export needs an exportable key, so it stays off by default and is an explicit choice per certificate.
+2. **Key and order options.** A choice of RSA or ECDSA (issuance currently uses ECDSA P-256), optional private-key reuse for sites that pin keys, the CA's preferred chain, and ACME profiles where the CA offers them, such as short-lived certificates.
+3. **Built-in DNS providers.** The script method (0.15) covers any service with an API; built-in providers save writing one. One at a time, starting with Amazon Route 53, Azure DNS, Google Cloud DNS, DigitalOcean, and Hetzner, then whichever users ask for most. Each stays labelled untested until it has run on a real account. Providers are compiled in, not loaded as plugins, because the service runs as SYSTEM.
+4. **HTTP validation without a port 80 binding.** A short-lived listener of SSLense's own answers the challenge, for sites that have only HTTPS bindings or whose port 80 is used by something else.
+5. **Certificates on other machines.** Add host names that are not on this server, such as load balancers and appliances, to the daily served-certificate check, so one place reminds about every certificate.
+6. **HTTP-to-HTTPS redirect helper** using an IIS URL Rewrite rule, with a check that it does not block validation.
+7. **Bulk operations.** Adopt every unmanaged certificate at once, and issue for many sites from a CSV file.
+8. **New version notice.** Tell the administrator when a newer release is available, with a setting to turn the check off. Never install anything automatically.
 
 Later, by demand: certificates for IP addresses, TLS-ALPN-01 validation, IIS FTP sites, and managing several servers from one place.
 
