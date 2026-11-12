@@ -310,7 +310,23 @@ SSLense.Cli deploy add --site "Shop" --central-store \\fileserver\ccs         # 
 - **`key.pem` is not protected by a password,** so SSLense writes it for Administrators, SYSTEM, and the account that wrote it only. Give another account access with Windows' own tools if a service needs it.
 - Passwords are encrypted with DPAPI, never logged, and hidden in diagnostic bundles. Files are replaced in one step, so a reader never sees half a file. The service writes as SYSTEM, which reaches a share as the computer's account.
 
+### Key type, chain, and profile
+
+Certificates get an ECDSA P-256 key, the CA's default chain, and the CA's default kind of certificate unless you choose otherwise. Each choice is kept at every renewal. In the app, they are under **Advanced** in **Issue Certificate**.
+
+```powershell
+SSLense.Cli issue --site "Shop" --email ops@example.com --key rsa-3072                     # ecdsa-p256, ecdsa-p384, rsa-2048, rsa-3072, rsa-4096
+SSLense.Cli issue --site "Shop" --email ops@example.com --preferred-chain "ISRG Root X1"
+SSLense.Cli issue --site "Shop" --email ops@example.com --profile shortlived                # certificates valid about six days
+SSLense.Cli ca test --id letsencrypt-staging                                               # lists the CA's profiles
+```
+
+- **RSA** suits older clients and appliances that do not accept ECDSA.
+- **A preferred chain** is a preference: the default chain is used when the CA offers none to that root.
+- **A profile** must be one the CA lists, or SSLense refuses before ordering. A short-lived certificate renews about two days before it expires; keep the renewal service running.
+
 ### One certificate across several IIS sites
+
 
 
 
@@ -615,6 +631,8 @@ SSLense stores files under `C:\ProgramData\SSLense`:
 `config.json`, `managed-certificates.json`, `pending-requests.json`, and transaction journals carry a `schemaVersion`. Before SSLense first rewrites a file from an older schema, it saves the original as `<file>.v<old version>.bak` (for example `managed-certificates.json.v0.bak`). A file written by a newer SSLense version is never modified: SSLense stops with a message to install the newer version, so a downgrade cannot corrupt state.
 
 Private keys, PFX passwords, SMTP passwords, webhook URLs, DNS provider tokens and script secrets, and the ACME account key must never appear in logs.
+
+**Going back to 0.20:** the first save after upgrading to 0.21 moves `managed-certificates.json` to schema 9, which 0.20 cannot read, and keeps the old file as `managed-certificates.json.v8.bak`. Going back means restoring that copy; certificates renewed since keep working, but renew with the default key and profile.
 
 **Going back to 0.19:** the first save after upgrading to 0.20 moves `managed-certificates.json` to schema 8, which 0.19 cannot read, and keeps the old file as `managed-certificates.json.v7.bak`. Going back means restoring that copy, which has no export steps or exportable keys.
 

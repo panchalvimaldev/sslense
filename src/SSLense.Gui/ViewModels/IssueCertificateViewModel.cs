@@ -45,6 +45,9 @@ public partial class IssueCertificateViewModel : ObservableObject
     [ObservableProperty] private string renewalNotice = string.Empty;
     [ObservableProperty] private bool noSite;
     [ObservableProperty] private bool exportableKey;
+    [ObservableProperty] private KeyTypeChoice? selectedKeyType;
+    [ObservableProperty] private string preferredChain = string.Empty;
+    [ObservableProperty] private string profile = string.Empty;
     [ObservableProperty] private string noSiteName = string.Empty;
 
     public IssueCertificateViewModel(
@@ -69,6 +72,7 @@ public partial class IssueCertificateViewModel : ObservableObject
         BackCommand = new RelayCommand(Back, () => !IsBusy && CurrentStep > 1);
         _preflightCommand = new AsyncRelayCommand(RunPreflightAsync, CanRunPreflight);
         _issueCommand = new AsyncRelayCommand(IssueAsync, CanIssue);
+        SelectedKeyType = KeyTypes[0];
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         StartOverCommand = new RelayCommand(StartOver, () => !IsBusy);
         ConfirmManualRecordsCommand = new RelayCommand(() => _manualAnswer?.TrySetResult(true), () => IsWaitingForManualDns);
@@ -97,6 +101,9 @@ public partial class IssueCertificateViewModel : ObservableObject
     }
 
     public bool UsesDns => SelectedValidation != ValidationMethod.Http01;
+
+    /// <summary>The key types offered under Advanced, ECDSA P-256 first.</summary>
+    public IReadOnlyList<KeyTypeChoice> KeyTypes { get; } = CertificateKeyTypes.All.Select(value => new KeyTypeChoice(value.Type, value.Label)).ToArray();
 
     /// <summary>The site picker and host names apply only to a certificate for an IIS site.</summary>
     public bool ShowSitePicker => !NoSite;
@@ -425,7 +432,10 @@ public partial class IssueCertificateViewModel : ObservableObject
                     CertificateNames: UsesDns ? SelectedNames() : null,
                     AcceptProductionRisk: UseProduction && ProductionRiskAccepted,
                     NoSite: NoSite,
-                    ExportableKey: _renewing?.ExportableKey ?? ExportableKey),
+                    ExportableKey: _renewing?.ExportableKey ?? ExportableKey,
+                    KeyType: _renewing?.KeyType ?? SelectedKeyType?.Type ?? CertificateKeyType.EcdsaP256,
+                    PreferredChain: _renewing is not null ? _renewing.PreferredChain : PreferredChain,
+                    Profile: _renewing is not null ? _renewing.Profile : Profile),
                 new Progress<ProgressEvent>(value =>
                     ProgressLines.Add($"[{DateTime.Now:HH:mm:ss}] [{value.Step}] {value.Message}")),
                 token).ConfigureAwait(true);
@@ -486,7 +496,7 @@ public partial class IssueCertificateViewModel : ObservableObject
     private bool CanIssue() =>
         !IsBusy && CurrentStep == 2 && PreflightPassed && (!UseProduction || ProductionRiskAccepted);
     private void Cancel() { _preflightCommand.Cancel(); _issueCommand.Cancel(); }
-    private void StartOver() { CurrentStep = 1; NoSite = false; ExportableKey = false; NoSiteName = string.Empty; PreflightPassed = false; ProductionRiskAccepted = false; ReplaceExisting = false; CertificateNames = string.Empty; SetRenewing(null); PreflightChecks.Clear(); ProgressLines.Clear(); ManualRecords.Clear(); ErrorMessage = null; ResultMessage = string.Empty; }
+    private void StartOver() { CurrentStep = 1; NoSite = false; ExportableKey = false; SelectedKeyType = KeyTypes[0]; PreferredChain = string.Empty; Profile = string.Empty; NoSiteName = string.Empty; PreflightPassed = false; ProductionRiskAccepted = false; ReplaceExisting = false; CertificateNames = string.Empty; SetRenewing(null); PreflightChecks.Clear(); ProgressLines.Clear(); ManualRecords.Clear(); ErrorMessage = null; ResultMessage = string.Empty; }
     private void NotifyCommands()
     {
         (NextCommand as RelayCommand)?.NotifyCanExecuteChanged();
@@ -497,4 +507,9 @@ public partial class IssueCertificateViewModel : ObservableObject
         (StartOverCommand as RelayCommand)?.NotifyCanExecuteChanged();
         (ConfirmManualRecordsCommand as RelayCommand)?.NotifyCanExecuteChanged();
     }
+}
+
+public sealed record KeyTypeChoice(CertificateKeyType Type, string Label)
+{
+    public override string ToString() => Label;
 }

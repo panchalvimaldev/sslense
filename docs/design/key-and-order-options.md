@@ -1,4 +1,4 @@
-# Design: key and order options
+. **Built** November 12, 2026, apart from acceptance: **Advanced** in Issue Certificate, kept when renewing by hand, and the options shown in Certificate Details# Design: key and order options
 
 Status: **approved by delegation** November 12, 2026, with the decisions in section 6 taken by judgement for the owner's review. Target release: 0.21. Branch: `feature/key-options`. Item 2 of the [roadmap](../../ROADMAP.md).
 

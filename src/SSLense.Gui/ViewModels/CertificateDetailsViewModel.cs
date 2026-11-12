@@ -361,6 +361,12 @@ public partial class CertificateDetailsViewModel : ObservableObject
                 ValidationMethod.Dns01Manual => "Manual DNS; renew it by hand",
                 _ => "HTTP (port 80); renews automatically"
             };
+        var options = new List<string>();
+        if (record.KeyType != CertificateKeyType.EcdsaP256) options.Add($"key {CertificateKeyTypes.Name(record.KeyType)}");
+        if (record.Profile is { } profile) options.Add($"profile {profile}");
+        if (record.PreferredChain is { } chain) options.Add($"chain to {chain}");
+        if (record.ExportableKey) options.Add("exportable key");
+        if (options.Count > 0) Validation += $". Options: {string.Join(", ", options)}";
         CertificateNames = string.Join(", ", record.CertificateNames ?? record.Hosts);
         CanShare = record.CanBeShared();
         _isNoSite = record.NoSite;
