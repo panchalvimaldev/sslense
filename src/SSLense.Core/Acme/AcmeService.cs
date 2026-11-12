@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
+using SSLense.Core.Deployment;
 using SSLense.Core.DnsValidation;
 using SSLense.Core.Iis;
 using SSLense.Core.Reminders;
@@ -20,6 +21,7 @@ internal sealed class AcmeService : IAcmeService
     private readonly ICertificateStore _certificateStore;
     private readonly IManagedCertificateStore _managedCertificateStore;
     private readonly ICertificateOperationLock _operationLock;
+    private readonly IDeploymentRunner? _deployment;
     private readonly ICertificateTransactionJournal _transactionJournal;
     private readonly ICertificateAuthorityRegistry _authorities;
     private readonly IDnsChallengeService? _dnsChallenges;
@@ -37,8 +39,10 @@ internal sealed class AcmeService : IAcmeService
         ICertificateTransactionJournal? transactionJournal = null,
         ICertificateAuthorityRegistry? authorities = null,
         IDnsChallengeService? dnsChallenges = null,
-        ICertificateAuthorityLock? authorityLock = null)
+        ICertificateAuthorityLock? authorityLock = null,
+        IDeploymentRunner? deployment = null)
     {
+        _deployment = deployment;
         _authorityLock = authorityLock ?? NoOpCertificateAuthorityLock.Instance;
         _iisService = iisService;
         _protocolClient = protocolClient;
@@ -335,7 +339,10 @@ internal sealed class AcmeService : IAcmeService
                 .ConfigureAwait(false);
             await _transactionJournal.CompleteAsync(transaction.Id, CancellationToken.None)
                 .ConfigureAwait(false);
-            if (replaced is not null)
+
+            // The certificate is installed, bound, and saved: deployment steps run now, and a failure never undoes that.
+            var deployment = await RunDeploymentAsync(site.Name, replaced, leftOut, progress).ConfigureAwait(false);
+            if (replaced is not null && deployment?.KeepReplaced != true)
             {
                 await RemoveReplacedCertificateAsync(replaced, installedCertificate.Thumbprint, leftOut, progress).ConfigureAwait(false);
             }
@@ -345,7 +352,9 @@ internal sealed class AcmeService : IAcmeService
                 CertificateThumbprint = installedCertificate.Thumbprint,
                 NotBefore = installedCertificate.NotBefore,
                 NotAfter = installedCertificate.NotAfter,
-                LeftOutSites = leftOut
+                LeftOutSites = leftOut,
+                Deployment = deployment?.Result,
+                PreviousCertificateKept = deployment?.KeepReplaced == true
             };
         }
         finally
@@ -379,7 +388,33 @@ internal sealed class AcmeService : IAcmeService
         }
     }
 
+    private async Task<DeploymentAfterInstall?> RunDeploymentAsync(
+        string siteName,
+        string? replaced,
+        IReadOnlyList<LeftOutSite> leftOut,
+        IProgress<ProgressEvent>? progress)
+    {
+        if (_deployment is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await _deployment
+                .RunAfterInstallAsync(siteName, replaced, leftOut.Select(value => value.SiteName).ToArray(), progress, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            // The steps' state could not be read or saved, so the previous certificate is kept to be safe.
+            progress?.Report(new ProgressEvent("deploy", $"The certificate is installed, but its deployment steps could not run: {exception.Message}"));
+            return new DeploymentAfterInstall(null, replaced is not null);
+        }
+    }
+
     private async Task RemoveReplacedCertificateAsync(
+
         string oldThumbprint,
         string newThumbprint,
         IReadOnlyList<LeftOutSite> leftOut,

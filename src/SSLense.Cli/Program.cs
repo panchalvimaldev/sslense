@@ -2,6 +2,7 @@ using SSLense;
 using SSLense.Core;
 using SSLense.Core.Acme;
 using SSLense.Core.Config;
+using SSLense.Core.Deployment;
 using SSLense.Core.DnsValidation;
 using SSLense.Core.Iis;
 using SSLense.Core.Reminders;
@@ -178,6 +179,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     rootCommand.Subcommands.Add(CreateCaCommand(services));
     rootCommand.Subcommands.Add(CreateDnsCommand(services));
     rootCommand.Subcommands.Add(CreateShareCommand(services));
+    rootCommand.Subcommands.Add(CreateDeployCommand(services));
 
     var renewAllOption = new Option<bool>("--all")
     {
@@ -799,7 +801,187 @@ static async Task<int> RemoveSharedSiteAsync(ICertificateSharingService sharing,
     }
 }
 
-static void WriteSharedSites(string firstSite, IReadOnlyList<CertificateTarget>? others, DateTimeOffset? firstPendingSince)
+static Command CreateDeployCommand(IServiceProvider services)
+{
+    IDeploymentService Deployment() => services.GetRequiredService<IDeploymentService>();
+    var command = new Command("deploy", "Steps that run after every install and renewal of a certificate: key access, service restarts, and scripts.");
+
+    var siteOption = new Option<string>("--site") { Required = true, Description = "An IIS site using the certificate." };
+    var keyAccessOption = new Option<string?>("--grant-key-access") { Description = "Give this account read access to the private key, such as 'IIS AppPool\\Shop'." };
+    var restartOption = new Option<string?>("--restart-service") { Description = "Restart this Windows service, by its service name, and wait for it to run." };
+    var scriptOption = new Option<string?>("--script") { Description = "Run this PowerShell script. SSLense runs its own copy, checked by hash." };
+    var timeoutOption = new Option<int?>("--timeout") { Description = $"For --script: seconds it may run (default {DeploymentStepRequest.DefaultScriptTimeoutSeconds})." };
+    var addCommand = new Command("add", "Add a step at the end. It runs after the next renewal, or now with 'deploy run'.");
+    addCommand.Options.Add(siteOption);
+    addCommand.Options.Add(keyAccessOption);
+    addCommand.Options.Add(restartOption);
+    addCommand.Options.Add(scriptOption);
+    addCommand.Options.Add(timeoutOption);
+    addCommand.SetAction((parseResult, token) => AddDeploymentStepAsync(
+        Deployment(),
+        parseResult.GetRequiredValue(siteOption),
+        parseResult.GetValue(keyAccessOption),
+        parseResult.GetValue(restartOption),
+        parseResult.GetValue(scriptOption),
+        parseResult.GetValue(timeoutOption),
+        token));
+    command.Subcommands.Add(addCommand);
+
+    var listSiteOption = new Option<string?>("--site") { Description = "An IIS site using the certificate (default: every certificate with steps)." };
+    var listCommand = new Command("list", "List the deployment steps and how they last ran.");
+    listCommand.Options.Add(listSiteOption);
+    listCommand.SetAction((parseResult, token) => ListDeploymentStepsAsync(Deployment(), parseResult.GetValue(listSiteOption), token));
+    command.Subcommands.Add(listCommand);
+
+    var runSiteOption = new Option<string>("--site") { Required = true, Description = "An IIS site using the certificate." };
+    var runCommand = new Command("run", "Run every step now, for the certificate in use.");
+    runCommand.Options.Add(runSiteOption);
+    runCommand.SetAction((parseResult, token) => RunDeploymentStepsAsync(Deployment(), parseResult.GetRequiredValue(runSiteOption), token));
+    command.Subcommands.Add(runCommand);
+
+    var removeSiteOption = new Option<string>("--site") { Required = true, Description = "An IIS site using the certificate." };
+    var stepOption = new Option<int>("--step") { Required = true, Description = "The step's number, as 'deploy list' shows it." };
+    var removeCommand = new Command("remove", "Remove a step. Access already granted and services already restarted are not changed.");
+    removeCommand.Options.Add(removeSiteOption);
+    removeCommand.Options.Add(stepOption);
+    removeCommand.SetAction((parseResult, token) => RemoveDeploymentStepAsync(
+        Deployment(), parseResult.GetRequiredValue(removeSiteOption), parseResult.GetRequiredValue(stepOption), token));
+    command.Subcommands.Add(removeCommand);
+    return command;
+}
+
+static async Task<int> AddDeploymentStepAsync(
+    IDeploymentService deployment,
+    string site,
+    string? keyAccess,
+    string? restartService,
+    string? script,
+    int? timeout,
+    CancellationToken token)
+{
+    var given = new[] { keyAccess, restartService, script }.Count(value => value is not null);
+    if (given != 1)
+    {
+        Console.Error.WriteLine("Error: give exactly one of --grant-key-access, --restart-service, or --script.");
+        return 1;
+    }
+
+    try
+    {
+        var request = keyAccess is not null
+            ? new DeploymentStepRequest(site, DeploymentStepKind.GrantKeyAccess, keyAccess, timeout)
+            : restartService is not null
+                ? new DeploymentStepRequest(site, DeploymentStepKind.RestartService, restartService, timeout)
+                : new DeploymentStepRequest(site, DeploymentStepKind.Script, script!, timeout);
+        var step = await deployment.AddAsync(request, token).ConfigureAwait(false);
+        var overview = await deployment.ListAsync(site, token).ConfigureAwait(false);
+        Console.WriteLine($"Added step {overview.Steps.Count}: {step.Describe()}.");
+        if (step.Kind == DeploymentStepKind.Script)
+        {
+            Console.WriteLine("SSLense runs its own copy of the script. After changing the original, remove the step and add it again.");
+        }
+
+        Console.WriteLine($"The steps run after every renewal. To run them now: SSLense.Cli deploy run --site \"{overview.Site}\"");
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to add a deployment step for IIS site {SiteName}", site);
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> ListDeploymentStepsAsync(IDeploymentService deployment, string? site, CancellationToken token)
+{
+    try
+    {
+        IReadOnlyList<DeploymentOverview> overviews = site is null
+            ? await deployment.ListAllAsync(token).ConfigureAwait(false)
+            : [await deployment.ListAsync(site, token).ConfigureAwait(false)];
+        if (overviews.All(overview => overview.Steps.Count == 0))
+        {
+            Console.WriteLine(site is null ? "No certificate has deployment steps." : $"'{site}' has no deployment steps.");
+            return 0;
+        }
+
+        foreach (var overview in overviews)
+        {
+            Console.WriteLine($"{overview.Site} (certificate {overview.Thumbprint})");
+            for (var index = 0; index < overview.Steps.Count; index++)
+            {
+                var step = overview.Steps[index];
+                Console.WriteLine($"  {index + 1}. {step.Describe()}" +
+                                  (step.TimeoutSeconds is { } seconds ? $", up to {seconds} seconds" : string.Empty));
+            }
+
+            var state = overview.State;
+            Console.WriteLine(overview.Pending
+                ? "  Pending: not yet succeeded for this certificate; the service retries every hour."
+                : "  Done for this certificate.");
+            if (state?.LastAttempt is { } attempt)
+            {
+                Console.WriteLine($"  Last run: {attempt:yyyy-MM-dd HH:mm} UTC, " +
+                                  (state.LastError is null ? "succeeded" : $"failed {state.ConsecutiveFailures} time(s) in a row: {state.LastError}"));
+            }
+
+            if (state?.RetainedThumbprint is { } retained)
+            {
+                Console.WriteLine($"  Kept until the steps succeed: previous certificate {retained}");
+            }
+        }
+
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to list deployment steps");
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> RunDeploymentStepsAsync(IDeploymentService deployment, string site, CancellationToken token)
+{
+    try
+    {
+        var result = await deployment.RunAsync(site, new ConsoleProgress(), token).ConfigureAwait(false);
+        if (result.Succeeded)
+        {
+            Console.WriteLine(result.Message);
+            return 0;
+        }
+
+        Log.Error("Deployment steps failed for IIS site {SiteName}: {Message}", result.Site, result.Message);
+        Console.Error.WriteLine($"Error: {result.Message}");
+        return 1;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to run deployment steps for IIS site {SiteName}", site);
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> RemoveDeploymentStepAsync(IDeploymentService deployment, string site, int number, CancellationToken token)
+{
+    try
+    {
+        var removed = await deployment.RemoveAsync(site, number, token).ConfigureAwait(false);
+        Console.WriteLine($"Removed step {number}: {removed.Describe()}. What it already did is not undone.");
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to remove a deployment step for IIS site {SiteName}", site);
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
+static void WriteSharedSites(
+string firstSite, IReadOnlyList<CertificateTarget>? others, DateTimeOffset? firstPendingSince)
 {
     if (others is not { Count: > 0 })
     {
@@ -2086,6 +2268,14 @@ static async Task<int> StatusAsync(
                 Console.WriteLine(status.ValidationMethod == ValidationMethod.Dns01Manual
                     ? "  Validation: manual DNS; renew it by hand"
                     : "  Validation: DNS provider");
+            }
+
+            if (status.DeploymentStepCount > 0)
+            {
+                Console.WriteLine(status.DeploymentPending
+                    ? $"  Deployment steps: {status.DeploymentStepCount}, pending" +
+                      (status.Deployment?.LastError is { } deployError ? $"; last error: {deployError}" : string.Empty)
+                    : $"  Deployment steps: {status.DeploymentStepCount}, done for this certificate");
             }
 
             Console.WriteLine($"  Issued: {status.NotBefore:yyyy-MM-dd HH:mm:ss} UTC");

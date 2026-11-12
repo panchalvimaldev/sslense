@@ -32,6 +32,8 @@ internal sealed partial class DnsScriptStore : IDnsScriptStore
 
     private readonly string _directory;
     private readonly bool _secure;
+    private readonly string _owner;
+    private readonly Func<string, string> _refreshHint;
 
     public DnsScriptStore()
         : this(AppPaths.DnsScriptDirectory, secure: true)
@@ -39,11 +41,24 @@ internal sealed partial class DnsScriptStore : IDnsScriptStore
     }
 
     /// <param name="secure">False only in tests, which run without elevation and so cannot set owners.</param>
-    internal DnsScriptStore(string directory, bool secure)
+    /// <param name="owner">What the scripts belong to, for messages, such as "DNS provider".</param>
+    /// <param name="refreshHint">How to take a new copy of a script that can no longer be trusted, given the owner's name.</param>
+    internal DnsScriptStore(string directory, bool secure, string owner = "DNS provider", Func<string, string>? refreshHint = null)
     {
         _directory = directory;
         _secure = secure;
+        _owner = owner;
+        _refreshHint = refreshHint ??
+            (name => $"Check the original script, then take a new copy with 'SSLense.Cli dns update-script --name \"{name}\" --script <path>'.");
     }
+
+    /// <summary>SSLense's copies of deployment step scripts, named by step.</summary>
+    public static DnsScriptStore ForDeploymentScripts() =>
+        new(
+            AppPaths.DeployScriptDirectory,
+            secure: true,
+            "deployment step",
+            _ => "Check the original script, then remove the step and add it again with 'SSLense.Cli deploy add'.");
 
     /// <summary>A provider name that can safely be part of a file name.</summary>
     public static void ValidateName(string name)
@@ -116,8 +131,7 @@ internal sealed partial class DnsScriptStore : IDnsScriptStore
         if (problems.Count > 0)
         {
             throw new InvalidOperationException(
-                $"SSLense will not run the script for DNS provider '{providerName}': {string.Join(" ", problems)} " +
-                $"Check the original script, then take a new copy with 'SSLense.Cli dns update-script --name \"{providerName}\" --script <path>'.");
+                $"SSLense will not run the script for {_owner} '{providerName}': {string.Join(" ", problems)} {_refreshHint(providerName)}");
         }
 
         return PathFor(providerName, sha256);

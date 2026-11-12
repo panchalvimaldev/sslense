@@ -47,6 +47,15 @@ public interface IManagedCertificateStore
         DateTimeOffset? snoozedUntil,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Changes one record, found by its ID, under the store's lock, so nothing written in between is lost. Returns the
+    /// changed record, or null when there is no record with that ID.
+    /// </summary>
+    Task<ManagedCertificate?> UpdateRecordAsync(
+        Guid id,
+        Func<ManagedCertificate, ManagedCertificate> change,
+        CancellationToken cancellationToken = default);
+
     Task RemoveAsync(string siteName, CancellationToken cancellationToken = default);
 }
 

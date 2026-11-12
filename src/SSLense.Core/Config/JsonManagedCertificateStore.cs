@@ -177,10 +177,16 @@ public sealed class JsonManagedCertificateStore : IManagedCertificateStore
 
     /// <summary>
     /// Reminder state belongs to the site's record: an install or renewal keeps it, and a new certificate starts its
-    /// reminders afresh, except when the administrator turned them off permanently.
+    /// reminders afresh, except when the administrator turned them off permanently. Deployment steps and their state belong
+    /// to the record too, so a renewal, which never sets them, keeps them.
     /// </summary>
     private static ManagedCertificate WithReminderState(ManagedCertificate incoming, ManagedCertificate existing)
     {
+        incoming = incoming with
+        {
+            DeploymentSteps = incoming.DeploymentSteps ?? existing.DeploymentSteps,
+            Deployment = incoming.Deployment ?? existing.Deployment
+        };
         if (string.Equals(incoming.Thumbprint, existing.Thumbprint, StringComparison.OrdinalIgnoreCase))
         {
             return incoming with
@@ -199,6 +205,30 @@ public sealed class JsonManagedCertificateStore : IManagedCertificateStore
             LastRemindedAt = null,
             UpcomingNoticeSent = false
         };
+    }
+
+    public async Task<ManagedCertificate?> UpdateRecordAsync(
+        Guid id,
+        Func<ManagedCertificate, ManagedCertificate> change,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        ManagedCertificate? updated = null;
+        await UpdateAsync(
+                records =>
+                {
+                    var index = records.FindIndex(value => value.Id == id);
+                    if (index < 0)
+                    {
+                        return false;
+                    }
+
+                    updated = records[index] = change(records[index]) with { Id = id };
+                    return true;
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+        return updated;
     }
 
     public async Task RemoveAsync(string siteName, CancellationToken cancellationToken = default)

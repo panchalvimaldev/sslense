@@ -5,6 +5,7 @@ using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core;
 using SSLense.Core.Config;
+using SSLense.Core.Deployment;
 using SSLense.Core.DnsValidation;
 using SSLense.Core.Iis;
 using SSLense.Core.Validation;
@@ -794,7 +795,40 @@ public sealed class AcmeServiceTests
     }
 
     [Fact]
+    public async Task IssueAsync_DeploymentStepsPending_KeepsTheReplacedCertificate()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "AABBCC", "My", true));
+        harness.SetManaged(Previous());
+        harness.Deployment.Next = new DeploymentAfterInstall(
+            new DeploymentRunResult("My Site", "AABBCC", false, 0, 1, "Step 1 failed"), KeepReplaced: true);
+
+        var result = await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider));
+
+        Assert.Equal([("My Site", "OLD")], harness.Deployment.Calls);
+        Assert.True(result.PreviousCertificateKept);
+        Assert.False(result.Deployment!.Succeeded);
+        harness.Store.Verify(value => value.RemoveAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task IssueAsync_DeploymentStepsCannotRun_KeepsTheReplacedCertificate_AndStillSucceeds()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "AABBCC", "My", true));
+        harness.SetManaged(Previous());
+        harness.Deployment.Fail = new IOException("The state file is locked.");
+
+        var result = await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider));
+
+        Assert.Equal("AABBCC", result.CertificateThumbprint);
+        Assert.True(result.PreviousCertificateKept);
+        harness.Store.Verify(value => value.RemoveAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task IssueAsync_AnImportedCertificateIsReplaced_IsNeverRemoved()
+
     {
         var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "AABBCC", "My", true));
         harness.SetManaged(Previous() with { Source = CertificateSource.Imported });
@@ -872,7 +906,28 @@ public sealed class AcmeServiceTests
         Assert.Contains("port 80", exception.Message, StringComparison.Ordinal);
     }
 
+    private sealed class FakeDeploymentRunner : IDeploymentRunner
+    {
+        public List<(string Site, string? Replaced)> Calls { get; } = [];
+
+        public DeploymentAfterInstall Next { get; set; } = new(null, false);
+
+        public Exception? Fail { get; set; }
+
+        public Task<DeploymentAfterInstall> RunAfterInstallAsync(
+            string site,
+            string? replacedThumbprint,
+            IReadOnlyList<string> sitesLeftOut,
+            IProgress<ProgressEvent>? progress,
+            CancellationToken cancellationToken)
+        {
+            Calls.Add((site, replacedThumbprint));
+            return Fail is null ? Task.FromResult(Next) : Task.FromException<DeploymentAfterInstall>(Fail);
+        }
+    }
+
     private sealed class DnsHarness
+
     {
         public DnsHarness(params IisBinding[] bindings)
             : this(null, bindings)
@@ -910,8 +965,11 @@ public sealed class AcmeServiceTests
                 artifacts.Object,
                 Store.Object,
                 Managed.Object,
-                dnsChallenges: Dns);
+                dnsChallenges: Dns,
+                deployment: Deployment);
         }
+
+        public FakeDeploymentRunner Deployment { get; } = new();
 
         public List<string> Steps { get; } = [];
 

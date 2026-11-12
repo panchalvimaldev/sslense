@@ -1,6 +1,7 @@
 using System.Reflection;
 using SSLense.Core;
 using SSLense.Core.Certificates;
+using SSLense.Core.Deployment;
 using SSLense.Core.Diagnostics;
 using SSLense.Core.Notifications;
 using SSLense.Core.Reminders;
@@ -10,6 +11,7 @@ namespace SSLense.Service;
 
 internal sealed class RenewalWorker(
     IRenewalService renewalService,
+    IDeploymentService deploymentService,
     IReminderService reminderService,
     ICertificateRecoveryService recoveryService,
     IServiceHeartbeatStore heartbeatStore,
@@ -52,7 +54,13 @@ internal sealed class RenewalWorker(
             return;
         }
 
-        var problem = renewalProblem ?? reminderProblem;
+        var deploymentProblem = await RunPendingDeploymentAsync(cancellationToken).ConfigureAwait(false);
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        var problem = renewalProblem ?? deploymentProblem ?? reminderProblem;
         await SaveHeartbeatAsync(
                 _heartbeat with
                 {
@@ -208,6 +216,40 @@ internal sealed class RenewalWorker(
         {
             logger.LogError(exception, "Scheduled certificate renewal check failed");
             return $"Renewal check failed: {exception.Message}";
+        }
+    }
+    /// <summary>Retries deployment steps that failed after an install or renewal.</summary>
+    /// <returns>A problem description, or null when every pending step succeeded.</returns>
+    private async Task<string?> RunPendingDeploymentAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var progress = new Progress<ProgressEvent>(value =>
+                logger.LogInformation("[{Step}] {Message}", value.Step, value.Message));
+            var results = await deploymentService.RunPendingAsync(progress, cancellationToken).ConfigureAwait(false);
+            foreach (var result in results)
+            {
+                if (result.Succeeded)
+                {
+                    logger.LogInformation("Deployment steps for {SiteName}: {Message}", result.Site, result.Message);
+                }
+                else
+                {
+                    logger.LogError("Deployment steps failed for {SiteName}: {Message}", result.Site, result.Message);
+                }
+            }
+
+            var failed = results.Where(result => !result.Succeeded).Select(result => result.Site).ToArray();
+            return failed.Length == 0 ? null : $"Deployment steps are failing for: {string.Join(", ", failed)}.";
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Running pending deployment steps failed");
+            return $"Deployment step check failed: {exception.Message}";
         }
     }
 }

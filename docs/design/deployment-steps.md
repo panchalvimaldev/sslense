@@ -46,6 +46,7 @@ Example scripts installed with SSLense, in `C:\Program Files\SSLense\deploy-scri
 - **A failure never undoes the renewal.** The new certificate is valid and bound in IIS. The failure is logged, reported in the result and the notifications, and **retried in every service cycle** until it succeeds.
 - **The previous certificate is kept while steps are pending.** Services such as Remote Desktop still use it until their step has run, so it is removed, if no IIS binding uses it, only after every step succeeded.
 - A script gets `-Thumbprint`, `-PreviousThumbprint`, `-Hosts` (comma-separated), `-NotAfter` (ISO 8601), and `-Site`, in the same colon form as DNS scripts, and runs with the same rules: SSLense's own copy in its restricted data folder, its hash checked before every run, a timeout, output redacted and limited, and a Windows job object so nothing it starts outlives it.
+- **A step added to a certificate runs after its next renewal,** or at once with `deploy run`. It does not count as pending for the certificate already in use, so adding a restart step never restarts a service within the hour unasked.
 - A step's state is kept with the record: the thumbprint it last completed for, the last error, and when it last ran. `status` and Certificate Details show it.
 - Steps belong to the record and survive renewals. A shared certificate runs its steps once, for the certificate, not once per site.
 
@@ -66,7 +67,7 @@ Example scripts installed with SSLense, in `C:\Program Files\SSLense\deploy-scri
 | Step | Contents | Ships |
 |---|---|---|
 | 1 | This design | Docs |
-| 2 | Core and CLI: steps, running and retrying them, key access, service restart, scripts, schema 6, the `deploy` commands. Unit tests, and a real-key test for key access | CLI |
+| 2 | Core and CLI: steps, running and retrying them, key access, service restart, scripts, schema 6, the `deploy` commands. Unit tests, and a real-key test for key access. **Built** November 12, 2026: 17 tests, including access granted on a real CNG key file, a changed script copy refused, and a failed step keeping the previous certificate until an hourly retry succeeds | CLI |
 | 3 | Example scripts for Remote Desktop, SQL Server, and Exchange; the app; README, roadmap, website; acceptance; release as 0.18 | Both |
 | 4 | Later: certificates with no IIS site, for servers whose only certificate is for Remote Desktop or SQL Server | Both |
 
@@ -78,3 +79,4 @@ Example scripts installed with SSLense, in `C:\Program Files\SSLense\deploy-scri
 4. **Scripts reuse the DNS script security model** unchanged.
 5. **Service restarts use `sc.exe`,** as SSLense already does for its own service, so no package is added.
 6. **Managed certificates schema 6.**
+7. **A new step waits for the next renewal or `deploy run`,** rather than running in the next service cycle, so adding a step never restarts a service unasked.
