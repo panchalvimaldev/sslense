@@ -38,6 +38,8 @@ public static class DependencyInjection
         services.AddSingleton<IDnsScriptStore>(_ => new DnsScriptStore());
         services.AddSingleton<IScriptRunner, PowerShellScriptRunner>();
         services.AddSingleton<IDnsProvider, ScriptDnsProvider>();
+        services.AddSingleton<IAcmeDnsClient, AcmeDnsClient>();
+        services.AddSingleton<IDnsProvider, AcmeDnsProvider>();
         services.AddSingleton<IDnsChallengeJournal, JsonDnsChallengeJournal>();
         services.AddTransient<DnsPropagationChecker>();
         services.AddTransient<IDnsChallengeService, DnsChallengeService>();

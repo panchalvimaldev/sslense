@@ -828,11 +828,27 @@ static Command CreateDnsCommand(IServiceProvider services)
     var providerOption = new Option<string>("--provider")
     {
         Required = true,
-        Description = "The DNS service: cloudflare, or script for your own PowerShell script that works with any DNS service."
+        Description = "The DNS service: cloudflare; script, for your own PowerShell script that works with any DNS service; or acme-dns, for an account on an acme-dns server reached through one CNAME."
     };
-    providerOption.AcceptOnlyFromAmong("cloudflare", "script");
+    providerOption.AcceptOnlyFromAmong("cloudflare", "script", "acme-dns");
     var addNameOption = new Option<string>("--name") { Required = true, Description = "A label for this provider." };
-    var zoneOption = new Option<string>("--zone") { Required = true, Description = "The DNS zone, such as example.com." };
+    var zoneOption = new Option<string?>("--zone") { Description = "Cloudflare and script: the DNS zone, such as example.com." };
+    var domainOption = new Option<string?>("--domain")
+    {
+        Description = "acme-dns only: the domain whose _acme-challenge CNAME will point to the account, such as example.com. It also covers *.example.com."
+    };
+    var serverOption = new Option<string?>("--server")
+    {
+        Description = "acme-dns only: the server, such as https://auth.acme-dns.io, the free public one, or your own."
+    };
+    var allowFromOption = new Option<string?>("--allow-from")
+    {
+        Description = "acme-dns only: comma-separated networks that may update the account, such as this server's address, 203.0.113.10/32."
+    };
+    var importOption = new Option<bool>("--import")
+    {
+        Description = "acme-dns only: use an account another tool registered. Prompts for its username, subdomain, and full domain, and its password without echo."
+    };
     var zoneIdOption = new Option<string>("--zone-id") { Description = "Cloudflare only: the zone ID, from the domain's Overview page." };
     var scriptOption = new Option<string>("--script")
     {
@@ -843,19 +859,34 @@ static Command CreateDnsCommand(IServiceProvider services)
     var addCommand = new Command(
         "add",
         "Add a DNS provider. For Cloudflare, the API token is prompted without echo; use a token with Zone > DNS > Edit on this one zone, " +
-        "because it can change every record in the zone. For a script, read it before adding it: the renewal service runs it as SYSTEM.");
+        "because it can change every record in the zone. For a script, read it before adding it: the renewal service runs it as SYSTEM. " +
+        "For acme-dns, SSLense registers an account and shows the one CNAME to create at your DNS host.");
     addCommand.Options.Add(providerOption);
     addCommand.Options.Add(addNameOption);
     addCommand.Options.Add(zoneOption);
+    addCommand.Options.Add(domainOption);
+    addCommand.Options.Add(serverOption);
+    addCommand.Options.Add(allowFromOption);
+    addCommand.Options.Add(importOption);
     addCommand.Options.Add(zoneIdOption);
     addCommand.Options.Add(scriptOption);
     addCommand.Options.Add(secretOption);
     addCommand.Options.Add(timeoutOption);
-    addCommand.SetAction((parseResult, token) => AddDnsProviderAsync(
+    addCommand.SetAction((parseResult, token) => parseResult.GetRequiredValue(providerOption) == "acme-dns"
+        ? AddAcmeDnsProviderAsync(
+            Providers(),
+            parseResult.GetRequiredValue(addNameOption),
+            parseResult.GetValue(domainOption),
+            parseResult.GetValue(serverOption),
+            parseResult.GetValue(allowFromOption),
+            parseResult.GetValue(importOption),
+            parseResult.GetValue(zoneOption) is not null || parseResult.GetValue(zoneIdOption) is not null || parseResult.GetValue(scriptOption) is not null,
+            token)
+        : AddDnsProviderAsync(
         Providers(),
         parseResult.GetRequiredValue(providerOption),
         parseResult.GetRequiredValue(addNameOption),
-        parseResult.GetRequiredValue(zoneOption),
+        parseResult.GetValue(zoneOption),
         parseResult.GetValue(zoneIdOption),
         parseResult.GetValue(scriptOption),
         parseResult.GetValue(secretOption),
@@ -878,7 +909,8 @@ static Command CreateDnsCommand(IServiceProvider services)
     var testCommand = new Command(
         "test",
         "Prove the provider can change the zone, by adding and removing a temporary TXT record. " +
-        "For a script, SSLense also waits until every authoritative name server returns the record.");
+        "For a script, SSLense also waits until every authoritative name server returns the record. " +
+        "For acme-dns, SSLense checks the CNAME, updates the account, and waits until its name servers return the value.");
     testCommand.Options.Add(testNameOption);
     testCommand.SetAction((parseResult, token) => TestDnsProviderAsync(
         Providers(), parseResult.GetRequiredValue(testNameOption), token));
@@ -920,6 +952,11 @@ static async Task<int> ListDnsProvidersAsync(IDnsProviderService providers, Canc
             {
                 Console.WriteLine($"  Script SHA-256: {sha256}. Compare with Get-FileHash on your original script.");
             }
+
+            if (provider.AcmeDnsCname is { } cname)
+            {
+                Console.WriteLine($"  CNAME at your DNS host: {cname}");
+            }
         }
 
         return 0;
@@ -930,11 +967,69 @@ static async Task<int> ListDnsProvidersAsync(IDnsProviderService providers, Canc
     }
 }
 
+static async Task<int> AddAcmeDnsProviderAsync(
+    IDnsProviderService providers,
+    string name,
+    string? domain,
+    string? server,
+    string? allowFrom,
+    bool import,
+    bool otherProviderOptions,
+    CancellationToken token)
+{
+    try
+    {
+        if (otherProviderOptions)
+        {
+            throw new ArgumentException("--zone, --zone-id, and --script are not used with acme-dns. Give --domain and --server.");
+        }
+
+        if (string.IsNullOrWhiteSpace(domain) || string.IsNullOrWhiteSpace(server))
+        {
+            throw new ArgumentException("acme-dns needs --domain, such as example.com, and --server, such as https://auth.acme-dns.io.");
+        }
+
+        AcmeDnsAccount? account = null;
+        if (import)
+        {
+            Console.Write("Username: ");
+            var username = Console.ReadLine()?.Trim() ?? string.Empty;
+            var password = ReadHiddenValue("Password: ");
+            Console.Write("Subdomain: ");
+            var subdomain = Console.ReadLine()?.Trim() ?? string.Empty;
+            Console.Write("Full domain: ");
+            var fullDomain = Console.ReadLine()?.Trim() ?? string.Empty;
+            account = new AcmeDnsAccount(username, password, subdomain, fullDomain);
+        }
+
+        var added = await providers.AddAcmeDnsAsync(
+                new AcmeDnsProviderRequest(
+                    name,
+                    domain,
+                    server,
+                    allowFrom?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                    account),
+                token)
+            .ConfigureAwait(false);
+        Console.WriteLine($"DNS provider '{name}' added: {(import ? "the account was imported" : "an acme-dns account was registered")}.");
+        Console.WriteLine("Create this record at your DNS host. It stays there; renewals need nothing more:");
+        Console.WriteLine();
+        Console.WriteLine($"  {added.AcmeDnsCname}");
+        Console.WriteLine();
+        Console.WriteLine($"Then run 'SSLense.Cli dns test --name \"{name}\"'.");
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        return ReportFailure(exception, "Failed to add an acme-dns account");
+    }
+}
+
 static async Task<int> AddDnsProviderAsync(
     IDnsProviderService providers,
     string provider,
     string name,
-    string zone,
+    string? zone,
     string? zoneId,
     string? script,
     bool promptForSecret,
@@ -944,6 +1039,11 @@ static async Task<int> AddDnsProviderAsync(
     try
     {
         var type = Enum.Parse<DnsProviderType>(provider, ignoreCase: true);
+        if (string.IsNullOrWhiteSpace(zone))
+        {
+            throw new ArgumentException("--zone is required, such as --zone example.com.");
+        }
+
         if (type == DnsProviderType.Script)
         {
             var secret = promptForSecret ? ReadHiddenValue("Secret for the script: ") : string.Empty;

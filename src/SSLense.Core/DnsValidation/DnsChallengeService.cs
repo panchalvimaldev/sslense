@@ -54,15 +54,34 @@ internal sealed class DnsChallengeService(
             ? await GetProfilesAsync(cancellationToken).ConfigureAwait(false)
             : [];
         var selected = new Dictionary<string, DnsProviderProfile>(StringComparer.OrdinalIgnoreCase);
+        var acmeDnsValues = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var name in certificateNames)
         {
-            var target = await lookup.ResolveCnameAsync(DnsNames.ChallengeRecord(name), cancellationToken).ConfigureAwait(false);
+            var record = DnsNames.ChallengeRecord(name);
+            var target = await lookup.ResolveCnameAsync(record, cancellationToken).ConfigureAwait(false);
+            if (method == ValidationMethod.Dns01Provider)
+            {
+                ThrowIfAcmeDnsCnameMissing(profiles, record, target);
+            }
+
             await EnsureHasNameServersAsync(target, cancellationToken).ConfigureAwait(false);
             if (method == ValidationMethod.Dns01Provider)
             {
                 var profile = SelectProfile(profiles, target);
                 selected[profile.Name] = profile;
+                if (profile.Provider == DnsProviderType.AcmeDns)
+                {
+                    acmeDnsValues[profile.Name] = acmeDnsValues.GetValueOrDefault(profile.Name) + 1;
+                }
             }
+        }
+
+        // An acme-dns account keeps only its two newest values, so a third would push out the first before validation.
+        foreach (var (account, count) in acmeDnsValues.Where(value => value.Value > 2))
+        {
+            throw new InvalidOperationException(
+                $"The acme-dns account '{account}' would need {count} values at once, and it keeps only two: enough for a name and its " +
+                "wildcard. Give each other name its own acme-dns account, with its own CNAME.");
         }
 
         foreach (var profile in selected.Values)
@@ -256,6 +275,23 @@ internal sealed class DnsChallengeService(
 
     private async Task<IReadOnlyList<DnsProviderProfile>> GetProfilesAsync(CancellationToken cancellationToken) =>
         (await configStore.LoadAsync(cancellationToken).ConfigureAwait(false)).DnsProviders;
+
+    /// <summary>
+    /// A name set up for acme-dns whose CNAME is missing or wrong would reach some other provider, or none, and fail later
+    /// with a less useful message. Checked before each order and daily, so a deleted CNAME shows before a renewal fails.
+    /// </summary>
+    private static void ThrowIfAcmeDnsCnameMissing(IReadOnlyList<DnsProviderProfile> profiles, string record, string target)
+    {
+        var account = profiles.FirstOrDefault(profile =>
+            profile.Provider == DnsProviderType.AcmeDns &&
+            profile.AcmeDnsDomain is { } domain &&
+            DnsNames.ChallengeRecord(domain) == DnsNames.Normalize(record));
+        if (account is not null && DnsNames.Normalize(target) != DnsNames.Normalize(account.ZoneName))
+        {
+            throw new InvalidOperationException(
+                $"'{record}' does not point to the acme-dns account '{account.Name}'. Create this record at your DNS host: {account.AcmeDnsCname}");
+        }
+    }
 
     private static DnsProviderProfile SelectProfile(IReadOnlyList<DnsProviderProfile> profiles, string recordName) =>
         DnsNames.SelectProfile(profiles, recordName)

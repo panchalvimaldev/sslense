@@ -546,7 +546,7 @@ public sealed class DnsScriptTests : IDisposable
     }
 
     [Fact]
-    public async Task Config_KeepsAScriptProvider_AndMovesToSchema7()
+    public async Task Config_KeepsAScriptProvider_AndMovesToTheCurrentSchema()
     {
         var files = new InMemoryFileSystem();
         var store = new JsonConfigStore(files, @"C:\data\config.json");
@@ -555,7 +555,7 @@ public sealed class DnsScriptTests : IDisposable
         await store.SaveAsync(new AppConfig { DnsProviders = [profile] });
 
         Assert.Equal(profile, Assert.Single((await store.LoadAsync()).DnsProviders));
-        Assert.Contains("\"schemaVersion\": 7", await files.ReadAllTextAsync(@"C:\data\config.json", CancellationToken.None),StringComparison.Ordinal);
+        Assert.Contains($"\"schemaVersion\": {StateSchema.Config}", await files.ReadAllTextAsync(@"C:\data\config.json", CancellationToken.None),StringComparison.Ordinal);
     }
 
     private async Task<DnsProviderProfile> ProfileAsync() =>

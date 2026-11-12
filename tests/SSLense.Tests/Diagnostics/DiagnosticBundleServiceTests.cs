@@ -25,6 +25,8 @@ public sealed class DiagnosticBundleServiceTests : IDisposable
     private const string DnsZoneId = "0123456789abcdef0123456789abcdef";
     private const string EabHmacKey = "AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAProtectedEabHmacKeyBlob777==";
     private const string DnsScriptSecret = "AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAProtectedScriptSecretBlob99==";
+    private const string AcmeDnsPassword = "AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAProtectedAcmeDnsPasswordBlob5==";
+    private const string AcmeDnsUsername = "c36f50e8-4632-44f0-83fe-e070fef28a10";
     private const string DnsScriptSha256 = "0A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F60718293A4B5C6D7E8F9";
 
     private readonly string _output = Path.Combine(Path.GetTempPath(), $"sslense-bundle-{Guid.NewGuid():N}.zip");
@@ -44,7 +46,7 @@ public sealed class DiagnosticBundleServiceTests : IDisposable
         foreach (var secret in new[]
                  {
                      SmtpPassword, WebhookUrl, HeartbeatUrl, LoggedPassword, LoggedWebhookToken, LoggedBearer, PrivateKeyBody,
-                     DnsToken, DnsZoneId, DnsScriptSecret, EabHmacKey, AccountEmail, "smtp-user@example.com", "alerts@example.com"
+                     DnsToken, DnsZoneId, DnsScriptSecret, EabHmacKey, AcmeDnsPassword, AcmeDnsUsername, AccountEmail, "smtp-user@example.com", "alerts@example.com"
                  })
         {
             Assert.DoesNotContain(secret, everything, StringComparison.Ordinal);
@@ -244,7 +246,10 @@ public sealed class DiagnosticBundleServiceTests : IDisposable
                 new SSLense.Core.DnsValidation.DnsProviderProfile(
                     "Main", SSLense.Core.DnsValidation.DnsProviderType.Cloudflare, "example.com", DnsZoneId, DnsToken),
                 new SSLense.Core.DnsValidation.DnsProviderProfile(
-                    "Registrar", SSLense.Core.DnsValidation.DnsProviderType.Script, "example.net", null, DnsScriptSecret, DnsScriptSha256)
+                    "Registrar", SSLense.Core.DnsValidation.DnsProviderType.Script, "example.net", null, DnsScriptSecret, DnsScriptSha256),
+                new SSLense.Core.DnsValidation.DnsProviderProfile(
+                    "Acme", SSLense.Core.DnsValidation.DnsProviderType.AcmeDns, "d420c923.auth.acme-dns.io", null, AcmeDnsPassword,
+                    AcmeDnsServer: new Uri("https://auth.acme-dns.io"), AcmeDnsUsername: AcmeDnsUsername, AcmeDnsSubdomain: "d420c923", AcmeDnsDomain: "example.org")
             ],
             Notifications = new NotificationConfig
             {

@@ -1,6 +1,6 @@
 # Design: DNS validation through acme-dns
 
-Status: **draft for approval**, November 12, 2026. Target release: 0.17. Branch: `feature/acme-dns`. Item 1 of the [roadmap](../../ROADMAP.md).
+Status: **approved** November 12, 2026, with decisions 1 to 6 in section 7 accepted as proposed. Target release: 0.17. Branch: `feature/acme-dns`. Item 1 of the [roadmap](../../ROADMAP.md).
 
 ## 1. Problem
 
@@ -62,7 +62,7 @@ SSLense.Cli issue --site "Shop" --email ops@example.com --validation dns --names
 | Step | Contents | Ships |
 |---|---|---|
 | 1 | This design | Docs |
-| 2 | Core and CLI: the acme-dns provider, `dns add --provider acme-dns` with registration and `--import`, the CNAME check, the two-value rule, schema 8, health and readiness checks. Unit tests against a fake acme-dns server | CLI |
+| 2 | Core and CLI: the acme-dns provider, `dns add --provider acme-dns` with registration and `--import`, the CNAME check, the two-value rule, schema 8, health and readiness checks. Unit tests against a fake acme-dns server. **Built** November 12, 2026: 21 tests, with a fake server that checks credentials, accepts only 43-character values, and keeps the two newest; the diagnostic bundle test covers the account's username and password | CLI |
 | 3 | App, README, roadmap, website; acceptance; release as 0.17 | Both |
 
 Acceptance, with Let's Encrypt staging and the public acme-dns server: register an account for a name under `accept.sslense.com`, create its CNAME in Cloudflare, `dns test`, issue a wildcard with its base name, renew it, refuse a third value, and confirm that the stored password appears nowhere in the logs or a diagnostic bundle.
