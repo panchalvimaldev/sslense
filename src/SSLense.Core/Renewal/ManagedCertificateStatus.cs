@@ -31,4 +31,5 @@ public sealed record ManagedCertificateStatus(
     DateTimeOffset? SitePendingSince = null,
     int DeploymentStepCount = 0,
     DeploymentState? Deployment = null,
-    bool DeploymentPending = false);
+    bool DeploymentPending = false,
+    bool NoSite = false);

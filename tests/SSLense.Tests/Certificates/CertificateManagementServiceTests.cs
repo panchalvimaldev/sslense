@@ -37,6 +37,28 @@ public sealed class CertificateManagementServiceTests
     }
 
     [Fact]
+    public async Task RemoveAsync_NoSiteCertificate_StopsManagingIt_AndLeavesIisAndTheStoreAlone()
+    {
+        var record = new ManagedCertificate(
+            "RDP", ["rdp.example.com"], "ops@example.com", "AABB",
+            DateTimeOffset.UtcNow.AddDays(-30), DateTimeOffset.UtcNow.AddDays(60),
+            ValidationMethod: ValidationMethod.Dns01Provider, NoSite: true);
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([record]);
+        managed.Setup(value => value.RemoveAsync("RDP", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        var iis = new Mock<IIisService>(MockBehavior.Strict);
+        var certificates = new Mock<ICertificateStore>(MockBehavior.Strict);
+        var service = new CertificateManagementService(
+            managed.Object, certificates.Object, iis.Object, Mock.Of<ILogService>());
+
+        await service.RemoveAsync("RDP");
+
+        managed.VerifyAll();
+        iis.VerifyNoOtherCalls();
+        certificates.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task RemoveAsync_ImportedCertificate_StaysInTheStore()
     {
         var record = new ManagedCertificate(

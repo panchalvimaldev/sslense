@@ -11,7 +11,7 @@ using SSLense.Core.Validation;
 
 namespace SSLense.Core.Acme;
 
-internal sealed class AcmeService : IAcmeService
+internal sealed partial class AcmeService : IAcmeService
 {
     private readonly IIisService _iisService;
     private readonly IAcmeProtocolClient _protocolClient;
@@ -92,6 +92,31 @@ internal sealed class AcmeService : IAcmeService
         var sites = await _iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
         var site = sites.SingleOrDefault(candidate =>
             string.Equals(candidate.Name, request.SiteName, StringComparison.OrdinalIgnoreCase));
+        var existingRecord = (await _managedCertificateStore.GetAllAsync(cancellationToken).ConfigureAwait(false))
+            .FirstOrDefault(record => string.Equals(record.SiteName, request.SiteName.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (request.NoSite)
+        {
+            // One name never means both a site and a certificate without one.
+            if (site is not null || existingRecord is { NoSite: false })
+            {
+                throw new InvalidOperationException(
+                    $"'{request.SiteName.Trim()}' is the name of an IIS site{(site is null ? " that SSLense manages" : "")}. Choose another name for a certificate with no IIS site.");
+            }
+
+            if (existingRecord is not null && !request.Force)
+            {
+                throw new InvalidOperationException(
+                    $"'{existingRecord.SiteName}' already has a certificate, which expires on {existingRecord.NotAfter:yyyy-MM-dd}. Use --force to replace it now.");
+            }
+
+            site = new IisSite(0, request.SiteName.Trim(), "None", null, []);
+        }
+        else if (existingRecord is { NoSite: true })
+        {
+            throw new InvalidOperationException(
+                $"'{existingRecord.SiteName}' is a certificate with no IIS site. Renew it with 'SSLense.Cli renew --site \"{existingRecord.SiteName}\"', or remove it first to use the name for a site.");
+        }
+
         if (sharedRecord is null && site is null)
         {
             throw new InvalidOperationException($"IIS site '{request.SiteName}' was not found.");
@@ -116,14 +141,20 @@ internal sealed class AcmeService : IAcmeService
               string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase)
             : string.Equals(binding.Protocol, "http", StringComparison.OrdinalIgnoreCase) && binding.Port == 80;
 
-        var requestedNames = NormalizeCertificateNames(request.CertificateNames, usesDns);
+        // Without a site there are no bindings to take hosts from: the certificate covers the names given.
+        var requestedNames = NormalizeCertificateNames(request.NoSite ? request.CertificateNames ?? request.Hosts : request.CertificateNames, usesDns);
+        if (request.NoSite && requestedNames is null)
+        {
+            throw new ArgumentException("Give the names the certificate covers, such as --names rdp.example.com.", nameof(request));
+        }
+
         var requestedHosts = request.Hosts.Count > 0
             ? request.Hosts
             : sharedRecord?.Hosts ?? site.Bindings
                 .Where(binding => IsUsableBinding(binding) && !string.IsNullOrWhiteSpace(binding.HostName))
                 .Select(binding => binding.HostName)
                 .Where(host => requestedNames is null || CertificateInspector.Covers(requestedNames, host));
-        var hosts = NormalizeAndValidateHosts(
+        var hosts = request.NoSite ? requestedNames! : NormalizeAndValidateHosts(
             requestedHosts,
             requestedNames is not null
                 ? $"No host names were supplied and the IIS site has no named HTTP or HTTPS bindings that {string.Join(", ", requestedNames)} covers."
@@ -137,7 +168,7 @@ internal sealed class AcmeService : IAcmeService
                 $"Host name '{uncovered}' is not covered by the certificate names {string.Join(", ", names)}.");
         }
 
-        foreach (var host in sharedRecord is null ? hosts : [])
+        foreach (var host in sharedRecord is null && !request.NoSite ? hosts : [])
         {
             var hasBinding = site.Bindings.Any(binding =>
                 IsUsableBinding(binding) &&
@@ -241,6 +272,11 @@ internal sealed class AcmeService : IAcmeService
                 preparedRecord = preparedRecord.WithTargets(sharedPlan.Targets);
             }
 
+            if (request.NoSite)
+            {
+                preparedRecord = preparedRecord with { NoSite = true, LastRenewalMessage = "Certificate issued. It has no IIS site to bind." };
+            }
+
             var transaction = await _transactionJournal.BeginAsync(
                     preparedRecord,
                     request.ExpectedCurrentThumbprint,
@@ -274,7 +310,11 @@ internal sealed class AcmeService : IAcmeService
                 progress?.Report(new ProgressEvent(
                     "binding",
                     "Creating or updating IIS HTTPS bindings with SNI, then confirming over HTTPS that the new certificate is served."));
-                if (sharedPlan is null)
+                if (request.NoSite)
+                {
+                    // Nothing to bind: deployment steps hand the certificate to the services that use it.
+                }
+                else if (sharedPlan is null)
                 {
                     await _iisService.ConfigureHttpsBindingsAsync(
                             site.Name,
@@ -782,11 +822,30 @@ internal sealed class AcmeService : IAcmeService
             throw new ArgumentException("A valid account email address is required.", nameof(request), exception);
         }
 
+        if (request.NoSite)
+        {
+            if (request.ValidationMethod == ValidationMethod.Http01)
+            {
+                throw new ArgumentException(
+                    "A certificate with no IIS site needs DNS validation: HTTP validation needs a site to serve the file.", nameof(request));
+            }
+
+            if (!NoSiteName().IsMatch(request.SiteName.Trim()))
+            {
+                throw new ArgumentException(
+                    $"'{request.SiteName.Trim()}' cannot name a certificate. Use letters, digits, spaces, dots, hyphens, underscores, and brackets, up to 100 characters.",
+                    nameof(request));
+            }
+        }
+
         if (request.ValidationMethod == ValidationMethod.Dns01Manual && request.ConfirmManualDns is null)
         {
             throw new ArgumentException("Manual DNS validation needs someone to create the records.", nameof(request));
         }
     }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,99}$")]
+    private static partial System.Text.RegularExpressions.Regex NoSiteName();
 
     /// <summary>Null when the request lists no names, so the certificate covers the hosts.</summary>
     internal static IReadOnlyList<string>? NormalizeCertificateNames(IReadOnlyList<string>? requestedNames, bool usesDns)

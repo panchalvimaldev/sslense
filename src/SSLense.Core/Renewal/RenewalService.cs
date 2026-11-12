@@ -94,7 +94,8 @@ internal sealed class RenewalService : IRenewalService
                 value.SitePendingSince,
                 value.DeploymentSteps?.Count ?? 0,
                 value.Deployment,
-                value.HasPendingDeployment()));
+                value.HasPendingDeployment(),
+                value.NoSite));
         }
 
         return statuses;
@@ -213,6 +214,7 @@ internal sealed class RenewalService : IRenewalService
                         certificate.Thumbprint,
                         certificate.ValidationMethod,
                         CertificateNames: certificate.CertificateNames,
+                        NoSite: certificate.NoSite,
 
                         // Confirmed when the certificate was first issued from this CA.
                         AcceptProductionRisk: true),

@@ -135,6 +135,13 @@ internal sealed class HealthCheckService(
                 var site = certificate.SiteName;
                 await Check($"Certificate installed: {site}", () => CheckInstalledAsync(certificate, cancellationToken))
                     .ConfigureAwait(false);
+                if (certificate.NoSite)
+                {
+                    // Nothing is bound in IIS; its deployment steps hand it to the services that use it.
+                    await CheckNoSiteAsync(certificate, results, Check, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
                 await Check($"HTTPS bindings: {site}", () => Task.FromResult(CheckBindings(certificate, sites)))
                     .ConfigureAwait(false);
                 await Check($"Served certificate: {site}", () => CheckServedAsync(certificate, sites, cancellationToken))
@@ -348,7 +355,35 @@ internal sealed class HealthCheckService(
                 "Run 'SSLense.Cli secure-data' from an elevated terminal.");
     }
 
+    /// <summary>The checks that apply to a certificate with no IIS site: no bindings or served-certificate checks.</summary>
+    private static async Task CheckNoSiteAsync(
+        ManagedCertificate certificate,
+        List<HealthCheckResult> results,
+        Func<string, Func<Task<HealthCheckResult>>, Task> check,
+        CancellationToken cancellationToken)
+    {
+        var name = certificate.SiteName;
+        await check($"Expiry: {name}", () => Task.FromResult(CheckExpiry(certificate))).ConfigureAwait(false);
+        await check($"Renewal history: {name}", () => Task.FromResult(CheckRenewalHistory(certificate))).ConfigureAwait(false);
+        results.Add(certificate switch
+        {
+            _ when !certificate.HasDeploymentSteps() => new HealthCheckResult(
+                $"Deployment steps: {name}",
+                HealthStatus.Warning,
+                "This certificate has no IIS site and no deployment steps, so nothing uses it after a renewal.",
+                $"Add the steps that hand it to its service, for example 'SSLense.Cli deploy add --site \"{name}\" --script <path>'."),
+            _ when certificate.HasPendingDeployment() => new HealthCheckResult(
+                $"Deployment steps: {name}",
+                HealthStatus.Fail,
+                $"The deployment steps have not succeeded for this certificate. {certificate.Deployment?.LastError}".Trim(),
+                $"Run 'SSLense.Cli deploy list --site \"{name}\"' to see why, then 'deploy run'."),
+            _ => new HealthCheckResult($"Deployment steps: {name}", HealthStatus.Pass, "The deployment steps succeeded for this certificate.")
+        });
+        cancellationToken.ThrowIfCancellationRequested();
+    }
+
     private async Task<HealthCheckResult> CheckJournalAsync(CancellationToken cancellationToken)
+
     {
         var pending = await journal.GetPendingAsync(cancellationToken).ConfigureAwait(false);
         return pending.Count == 0

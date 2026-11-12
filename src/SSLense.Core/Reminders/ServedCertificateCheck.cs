@@ -34,7 +34,8 @@ internal sealed class ServedCertificateCheck(
         DateTimeOffset now,
         CancellationToken cancellationToken = default)
     {
-        var candidates = certificates.Where(value => !ReminderDigestBuilder.IsMuted(value, now)).ToArray();
+        // A certificate with no IIS site is not served by IIS, so there is nothing here to compare.
+        var candidates = certificates.Where(value => !value.NoSite && !ReminderDigestBuilder.IsMuted(value, now)).ToArray();
         if (candidates.Length == 0)
         {
             return ProactiveCheckResult.None;

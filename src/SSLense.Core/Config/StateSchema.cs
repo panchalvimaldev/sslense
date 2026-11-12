@@ -13,9 +13,10 @@ internal static class StateSchema
     /// with the per-certificate reminder setting; the new fields default and the old ones are dropped. Version 4 adds
     /// the validation method and certificate names, which default to HTTP-01 and the record's hosts. Version 5 adds the
     /// sites sharing a certificate, which default to none. Version 6 adds deployment steps and their state, which an
-    /// older version would drop on its next save.
+    /// older version would drop on its next save. Version 7 adds certificates with no IIS site, which
+    /// 0.18 would try to bind to a site.
     /// </summary>
-    public const int ManagedCertificates = 6;
+    public const int ManagedCertificates = 7;
 
     /// <summary>
     /// Version 0 had no version field. Version 2 replaced the single SMTP server and generic webhook with

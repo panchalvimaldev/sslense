@@ -253,7 +253,7 @@ public sealed class DeploymentServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ManagedCertificateState_WithSteps_RoundTripsInSchema6()
+    public async Task ManagedCertificateState_WithSteps_RoundTrips()
     {
         var fileSystem = new InMemoryFileSystem();
         var store = new JsonManagedCertificateStore(fileSystem, StatePath, LockPath);
@@ -266,7 +266,7 @@ public sealed class DeploymentServiceTests : IDisposable
 
         var reread = (await new JsonManagedCertificateStore(fileSystem, StatePath, LockPath).GetAllAsync()).Single();
 
-        Assert.Contains("\"schemaVersion\": 6", fileSystem.Files[StatePath], StringComparison.Ordinal);
+        Assert.Contains($"\"schemaVersion\": {StateSchema.ManagedCertificates}", fileSystem.Files[StatePath], StringComparison.Ordinal);
         Assert.Equal(step, Assert.Single(reread.DeploymentSteps!));
         Assert.Equal("CCCC", reread.Deployment!.RetainedThumbprint);
         Assert.Equal(2, reread.Deployment.ConsecutiveFailures);

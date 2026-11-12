@@ -39,7 +39,7 @@ SSLense.Cli deploy run --site "RDP"
 | Step | Contents | Ships |
 |---|---|---|
 | 1 | This design | Docs |
-| 2 | Core and CLI: `issue --no-site`, renewal, recovery, removal, the checks that skip IIS, schema 7, tests | CLI |
+| 2 | Core and CLI: `issue --no-site`, renewal, recovery, removal, the checks that skip IIS, schema 7, tests. **Built** November 12, 2026: 8 tests, covering issue without binding, the refused names and HTTP validation, and removal that leaves IIS and the store alone | CLI |
 | 3 | The app's Issue Certificate and Certificate Details; README, roadmap, website; release as 0.19 | Both |
 
 ## 6. Decisions taken by delegation

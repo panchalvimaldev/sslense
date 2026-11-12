@@ -10,6 +10,10 @@ namespace SSLense.Core.Acme;
 /// Confirms issuing from a CA whose certificates are trusted. Required for every CA not marked as a test, so the CLI and the
 /// app cannot differ; automatic renewals set it, because the certificate was confirmed when it was first issued.
 /// </param>
+/// <param name="NoSite">
+/// Issue a certificate bound to no IIS site, named <paramref name="SiteName"/>, for services that its deployment steps hand it to.
+/// Needs DNS validation; the certificate covers <paramref name="CertificateNames"/>, or <paramref name="Hosts"/> when there are none.
+/// </param>
 public sealed record AcmeIssueRequest(
     string SiteName,
     IReadOnlyList<string> Hosts,
@@ -21,4 +25,5 @@ public sealed record AcmeIssueRequest(
     ValidationMethod ValidationMethod = ValidationMethod.Http01,
     ManualDnsConfirmation? ConfirmManualDns = null,
     IReadOnlyList<string>? CertificateNames = null,
-    bool AcceptProductionRisk = false);
+    bool AcceptProductionRisk = false,
+    bool NoSite = false);

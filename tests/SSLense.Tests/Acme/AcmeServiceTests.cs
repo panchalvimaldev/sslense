@@ -827,7 +827,65 @@ public sealed class AcmeServiceTests
     }
 
     [Fact]
+    public async Task IssueAsync_NoSite_InstallsWithoutBindingAnything_AndSavesANoSiteRecord()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+
+        var result = await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "RDP", [], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider, CertificateNames: ["Example.com"], NoSite: true));
+
+        Assert.Equal("AABBCC", result.CertificateThumbprint);
+        harness.Iis.Verify(value => value.ConfigureHttpsBindingsAsync(
+            It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        harness.Managed.Verify(value => value.UpsertAsync(
+            It.Is<ManagedCertificate>(record => record.NoSite && record.SiteName == "RDP" && record.Hosts.SequenceEqual(new[] { "example.com" })),
+            CancellationToken.None));
+        Assert.Contains("validate example.com", harness.Steps);
+    }
+
+    [Theory]
+    [InlineData("My Site", ValidationMethod.Dns01Provider, "is the name of an IIS site")]
+    [InlineData("RDP", ValidationMethod.Http01, "needs DNS validation")]
+    [InlineData("RDP: host", ValidationMethod.Dns01Provider, "cannot name a certificate")]
+    public async Task IssueAsync_NoSite_RefusesASiteNameHttpValidationAndUnsafeNames(string name, ValidationMethod method, string expected)
+    {
+        var harness = new DnsHarness();
+
+        var exception = await Assert.ThrowsAnyAsync<Exception>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            name, [], "admin@example.com", ValidationMethod: method, CertificateNames: ["example.com"], NoSite: true)));
+
+        Assert.Contains(expected, exception.Message, StringComparison.Ordinal);
+        harness.Protocol.Verify(value => value.CreateDnsOrderAsync(
+            It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateAuthority>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task IssueAsync_ForASite_RefusesANameUsedByANoSiteCertificate()
+    {
+        var harness = new DnsHarness();
+        harness.SetManaged(Previous() with { NoSite = true });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider)));
+
+        Assert.Contains("no IIS site", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task IssueAsync_NoSite_AnExistingCertificateNeedsForce()
+    {
+        var harness = new DnsHarness();
+        harness.SetManaged(Previous() with { SiteName = "RDP", NoSite = true });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "RDP", [], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider, CertificateNames: ["example.com"], NoSite: true)));
+
+        Assert.Contains("--force", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task IssueAsync_AnImportedCertificateIsReplaced_IsNeverRemoved()
+
 
     {
         var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "AABBCC", "My", true));

@@ -101,10 +101,13 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         ListSitesAsync(services.GetRequiredService<IIisService>(), cancellationToken));
     rootCommand.Subcommands.Add(listSitesCommand);
 
-    var siteOption = new Option<string>("--site")
+    var siteOption = new Option<string?>("--site")
     {
-        Description = "IIS site name.",
-        Required = true
+        Description = "IIS site name."
+    };
+    var noSiteOption = new Option<string?>("--no-site")
+    {
+        Description = "Issue a certificate with no IIS site, under this name, for Remote Desktop, SQL Server, or other services its deployment steps hand it to. Needs --names and DNS validation."
     };
     var hostsOption = new Option<string?>("--hosts")
     {
@@ -152,6 +155,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     var issueCommand = new Command("issue", "Obtain and install a certificate, validated over HTTP or DNS.");
     issueCommand.Options.Add(validationOption);
     issueCommand.Options.Add(siteOption);
+    issueCommand.Options.Add(noSiteOption);
     issueCommand.Options.Add(namesOption);
     issueCommand.Options.Add(hostsOption);
     issueCommand.Options.Add(emailOption);
@@ -163,7 +167,8 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     issueCommand.Options.Add(forceOption);
     issueCommand.SetAction((parseResult, cancellationToken) => IssueAsync(
         services.GetRequiredService<IAcmeService>(),
-        parseResult.GetRequiredValue(siteOption),
+        parseResult.GetValue(siteOption),
+        parseResult.GetValue(noSiteOption),
         parseResult.GetValue(hostsOption),
         parseResult.GetRequiredValue(emailOption),
         parseResult.GetValue(outputOption),
@@ -2256,7 +2261,9 @@ static async Task<int> StatusAsync(
             {
                 Console.WriteLine($"  Issuer: {status.Issuer}");
             }
-            Console.WriteLine($"  Hosts: {string.Join(", ", status.Hosts)}");
+            Console.WriteLine(status.NoSite
+                ? $"  No IIS site; names: {string.Join(", ", status.Hosts)}"
+                : $"  Hosts: {string.Join(", ", status.Hosts)}");
             WriteSharedSites(status.SiteName, status.AdditionalTargets, status.SitePendingSince);
             if (status.CertificateNames is { } certificateNames)
             {
@@ -2353,7 +2360,8 @@ static async Task<int> UninstallServiceAsync(
 
 static async Task<int> IssueAsync(
     IAcmeService acmeService,
-    string siteName,
+    string? site,
+    string? noSite,
     string? hostsValue,
     string email,
     string? outputDirectory,
@@ -2368,6 +2376,18 @@ static async Task<int> IssueAsync(
 {
     try
     {
+        if ((site is null) == (noSite is null))
+        {
+            Console.Error.WriteLine("Error: give either --site, for an IIS site, or --no-site with a name, for a certificate with no IIS site.");
+            return 1;
+        }
+
+        if (noSite is not null && hostsValue is not null)
+        {
+            Console.Error.WriteLine("Error: a certificate with no IIS site has nothing to bind; give its names with --names instead of --hosts.");
+            return 1;
+        }
+
         if (staging && production)
         {
             throw new ArgumentException("Specify either --staging or --production, not both.");
@@ -2378,6 +2398,7 @@ static async Task<int> IssueAsync(
             throw new ArgumentException("--ca chooses the certificate authority, so leave out --staging and --production.");
         }
 
+        var siteName = (site ?? noSite)!;
         // Core refuses a CA whose certificates are trusted without --accept-production-risk.
         var authorityId = ca?.Trim().ToLowerInvariant()
             ?? (production ? CertificateAuthorities.LetsEncryptId : CertificateAuthorities.LetsEncryptStagingId);
@@ -2401,12 +2422,21 @@ static async Task<int> IssueAsync(
                     ValidationMethod: validationMethod,
                     ConfirmManualDns: validationMethod == ValidationMethod.Dns01Manual ? ConfirmManualDnsAsync : null,
                     CertificateNames: namesValue?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
-                    AcceptProductionRisk: acceptProductionRisk),
+                    AcceptProductionRisk: acceptProductionRisk,
+                    NoSite: noSite is not null),
                 new ConsoleProgress(),
                 cancellationToken)
             .ConfigureAwait(false);
 
-        Console.WriteLine($"{CertificateAuthorities.Label(authorityId)} certificate issued, installed, and bound successfully.");
+        Console.WriteLine(noSite is null
+            ? $"{CertificateAuthorities.Label(authorityId)} certificate issued, installed, and bound successfully."
+            : $"{CertificateAuthorities.Label(authorityId)} certificate '{noSite}' issued and installed in LocalMachine\\My. It has no IIS site: " +
+              $"add deployment steps to hand it to its services, such as 'SSLense.Cli deploy add --site \"{noSite}\" --script <path>'.");
+        if (result.Deployment is { } deployment)
+        {
+            Console.WriteLine($"Deployment steps: {deployment.Message}");
+        }
+
         Console.WriteLine($"Thumbprint: {result.CertificateThumbprint}");
         Console.WriteLine($"Valid from: {result.NotBefore:yyyy-MM-dd HH:mm:ss} UTC");
         Console.WriteLine($"Valid until: {result.NotAfter:yyyy-MM-dd HH:mm:ss} UTC");
@@ -2423,7 +2453,7 @@ static async Task<int> IssueAsync(
     }
     catch (Exception exception)
     {
-        Log.Error(exception, "Failed to issue a certificate for IIS site {SiteName}", siteName);
+        Log.Error(exception, "Failed to issue a certificate for {SiteName}", site ?? noSite);
         Console.Error.WriteLine($"Error: {exception.Message}");
         return 1;
     }
