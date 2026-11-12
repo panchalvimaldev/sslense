@@ -74,3 +74,10 @@ internal sealed class AcmeDnsProvider(IAcmeDnsClient client, ISecretProtector pr
         }
     }
 }
+
+/// <summary>The operation lock that makes the use of one acme-dns account exclusive while a validation needs its values.</summary>
+internal static class AcmeDnsAccountLock
+{
+    /// <summary>IIS site names cannot contain ':', so this never matches a site's lock.</summary>
+    public static string Key(DnsProviderProfile profile) => $"acme-dns:{DnsNames.Normalize(profile.ZoneName)}";
+}

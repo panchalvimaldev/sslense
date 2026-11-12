@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Moq;
 using SSLense.Core.Acme;
+using SSLense.Core.Certificates;
 using SSLense.Core.Config;
 using SSLense.Core.DnsValidation;
 using Xunit;
@@ -20,6 +21,7 @@ public sealed class AcmeDnsTests
     private readonly FakeConfigStore _config = new();
     private readonly FakeDnsLookup _lookup = new();
     private readonly XorProtector _protector = new();
+    private readonly FakeLocks _locks = new();
 
     private AcmeDnsClient Client() => new(new HttpClient(_server));
 
@@ -38,7 +40,8 @@ public sealed class AcmeDnsTests
             SettleDelay = TimeSpan.Zero,
             UncheckedWait = TimeSpan.Zero
         }),
-        acmeDns: Client());
+        acmeDns: Client(),
+        operationLock: _locks);
 
     private Task<DnsProviderOverview> RegisterAsync(string domain = "Example.com") =>
         Service().AddAcmeDnsAsync(new AcmeDnsProviderRequest("Shop acme-dns", domain, Server));
@@ -182,14 +185,47 @@ public sealed class AcmeDnsTests
         Assert.Equal(43, Assert.Single(_server.Values).Length);
     }
 
+    [Fact]
+    public async Task Test_WhileAValidationUsesTheAccount_IsRefused_SoNoLiveValueIsPushedOut()
+    {
+        await RegisterAsync();
+        _lookup.Cnames["_acme-challenge.example.com"] = FullDomain;
+        _lookup.Answer = (_, name) => name == FullDomain ? _server.Values : [];
+        var challenges = new[]
+        {
+            new AcmeDnsChallenge("example.com", false, "_acme-challenge.example.com", Value1),
+            new AcmeDnsChallenge("*.example.com", true, "_acme-challenge.example.com", Value2)
+        };
+
+        await using (await Challenges().PublishAsync(ValidationMethod.Dns01Provider, challenges, null, null, CancellationToken.None))
+        {
+            Assert.Contains($"acme-dns:{FullDomain}", _locks.Held);
+            var message = (await Assert.ThrowsAsync<InvalidOperationException>(() => Service().TestAsync("Shop acme-dns"))).Message;
+
+            Assert.Contains("being validated", message, StringComparison.Ordinal);
+            Assert.Equal([Value1, Value2], _server.Values);
+        }
+
+        Assert.Empty(_locks.Held);
+        Assert.Contains("points to the account", await Service().TestAsync("Shop acme-dns"), StringComparison.Ordinal);
+    }
+
     // ---- Before each order, and daily ----
+
 
     private DnsChallengeService Challenges() => new(
         _config,
         [Provider()],
         _lookup,
         new FakeDnsChallengeJournal(),
-        new DnsPropagationChecker(_lookup));
+        new DnsPropagationChecker(_lookup, new DnsPropagationOptions
+        {
+            Timeout = TimeSpan.FromMilliseconds(200),
+            PollInterval = TimeSpan.FromMilliseconds(20),
+            SettleDelay = TimeSpan.Zero,
+            UncheckedWait = TimeSpan.Zero
+        }),
+        operationLock: _locks);
 
     [Fact]
     public async Task BeforeOrder_AMissingCname_IsReportedWithTheRecordToCreate()
@@ -321,5 +357,24 @@ public sealed class AcmeDnsTests
         public byte[] Protect(byte[] plaintext) => [.. plaintext.Select(value => (byte)(value ^ 0x5A))];
 
         public byte[] Unprotect(byte[] protectedData) => Protect(protectedData);
+    }
+
+    private sealed class FakeLocks : ICertificateOperationLock
+    {
+        public HashSet<string> Held { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public Task<IAsyncDisposable> AcquireAsync(string siteName, CancellationToken cancellationToken = default) =>
+            Task.FromResult(TryAcquire(siteName) ?? throw new InvalidOperationException($"'{siteName}' is held; a test would wait forever."));
+
+        public IAsyncDisposable? TryAcquire(string siteName) => Held.Add(siteName) ? new Release(Held, siteName) : null;
+
+        private sealed class Release(HashSet<string> held, string name) : IAsyncDisposable
+        {
+            public ValueTask DisposeAsync()
+            {
+                held.Remove(name);
+                return ValueTask.CompletedTask;
+            }
+        }
     }
 }

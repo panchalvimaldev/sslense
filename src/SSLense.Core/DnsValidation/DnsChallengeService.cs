@@ -1,4 +1,5 @@
 using SSLense.Core.Acme;
+using SSLense.Core.Certificates;
 using SSLense.Core.Config;
 using SSLense.Core.Validation;
 
@@ -37,8 +38,10 @@ internal sealed class DnsChallengeService(
     IDnsLookup lookup,
     IDnsChallengeJournal journal,
     DnsPropagationChecker propagation,
-    ICertificateAuthorityRegistry? authorities = null) : IDnsChallengeService
+    ICertificateAuthorityRegistry? authorities = null,
+    ICertificateOperationLock? operationLock = null) : IDnsChallengeService
 {
+    private readonly ICertificateOperationLock _operationLock = operationLock ?? new NoOpCertificateOperationLock();
     private readonly ICertificateAuthorityRegistry _authorities = authorities ?? CertificateAuthorityRegistry.BuiltInOnly;
 
     /// <summary>After this long a record that cannot be removed is reported once and no longer retried.</summary>
@@ -251,6 +254,26 @@ internal sealed class DnsChallengeService(
 
         // Before anything changes, so a record without a provider publishes nothing.
         var targets = records.Select(record => (Record: record, Profile: SelectProfile(profiles, record.Name))).ToArray();
+
+        // An acme-dns account keeps only its two newest values, so its use is exclusive until validation ends: another
+        // order or a 'dns test' through the same account would otherwise push out a value the CA is about to check.
+        var accounts = targets
+            .Where(target => target.Profile.Provider == DnsProviderType.AcmeDns)
+            .Select(target => AcmeDnsAccountLock.Key(target.Profile))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (accounts.Length > 0)
+        {
+            var held = _operationLock.TryAcquireAll(accounts);
+            if (held is null)
+            {
+                progress?.Report(new ProgressEvent("dns-publish", "Waiting for another validation through the same acme-dns account to finish."));
+                held = await _operationLock.AcquireAllAsync(accounts, cancellationToken).ConfigureAwait(false);
+            }
+
+            cleanup.Hold(held);
+        }
+
         var owner = JsonChallengeJournal.CurrentProcess;
         foreach (var (record, profile) in targets)
         {
@@ -313,6 +336,11 @@ internal sealed class DnsChallengeService(
 
         public void Add(DnsChallengeEntry entry, DnsProviderProfile profile) => _entries.Add((entry, profile));
 
+        private IAsyncDisposable? _held;
+
+        /// <summary>Released after the records are removed, when validation is over.</summary>
+        public void Hold(IAsyncDisposable held) => _held = held;
+
         public async ValueTask DisposeAsync()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -338,6 +366,11 @@ internal sealed class DnsChallengeService(
                         $"Warning: the TXT record '{entry.RecordName}' could not be removed: {exception.Message} " +
                         "SSLense will try again when it next starts."));
                 }
+            }
+
+            if (_held is not null)
+            {
+                await _held.DisposeAsync().ConfigureAwait(false);
             }
         }
     }

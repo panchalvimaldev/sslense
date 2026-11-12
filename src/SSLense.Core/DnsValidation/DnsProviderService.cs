@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using SSLense.Core.Acme;
+using SSLense.Core.Certificates;
 using SSLense.Core.Config;
 
 namespace SSLense.Core.DnsValidation;
@@ -83,8 +84,10 @@ internal sealed class DnsProviderService(
     IDnsLookup lookup,
     IDnsScriptStore? scripts = null,
     DnsPropagationChecker? propagation = null,
-    IAcmeDnsClient? acmeDns = null) : IDnsProviderService
+    IAcmeDnsClient? acmeDns = null,
+    ICertificateOperationLock? operationLock = null) : IDnsProviderService
 {
+    private readonly ICertificateOperationLock _operationLock = operationLock ?? new NoOpCertificateOperationLock();
     private const int MinScriptTimeoutSeconds = 10;
     private const int MaxScriptTimeoutSeconds = 3600;
 
@@ -346,6 +349,10 @@ internal sealed class DnsProviderService(
                 $". Create this record at your DNS host, then test again: {profile.AcmeDnsCname}");
         }
 
+        // Validation holds the account until the CA has checked its values; a test value now would push one out.
+        await using var held = _operationLock.TryAcquireAll([AcmeDnsAccountLock.Key(profile)])
+            ?? throw new InvalidOperationException(
+                $"A certificate is being validated through the acme-dns account '{profile.Name}' right now. Test again in a few minutes.");
         var value = TestValue();
         await provider.AddTxtRecordAsync(profile, profile.ZoneName, value, cancellationToken).ConfigureAwait(false);
         if (!await _propagation.ConfirmAsync([new DnsTxtRecord(profile.ZoneName, value)], cancellationToken).ConfigureAwait(false))
