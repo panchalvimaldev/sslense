@@ -95,6 +95,10 @@
        <Button DockPanel.Dock="Right" Content="Browse…" Click="OnBrowseScriptClick" Margin="8,0,0,0" Visibility="{Binding SelectedDeploymentKind.IsScript, Converter={StaticResource BooleanToVisibilityConverter}}"/>
        <TextBox Text="{Binding DeploymentValue, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Account, service name, or script path"/>
       </DockPanel>
+      <StackPanel Visibility="{Binding SelectedDeploymentKind.NeedsPassword, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,0,8">
+       <TextBlock Text="PASSWORD" Style="{StaticResource FieldLabel}"/>
+       <PasswordBox x:Name="DeploymentPasswordBox" PasswordChanged="OnDeploymentPasswordChanged" AutomationProperties.Name="Password for the exported files"/>
+      </StackPanel>
       <TextBlock Text="{Binding SelectedDeploymentKind.Hint}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
       <Button Content="Add step" Command="{Binding AddDeploymentStepCommand}" HorizontalAlignment="Left" ToolTip="Add the step at the end. It runs after the next renewal, or now with Run now."/>
      </StackPanel>

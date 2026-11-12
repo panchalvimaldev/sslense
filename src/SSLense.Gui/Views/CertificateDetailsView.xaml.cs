@@ -6,7 +6,22 @@ namespace SSLense.Gui.Views;
 
 public partial class CertificateDetailsView : UserControl
 {
-    public CertificateDetailsView() => InitializeComponent();
+    public CertificateDetailsView()
+    {
+        InitializeComponent();
+        DataContextChanged += (_, e) =>
+        {
+            if (e.OldValue is CertificateDetailsViewModel old) old.PasswordCleared -= ClearPassword;
+            if (e.NewValue is CertificateDetailsViewModel current) current.PasswordCleared += ClearPassword;
+        };
+    }
+
+    private void ClearPassword() => DeploymentPasswordBox.Clear();
+
+    private void OnDeploymentPasswordChanged(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is CertificateDetailsViewModel viewModel) viewModel.DeploymentPassword = DeploymentPasswordBox.Password;
+    }
 
     private async void OnRemoveClick(object sender, RoutedEventArgs e)
     {

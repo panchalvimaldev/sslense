@@ -15,7 +15,7 @@ SSLense is a Windows application for IIS administrators. It gets free Let's Encr
 - **A failed renewal never takes a site down.** After every change, SSLense connects to the site over HTTPS to check the new certificate is really served. If it isn't, the previous binding is restored automatically.
 - **One certificate across several IIS sites.** A DNS-validated certificate, such as `*.example.com`, can serve several sites that renew together. If one site has a problem, the others are protected.
 - **Wildcard certificates and sites without port 80.** DNS validation issues `*.example.com`, and works for internal servers and sites that cannot open port 80. It renews automatically through Cloudflare, through acme-dns with one CNAME at any DNS host, through your own PowerShell script for any DNS service with an API, or through a CNAME from any DNS service to a domain on Cloudflare.
-- **Certificates for more than IIS.** After every renewal, SSLense can give an application pool or service access to the private key, restart a service, or run a script, with ready-made scripts for Remote Desktop, SQL Server, and Exchange. A certificate only for such a service needs no IIS site.
+- **Certificates for more than IIS.** After every renewal, SSLense can give an application pool or service access to the private key, restart a service, or run a script, with ready-made scripts for Remote Desktop, SQL Server, and Exchange. A certificate only for such a service needs no IIS site. With an exportable key, it can also be written to PFX or PEM files, or to the IIS Central Certificate Store for web farms.
 - **Any ACME certificate authority, not only Let's Encrypt.** ZeroSSL, Google Trust Services, SSL.com, Sectigo, or your own internal CA, with External Account Binding, renewed automatically like Let's Encrypt.
 - **Certificates from any provider.** For one bought without ACME, it creates the certificate request with a private key that never leaves the server, installs what the provider issues with the same safety checks, or simply starts watching a certificate that is already in IIS.
 - **No need to log on to the server to check expiry dates.** One digest a day, sent only when something needs attention, by email (any SMTP setup, including Microsoft 365 relays), Teams, Slack, Discord, Telegram, ntfy, or the Windows Event Log.
@@ -294,7 +294,24 @@ SSLense.Cli deploy run --site "Remote Desktop"
 - Removing it stops managing it and **keeps the certificate in the store**, because services outside IIS may still use it. Delete it in certlm when they no longer do.
 
 
+### Export: PFX, PEM, and the IIS Central Certificate Store
+
+SSLense installs private keys as non-exportable, which is all IIS needs. For a web farm's Central Certificate Store, software that reads PEM files, or a copy for another server, issue the certificate with an exportable key, then add export steps. They are deployment steps, so they run after every renewal and are retried when they fail.
+
+```powershell
+SSLense.Cli issue --site "Shop" --names "*.example.com" --validation dns --exportable-key --email ops@example.com
+SSLense.Cli deploy add --site "Shop" --export-pfx D:\Certs\shop.pfx          # password asked for, hidden
+SSLense.Cli deploy add --site "Shop" --export-pem D:\Certs\shop               # cert.pem, chain.pem, fullchain.pem, key.pem
+SSLense.Cli deploy add --site "Shop" --central-store \\fileserver\ccs         # one PFX per name; the store's password
+```
+
+- **The exportable key is a choice per certificate,** made when it is issued and kept at every renewal. To make an existing certificate's key exportable, issue it again with `--exportable-key --force`. In the app, tick **Exportable private key** in **Issue Certificate**, and add the steps in **Certificate Details**.
+- **The Central Certificate Store** gets `example.com.pfx` for each name, and `_.example.com.pfx` for `*.example.com`, as IIS expects. Use the private key password set for the store in IIS.
+- **`key.pem` is not protected by a password,** so SSLense writes it for Administrators, SYSTEM, and the account that wrote it only. Give another account access with Windows' own tools if a service needs it.
+- Passwords are encrypted with DPAPI, never logged, and hidden in diagnostic bundles. Files are replaced in one step, so a reader never sees half a file. The service writes as SYSTEM, which reaches a share as the computer's account.
+
 ### One certificate across several IIS sites
+
 
 
 A certificate that uses DNS validation can serve several sites. Issue it for the first site, then add the others. Adding a site orders nothing from the certificate authority.
@@ -599,6 +616,8 @@ SSLense stores files under `C:\ProgramData\SSLense`:
 
 Private keys, PFX passwords, SMTP passwords, webhook URLs, DNS provider tokens and script secrets, and the ACME account key must never appear in logs.
 
+**Going back to 0.19:** the first save after upgrading to 0.20 moves `managed-certificates.json` to schema 8, which 0.19 cannot read, and keeps the old file as `managed-certificates.json.v7.bak`. Going back means restoring that copy, which has no export steps or exportable keys.
+
 **Going back to 0.18:** the first save after upgrading to 0.19 moves `managed-certificates.json` to schema 7, which 0.18 cannot read, and keeps the old file as `managed-certificates.json.v6.bak`. Going back means restoring that copy, which has no certificates without an IIS site.
 
 **Going back to 0.17:** the first save after upgrading to 0.18 moves `managed-certificates.json` to schema 6, which 0.17 cannot read, and keeps the old file as `managed-certificates.json.v5.bak`. Going back means restoring that copy, which has no deployment steps, and losing any certificate issued since.
@@ -673,6 +692,7 @@ The command prints a `PASS` or `FAIL` line for each check. Fix the first failing
 - **acme-dns refuses the username or password, or this server's address:** the account was removed or its allowed networks don't include this server. Remove the provider and register the account again.
 - **A deployment step fails:** the certificate is installed and bound anyway. `SSLense.Cli deploy list` shows the step that failed and why; fix it and run `deploy run`, or wait for the hourly retry. A script's message includes its exit code and last 20 lines.
 - **Key access fails because the account is unknown:** an application pool's account, `IIS AppPool\<pool>`, exists only while the pool does. Use the pool's exact name.
+- **An export step says the key cannot be exported:** the certificate was issued without `--exportable-key`. Issue it again with `--exportable-key --force`; the steps stay.
 - **A service does not restart:** use its service name, as `sc.exe query` shows it, not its display name. A service that other running services depend on cannot be stopped on its own; restart the dependent services in a script instead.
 - **A DNS script was stopped:**
  it ran longer than its timeout, 2 minutes by default. Raise it by removing the provider and adding it again with `--timeout`, or find what it waits for.

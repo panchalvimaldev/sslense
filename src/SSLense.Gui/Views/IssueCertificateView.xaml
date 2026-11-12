@@ -42,6 +42,7 @@
       </StackPanel>
      </Border>
      </StackPanel>
+     <CheckBox Content="Exportable private key, to export it to PFX or PEM files or the IIS Central Certificate Store" IsChecked="{Binding ExportableKey}" Margin="0,4,0,0" AutomationProperties.Name="Exportable private key" ToolTip="Off by default: a key that cannot be exported cannot be copied off this server. Turn it on only to add export steps in Certificate Details. Kept at every renewal."/>
      <TextBlock Text="VALIDATION" Style="{StaticResource FieldLabel}" Margin="0,10,0,6"/>
      <WrapPanel>
       <RadioButton GroupName="Validation" Content="HTTP (port 80)" IsChecked="{Binding UseHttpValidation}" Margin="0,0,20,0" AutomationProperties.Name="HTTP validation"/>

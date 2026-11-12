@@ -44,6 +44,7 @@ public partial class IssueCertificateViewModel : ObservableObject
     [ObservableProperty] private bool isWaitingForManualDns;
     [ObservableProperty] private string renewalNotice = string.Empty;
     [ObservableProperty] private bool noSite;
+    [ObservableProperty] private bool exportableKey;
     [ObservableProperty] private string noSiteName = string.Empty;
 
     public IssueCertificateViewModel(
@@ -423,7 +424,8 @@ public partial class IssueCertificateViewModel : ObservableObject
                     ConfirmManualDns: SelectedValidation == ValidationMethod.Dns01Manual ? ConfirmManualDnsAsync : null,
                     CertificateNames: UsesDns ? SelectedNames() : null,
                     AcceptProductionRisk: UseProduction && ProductionRiskAccepted,
-                    NoSite: NoSite),
+                    NoSite: NoSite,
+                    ExportableKey: _renewing?.ExportableKey ?? ExportableKey),
                 new Progress<ProgressEvent>(value =>
                     ProgressLines.Add($"[{DateTime.Now:HH:mm:ss}] [{value.Step}] {value.Message}")),
                 token).ConfigureAwait(true);
@@ -484,7 +486,7 @@ public partial class IssueCertificateViewModel : ObservableObject
     private bool CanIssue() =>
         !IsBusy && CurrentStep == 2 && PreflightPassed && (!UseProduction || ProductionRiskAccepted);
     private void Cancel() { _preflightCommand.Cancel(); _issueCommand.Cancel(); }
-    private void StartOver() { CurrentStep = 1; NoSite = false; NoSiteName = string.Empty; PreflightPassed = false; ProductionRiskAccepted = false; ReplaceExisting = false; CertificateNames = string.Empty; SetRenewing(null); PreflightChecks.Clear(); ProgressLines.Clear(); ManualRecords.Clear(); ErrorMessage = null; ResultMessage = string.Empty; }
+    private void StartOver() { CurrentStep = 1; NoSite = false; ExportableKey = false; NoSiteName = string.Empty; PreflightPassed = false; ProductionRiskAccepted = false; ReplaceExisting = false; CertificateNames = string.Empty; SetRenewing(null); PreflightChecks.Clear(); ProgressLines.Clear(); ManualRecords.Clear(); ErrorMessage = null; ResultMessage = string.Empty; }
     private void NotifyCommands()
     {
         (NextCommand as RelayCommand)?.NotifyCanExecuteChanged();

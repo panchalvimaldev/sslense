@@ -63,6 +63,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
     [ObservableProperty] private bool deploymentPending;
     [ObservableProperty] private DeploymentKindChoice? selectedDeploymentKind;
     [ObservableProperty] private string deploymentValue = string.Empty;
+    [ObservableProperty] private string deploymentPassword = string.Empty;
 
     public CertificateDetailsViewModel(
         ICertificateManagementService managementService,
@@ -118,11 +119,17 @@ public partial class CertificateDetailsViewModel : ObservableObject
     [
         new("Give an account access to the private key", DeploymentStepKind.GrantKeyAccess, "ACCOUNT", "Such as IIS AppPool\\Shop or NT Service\\MSSQLSERVER."),
         new("Restart a Windows service", DeploymentStepKind.RestartService, "SERVICE NAME", "The service name, such as MSSQLSERVER, not its display name."),
-        new("Run a PowerShell script", DeploymentStepKind.Script, "SCRIPT", "SSLense runs its own copy, checked by hash. Examples are in the deploy-scripts folder where SSLense is installed.")
+        new("Run a PowerShell script", DeploymentStepKind.Script, "SCRIPT", "SSLense runs its own copy, checked by hash. Examples are in the deploy-scripts folder where SSLense is installed."),
+        new("Export a PFX file", DeploymentStepKind.ExportPfx, "PFX FILE", "A full path, such as D:\\Certs\\shop.pfx. Needs a certificate issued with an exportable private key."),
+        new("Export PEM files", DeploymentStepKind.ExportPem, "FOLDER", "cert.pem, chain.pem, fullchain.pem, and key.pem, which only administrators can read. Needs an exportable private key."),
+        new("Export to the IIS Central Certificate Store", DeploymentStepKind.CentralStore, "STORE FOLDER", "One PFX per name, protected by the store's password as set in IIS. Needs an exportable private key.")
     ];
 
     public IAsyncRelayCommand AddDeploymentStepCommand => _addDeploymentStepCommand;
     public IAsyncRelayCommand<DeploymentStepRow> RemoveDeploymentStepCommand => _removeDeploymentStepCommand;
+
+    /// <summary>Raised after a step is added, so the view can clear its password box, which cannot be bound.</summary>
+    public event Action? PasswordCleared;
 
     /// <summary>Runs every step now, for the certificate in use.</summary>
     public IAsyncRelayCommand RunDeploymentCommand => _runDeploymentCommand;
@@ -305,9 +312,11 @@ public partial class CertificateDetailsViewModel : ObservableObject
         await RunAsync(async token =>
         {
             var step = await _deploymentService
-                .AddAsync(new DeploymentStepRequest(SelectedSite, kind.Kind, DeploymentValue.Trim()), token)
+                .AddAsync(new DeploymentStepRequest(SelectedSite, kind.Kind, DeploymentValue.Trim(), Password: kind.NeedsPassword ? DeploymentPassword : null), token)
                 .ConfigureAwait(true);
             DeploymentValue = string.Empty;
+            DeploymentPassword = string.Empty;
+            PasswordCleared?.Invoke();
             ResultMessage = $"Added: {step.Describe()}. The steps run after every renewal; Run now runs them for this certificate.";
             await LoadDeploymentAsync(token).ConfigureAwait(true);
         }, cancellationToken);
@@ -470,6 +479,8 @@ public sealed record DeploymentStepRow(int Number, string Description);
 public sealed record DeploymentKindChoice(string Label, DeploymentStepKind Kind, string ValueLabel, string Hint)
 {
     public bool IsScript => Kind == DeploymentStepKind.Script;
+
+    public bool NeedsPassword => Kind is DeploymentStepKind.ExportPfx or DeploymentStepKind.CentralStore;
 
     public override string ToString() => Label;
 }

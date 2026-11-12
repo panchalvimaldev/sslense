@@ -30,6 +30,7 @@ Complete:
 - DNS validation through acme-dns (0.17): one CNAME, created once at any DNS host, and an acme-dns account whose credential can change only the validation record; registration or import from SSLense, an optional allowed network, the CNAME checked before each order and daily, and the account's two-value limit checked before ordering ([design](docs/design/acme-dns.md))
 - Deployment steps (0.18): after every install and renewal, read access to the private key for an account such as an IIS application pool, a Windows service restart, or a PowerShell script run as SSLense's own checked copy; ready-made scripts for Remote Desktop, SQL Server, and Exchange; a failed step retried hourly while the previous certificate is kept ([design](docs/design/deployment-steps.md))
 - Certificates with no IIS site (0.19): issued and renewed through DNS under a name instead of a site, for Remote Desktop, SQL Server, and other services that deployment steps hand them to; removal keeps the certificate in the store ([design](docs/design/no-site-certificates.md))
+- Certificate export (0.20): an exportable key chosen per certificate at issue; deployment steps that write a password-protected PFX, PEM files with an administrators-only key, or one PFX per name to the IIS Central Certificate Store; passwords encrypted with DPAPI ([design](docs/design/certificate-export.md))
 - Cross-process per-site locking, durable operation journals, and non-fatal startup recovery
 - Health check (CLI and GUI) and redacted diagnostic bundles for support
 - Versioned state schemas with backup before migration and safe refusal of newer schemas
@@ -61,7 +62,7 @@ References:
 
 In priority order. Feedback from real users can change the order.
 
-1. **Certificate export and shared stores.** PFX and PEM export, the IIS Central Certificate Store for web farms, and Azure Key Vault. Export needs an exportable key, so it stays off by default and is an explicit choice per certificate.
+1. **Azure Key Vault.** Export certificates to Azure Key Vault as another kind of step. It needs Microsoft's client library, a new dependency, so it waits for demand.
 2. **Key and order options.** A choice of RSA or ECDSA (issuance currently uses ECDSA P-256), optional private-key reuse for sites that pin keys, the CA's preferred chain, and ACME profiles where the CA offers them, such as short-lived certificates.
 3. **Built-in DNS providers.** The script method (0.15) covers any service with an API; built-in providers save writing one. One at a time, starting with Amazon Route 53, Azure DNS, Google Cloud DNS, DigitalOcean, and Hetzner, then whichever users ask for most. Each stays labelled untested until it has run on a real account. Providers are compiled in, not loaded as plugins, because the service runs as SYSTEM.
 4. **HTTP validation without a port 80 binding.** A short-lived listener of SSLense's own answers the challenge, for sites that have only HTTPS bindings or whose port 80 is used by something else.

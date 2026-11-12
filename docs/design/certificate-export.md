@@ -54,7 +54,7 @@ Exports are **deployment steps**, so they run after every install and renewal, a
 |---|---|---|
 | 1 | This design | Docs |
 | 2 | Core and CLI: exportable keys at issue and renewal, the three export steps, schema 8, tests with real exported files. **Built** November 12, 2026: 5 tests, writing real PFX, PEM, and Central Certificate Store files and reading them back, checking key.pem's permissions, and refusing a key that cannot be exported | CLI |
-| 3 | The app; README, roadmap, website; release as 0.20 | Both |
+| 3 | The app; README, roadmap, website; release as 0.20. **Built** November 12, 2026, apart from acceptance: **Exportable private key** in Issue Certificate, kept when renewing by hand; the three export steps in Certificate Details, with a password box | Both |
 
 ## 6. Decisions taken by delegation
 
