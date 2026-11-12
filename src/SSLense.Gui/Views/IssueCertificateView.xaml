@@ -6,7 +6,7 @@
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <StackPanel Margin="0,0,0,18">
    <TextBlock Text="Issue a certificate" Style="{StaticResource PageTitle}"/>
-   <TextBlock Text="Configure, validate, and install a Let's Encrypt certificate." Style="{StaticResource PageSubtitle}"/>
+   <TextBlock Text="Configure, validate, and install a certificate from Let's Encrypt or another ACME certificate authority." Style="{StaticResource PageSubtitle}"/>
   </StackPanel>
 
   <Grid Grid.Row="1" Margin="16,0,16,20">
@@ -30,7 +30,7 @@
        <TextBlock Text="This site already serves HTTPS" FontWeight="SemiBold"/>
        <TextBlock Text="{Binding SelectedSite.HttpsSummary}" TextWrapping="Wrap" Margin="0,3,0,0"/>
        <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0"
-                  Text="Issuing replaces that certificate for the host names you select, for example to move from a paid certificate to Let's Encrypt. To keep it and only get expiry reminders, adopt it on the Other Providers page instead."/>
+                  Text="Issuing replaces that certificate for the host names you select, for example to move from a certificate you renew by hand to one SSLense renews automatically. To keep it and only get expiry reminders, adopt it on the Other Providers page instead."/>
        <CheckBox Content="Replace the current certificate even if it is still valid" IsChecked="{Binding ReplaceExisting}" Margin="0,8,0,0" AutomationProperties.Name="Replace the current certificate even if it is still valid"/>
       </StackPanel>
      </Border>
@@ -67,12 +67,20 @@
      <TextBlock Text="Verify issuance readiness" Style="{StaticResource SectionTitle}"/>
      <TextBlock Text="{Binding PreflightSubtitle}" Style="{StaticResource PageSubtitle}" Margin="0,4,0,20"/>
      <Border Style="{StaticResource InfoBanner}" Margin="0,0,0,14" Visibility="{Binding IsRenewingByHand, Converter={StaticResource BoolToVisibility}}"><TextBlock Text="{Binding RenewalNotice}" FontWeight="SemiBold" TextWrapping="Wrap"/></Border>
-     <TextBlock Text="LET'S ENCRYPT ACCOUNT EMAIL" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,16" AutomationProperties.Name="Let's Encrypt account email"/>
-     <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-      <RadioButton Content="Staging environment (recommended)" IsChecked="{Binding UseStaging}" Margin="0,0,20,0" AutomationProperties.Name="Staging environment (recommended)"/>
-      <RadioButton Content="Production environment" IsChecked="{Binding UseProduction}" AutomationProperties.Name="Production environment"/>
-     </StackPanel>
-     <Border Margin="0,0,0,16"><Border.Style><Style TargetType="Border" BasedOn="{StaticResource ErrorBanner}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding UseProduction}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Border.Style><StackPanel><TextBlock Text="Production certificates are publicly trusted and subject to Let's Encrypt rate limits." Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold"/><CheckBox Content="I confirm the site and host names are correct and authorize replacing the live IIS binding." IsChecked="{Binding ProductionRiskAccepted}" Margin="0,8,0,0" AutomationProperties.Name="Confirm site and host names and authorize replacing the live IIS binding"/></StackPanel></Border>
+     <TextBlock Text="ACME ACCOUNT EMAIL" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,16" AutomationProperties.Name="ACME account email"/>
+     <TextBlock Text="CERTIFICATE AUTHORITY" Style="{StaticResource FieldLabel}"/>
+     <ComboBox ItemsSource="{Binding Authorities}" SelectedItem="{Binding SelectedAuthority}" Margin="0,0,0,4" MaxWidth="460" HorizontalAlignment="Left" MinWidth="320"
+               AutomationProperties.Name="Certificate authority" IsEnabled="{Binding CanChooseAuthority}">
+      <ComboBox.ItemTemplate>
+       <DataTemplate>
+        <TextBlock>
+         <Run Text="{Binding Name, Mode=OneWay}"/><Run Text="  ("/><Run Text="{Binding Id, Mode=OneWay}"/><Run Text=")"/>
+        </TextBlock>
+       </DataTemplate>
+      </ComboBox.ItemTemplate>
+     </ComboBox>
+     <TextBlock Text="Let's Encrypt staging is the safe default: its certificates are not trusted, so mistakes cost nothing. Add other certificate authorities under Settings → Certificate authorities." Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,12"/>
+     <Border Margin="0,0,0,16"><Border.Style><Style TargetType="Border" BasedOn="{StaticResource ErrorBanner}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding UseProduction}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Border.Style><StackPanel><TextBlock Text="Certificates from this certificate authority are publicly trusted, and its limits apply." Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold"/><CheckBox Content="I confirm the site and host names are correct and authorize replacing the live IIS binding." IsChecked="{Binding ProductionRiskAccepted}" Margin="0,8,0,0" AutomationProperties.Name="Confirm site and host names and authorize replacing the live IIS binding"/></StackPanel></Border>
      <Button Content="Run pre-flight checks" Command="{Binding PreflightCommand}" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" Margin="0,0,0,14"/>
      <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="7" ClipToBounds="True">
      <DataGrid ItemsSource="{Binding PreflightChecks}" Height="210" AutomationProperties.Name="Pre-flight results">

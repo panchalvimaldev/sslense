@@ -21,6 +21,22 @@ jobs:
       - name: Build
         run: dotnet build SSLense.sln -c Release -nologo
 
-      # Unit tests use mocks and local resources only; nothing contacts Let's Encrypt.
+      # Pebble is Let's Encrypt's ACME server for tests. One pinned release, checked by SHA-256, runs on this machine
+      # only, so the ACME client is tested end to end, with External Account Binding, without contacting any real CA.
+      - name: Get Pebble
+        shell: pwsh
+        run: |
+          $version = 'v2.10.1'
+          $sha256 = '2539f3903302d75f897522b23b1b52b3300f5f992245f13d3bdf3967cf23af6d'
+          $zip = Join-Path $env:RUNNER_TEMP 'pebble.zip'
+          Invoke-WebRequest "https://github.com/letsencrypt/pebble/releases/download/$version/pebble-windows-amd64.zip" -OutFile $zip
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $sha256) { throw "Pebble's SHA-256 is $actual, not $sha256." }
+          Expand-Archive $zip (Join-Path $env:RUNNER_TEMP 'pebble')
+          $exe = Join-Path $env:RUNNER_TEMP 'pebble\pebble-windows-amd64\windows\amd64\pebble.exe'
+          if (-not (Test-Path $exe)) { throw "pebble.exe was not found in the release." }
+          "SSLENSE_PEBBLE=$exe" | Out-File $env:GITHUB_ENV -Append
+
+      # Unit tests use mocks and local resources only; nothing contacts Let's Encrypt or any other CA.
       - name: Test
         run: dotnet test SSLense.sln -c Release --no-build -nologo

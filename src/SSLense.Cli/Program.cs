@@ -93,7 +93,7 @@ finally
 
 static RootCommand CreateRootCommand(IServiceProvider services)
 {
-    var rootCommand = new RootCommand("Manage Let's Encrypt certificates for IIS.");
+    var rootCommand = new RootCommand("Manage certificates for IIS: from Let's Encrypt or any ACME certificate authority, renewed automatically, or bought elsewhere and installed safely.");
     var listSitesCommand = new Command("list-sites", "List IIS sites and their bindings.");
 
     listSitesCommand.SetAction((_, cancellationToken) =>
@@ -115,7 +115,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     };
     var emailOption = new Option<string>("--email")
     {
-        Description = "Email address for the Let's Encrypt ACME account.",
+        Description = "Email address for the ACME account with the certificate authority.",
         Required = true
     };
     var stagingOption = new Option<bool>("--staging")
@@ -128,7 +128,11 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     };
     var acceptProductionRiskOption = new Option<bool>("--accept-production-risk")
     {
-        Description = "Confirm production issuance, rate-limit impact, and replacement of the live IIS binding."
+        Description = "Confirm issuing a trusted certificate: Let's Encrypt production or any CA not marked as a test. Its limits apply, and it replaces the live IIS binding."
+    };
+    var caOption = new Option<string?>("--ca")
+    {
+        Description = "The certificate authority to issue from, by ID: letsencrypt-staging (the default), letsencrypt, or one added with 'ca add'. See 'ca list'."
     };
     var outputOption = new Option<string?>("--output")
     {
@@ -153,6 +157,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     issueCommand.Options.Add(stagingOption);
     issueCommand.Options.Add(productionOption);
     issueCommand.Options.Add(acceptProductionRiskOption);
+    issueCommand.Options.Add(caOption);
     issueCommand.Options.Add(outputOption);
     issueCommand.Options.Add(forceOption);
     issueCommand.SetAction((parseResult, cancellationToken) => IssueAsync(
@@ -167,8 +172,10 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         parseResult.GetValue(acceptProductionRiskOption),
         parseResult.GetRequiredValue(validationOption),
         parseResult.GetValue(namesOption),
+        parseResult.GetValue(caOption),
         cancellationToken));
     rootCommand.Subcommands.Add(issueCommand);
+    rootCommand.Subcommands.Add(CreateCaCommand(services));
     rootCommand.Subcommands.Add(CreateDnsCommand(services));
     rootCommand.Subcommands.Add(CreateShareCommand(services));
 
@@ -215,7 +222,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
 
     var healthCommand = new Command(
         "health",
-        "Check the service, permissions, IIS, certificates, DNS, port 80, and Let's Encrypt connectivity.");
+        "Check the service, permissions, IIS, certificates, DNS, port 80, and each certificate authority in use.");
     healthCommand.SetAction((_, cancellationToken) =>
         HealthAsync(services.GetRequiredService<IHealthCheckService>(), cancellationToken));
     rootCommand.Subcommands.Add(healthCommand);
@@ -252,17 +259,23 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     {
         Description = "Comma-separated names for the certificate to cover, such as \"*.example.com,example.com\". Needs DNS validation."
     };
+    var preflightCaOption = new Option<string?>("--ca")
+    {
+        Description = "For DNS validation: the certificate authority whose CAA identities to check. Let's Encrypt when left out."
+    };
     var preflightCommand = new Command("preflight", "Run IIS, HTTP, and DNS readiness checks.");
     preflightCommand.Options.Add(preflightSiteOption);
     preflightCommand.Options.Add(preflightHostsOption);
     preflightCommand.Options.Add(preflightValidationOption);
     preflightCommand.Options.Add(preflightNamesOption);
+    preflightCommand.Options.Add(preflightCaOption);
     preflightCommand.SetAction((result, token) => PreflightAsync(
         services.GetRequiredService<IPreflightService>(),
         result.GetRequiredValue(preflightSiteOption),
         result.GetRequiredValue(preflightHostsOption),
         result.GetRequiredValue(preflightValidationOption),
         result.GetValue(preflightNamesOption),
+        result.GetValue(preflightCaOption),
         token));
     rootCommand.Subcommands.Add(preflightCommand);
 
@@ -282,7 +295,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     rootCommand.Subcommands.Add(removeCommand);
 
     var settingsEmailOption = new Option<string?>("--email") { Description = "Default ACME account email." };
-    var settingsDaysOption = new Option<int>("--renewal-days") { Required = true, Description = "Let's Encrypt fallback schedule when the CA offers no renewal window (ARI), 1-89 days, capped at a third of the lifetime. Reminders are set with 'reminders set'." };
+    var settingsDaysOption = new Option<int>("--renewal-days") { Required = true, Description = "Fallback schedule when the CA offers no renewal window (ARI), 1-89 days, capped at a third of the lifetime. Reminders are set with 'reminders set'." };
     var configureCommand = new Command("configure", "Save general defaults and renewal settings.");
     configureCommand.Options.Add(settingsEmailOption); configureCommand.Options.Add(settingsDaysOption);
     configureCommand.SetAction((result, token) => ConfigureGeneralAsync(
@@ -327,7 +340,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     return rootCommand;
 }
 
-static async Task<int> PreflightAsync(IPreflightService service, string site, string hostsValue, string validation, string? namesValue, CancellationToken token)
+static async Task<int> PreflightAsync(IPreflightService service, string site, string hostsValue, string validation, string? namesValue, string? ca, CancellationToken token)
 {
     try
     {
@@ -337,7 +350,7 @@ static async Task<int> PreflightAsync(IPreflightService service, string site, st
             throw new ArgumentException("--names needs --validation dns or dns-manual.");
         }
 
-        // CAA checks are the same for staging and production, so the staging profile answers for both.
+        // CAA checks are the same for Let's Encrypt staging and production, so the staging profile answers for both.
         var checks = validation == "http"
             ? await service.CheckAsync(site, hosts, token).ConfigureAwait(false)
             : await service.CheckDnsAsync(
@@ -346,7 +359,7 @@ static async Task<int> PreflightAsync(IPreflightService service, string site, st
                     hosts,
                     namesValue?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
                     validation == "dns" ? ValidationMethod.Dns01Provider : ValidationMethod.Dns01Manual,
-                    CertificateAuthorities.LetsEncryptStagingId),
+                    ca?.Trim().ToLowerInvariant() ?? CertificateAuthorities.LetsEncryptStagingId),
                 token).ConfigureAwait(false);
         foreach (var check in checks) Console.WriteLine($"{(check.Succeeded ? "PASS" : "FAIL")}: {check.Name} - {check.Message}");
         return checks.All(value => value.Succeeded) ? 0 : 1;
@@ -913,7 +926,7 @@ static async Task<int> ListDnsProvidersAsync(IDnsProviderService providers, Canc
     }
     catch (Exception exception)
     {
-        return ReportDnsFailure(exception, "Failed to list DNS providers");
+        return ReportFailure(exception, "Failed to list DNS providers");
     }
 }
 
@@ -959,7 +972,7 @@ static async Task<int> AddDnsProviderAsync(
     }
     catch (Exception exception)
     {
-        return ReportDnsFailure(exception, "Failed to add a DNS provider");
+        return ReportFailure(exception, "Failed to add a DNS provider");
     }
 }
 
@@ -973,7 +986,7 @@ static async Task<int> UpdateDnsScriptAsync(IDnsProviderService providers, strin
     }
     catch (Exception exception)
     {
-        return ReportDnsFailure(exception, "Failed to update a DNS script");
+        return ReportFailure(exception, "Failed to update a DNS script");
     }
 }
 
@@ -986,7 +999,7 @@ static async Task<int> TestDnsProviderAsync(IDnsProviderService providers, strin
     }
     catch (Exception exception)
     {
-        return ReportDnsFailure(exception, "Failed to test a DNS provider");
+        return ReportFailure(exception, "Failed to test a DNS provider");
     }
 }
 
@@ -1001,7 +1014,7 @@ static async Task<int> UpdateDnsTokenAsync(IDnsProviderService providers, string
     }
     catch (Exception exception)
     {
-        return ReportDnsFailure(exception, "Failed to replace a DNS provider token");
+        return ReportFailure(exception, "Failed to replace a DNS provider token");
     }
 }
 
@@ -1015,15 +1028,160 @@ static async Task<int> RemoveDnsProviderAsync(IDnsProviderService providers, str
     }
     catch (Exception exception)
     {
-        return ReportDnsFailure(exception, "Failed to remove a DNS provider");
+        return ReportFailure(exception, "Failed to remove a DNS provider");
     }
 }
 
-static int ReportDnsFailure(Exception exception, string logMessage)
+static Command CreateCaCommand(IServiceProvider services)
 {
-    Log.Error(exception, "{Operation}", logMessage);
-    Console.Error.WriteLine($"Error: {exception.Message}");
-    return 1;
+    ICertificateAuthorityService Authorities() => services.GetRequiredService<ICertificateAuthorityService>();
+    var command = new Command("ca", "Configure the ACME certificate authorities SSLense can issue from. Let's Encrypt is built in.");
+
+    var listCommand = new Command("list", "List the certificate authorities, and the sites that renew with each.");
+    listCommand.SetAction((_, token) => ListCertificateAuthoritiesAsync(Authorities(), token));
+    command.Subcommands.Add(listCommand);
+
+    var presetOption = new Option<string?>("--preset")
+    {
+        Description = $"A known certificate authority: {string.Join(", ", CertificateAuthorities.Presets.Select(preset => preset.Id))}."
+    };
+    var nameOption = new Option<string?>("--name") { Description = "For any other CA: its name. With --preset, a different name to show." };
+    var directoryOption = new Option<string?>("--directory") { Description = "For any other CA: its ACME directory URL, starting with https://." };
+    var idOption = new Option<string?>("--id") { Description = "The ID to give --ca. From the preset or the name when left out." };
+    var testOption = new Option<bool>("--test")
+    {
+        Description = "For any other CA: its certificates are not trusted by browsers, so issuing from it asks no confirmation."
+    };
+    var eabOption = new Option<bool>("--eab")
+    {
+        Description = "Prompt for External Account Binding credentials from your account with the CA: the key ID, then the HMAC key without echo."
+    };
+    var caaOption = new Option<string?>("--caa-domain")
+    {
+        Description = "The domain the CA looks for in CAA records, for a CA whose directory does not publish it."
+    };
+    var addCommand = new Command("add", "Add a certificate authority. SSLense reads its ACME directory first, and saves nothing if it cannot be used.");
+    foreach (var option in new Option[] { presetOption, nameOption, directoryOption, idOption, testOption, eabOption, caaOption })
+    {
+        addCommand.Options.Add(option);
+    }
+
+    addCommand.SetAction((parseResult, token) => AddCertificateAuthorityAsync(
+        Authorities(),
+        new CertificateAuthorityRequest(
+            parseResult.GetValue(presetOption),
+            parseResult.GetValue(idOption),
+            parseResult.GetValue(nameOption),
+            parseResult.GetValue(directoryOption),
+            parseResult.GetValue(testOption),
+            CaaDomain: parseResult.GetValue(caaOption)),
+        parseResult.GetValue(eabOption),
+        token));
+    command.Subcommands.Add(addCommand);
+
+    var testCaOption = new Option<string>("--ca") { Required = true, Description = "The certificate authority to check, by ID." };
+    var testCommand = new Command("test", "Read the CA's directory and report what it requires and offers. Creates no account and changes nothing.");
+    testCommand.Options.Add(testCaOption);
+    testCommand.SetAction(async (parseResult, token) =>
+    {
+        try
+        {
+            Console.WriteLine(await Authorities().TestAsync(parseResult.GetRequiredValue(testCaOption), token).ConfigureAwait(false));
+            return 0;
+        }
+        catch (Exception exception)
+        {
+            return ReportFailure(exception, "Failed to test a certificate authority");
+        }
+    });
+    command.Subcommands.Add(testCommand);
+
+    var removeCaOption = new Option<string>("--ca") { Required = true, Description = "The certificate authority to remove, by ID." };
+    var removeCommand = new Command("remove", "Remove a certificate authority that no certificate renews with. Its ACME account key is kept, so adding it again reuses the account.");
+    removeCommand.Options.Add(removeCaOption);
+    removeCommand.SetAction(async (parseResult, token) =>
+    {
+        try
+        {
+            var id = parseResult.GetRequiredValue(removeCaOption);
+            await Authorities().RemoveAsync(id, token).ConfigureAwait(false);
+            Console.WriteLine($"Certificate authority '{id}' removed.");
+            return 0;
+        }
+        catch (Exception exception)
+        {
+            return ReportFailure(exception, "Failed to remove a certificate authority");
+        }
+    });
+    command.Subcommands.Add(removeCommand);
+    return command;
+}
+
+static async Task<int> ListCertificateAuthoritiesAsync(ICertificateAuthorityService authorities, CancellationToken token)
+{
+    try
+    {
+        foreach (var authority in await authorities.ListAsync(token).ConfigureAwait(false))
+        {
+            var kind = authority.IsBuiltIn ? "built in" : "added";
+            var trust = authority.IsTest ? "test, not trusted by browsers" : "trusted, asks for confirmation";
+            Console.WriteLine($"{authority.Id}: {authority.Name} ({kind}; {trust})");
+            Console.WriteLine($"  Directory: {authority.DirectoryUri}");
+            if (!authority.IsBuiltIn)
+            {
+                Console.WriteLine($"  External Account Binding: {(authority.HasExternalAccountBinding ? "saved" : "none")}");
+            }
+
+            Console.WriteLine($"  CAA: {(authority.CaaIdentities.Count > 0 ? string.Join(", ", authority.CaaIdentities) : "not checked")}");
+            if (authority.UsedBy.Count > 0)
+            {
+                Console.WriteLine($"  Renews: {string.Join(", ", authority.UsedBy)}");
+            }
+        }
+
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        return ReportFailure(exception, "Failed to list certificate authorities");
+    }
+}
+
+static async Task<int> AddCertificateAuthorityAsync(
+    ICertificateAuthorityService authorities,
+    CertificateAuthorityRequest request,
+    bool promptForEab,
+    CancellationToken token)
+{
+    try
+    {
+        if (request.Preset is not null && request.DirectoryUrl is not null)
+        {
+            throw new ArgumentException("Use either --preset or --directory, not both.");
+        }
+
+        if (request.Preset is not null && request.IsTest)
+        {
+            throw new ArgumentException("A preset already says whether it is a test CA, so leave out --test.");
+        }
+
+        if (promptForEab)
+        {
+            Console.Write("EAB key ID: ");
+            var keyId = Console.ReadLine()?.Trim() ?? string.Empty;
+            request = request with { EabKeyId = keyId, EabHmacKey = ReadHiddenValue("EAB HMAC key: ") };
+        }
+
+        var added = await authorities.AddAsync(request, token).ConfigureAwait(false);
+        Console.WriteLine($"Certificate authority '{added.Id}' added: {added.Name}.");
+        Console.WriteLine($"Run 'SSLense.Cli ca test --ca {added.Id}' to see what it offers. Issue with --ca {added.Id}" +
+                          (added.IsTest ? "." : " --accept-production-risk, because its certificates are trusted."));
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        return ReportFailure(exception, "Failed to add a certificate authority");
+    }
 }
 
 static async Task<bool> ConfirmManualDnsAsync(IReadOnlyList<DnsTxtRecord> records, CancellationToken token)
@@ -1915,6 +2073,7 @@ static async Task<int> IssueAsync(
     bool acceptProductionRisk,
     string validation,
     string? namesValue,
+    string? ca,
     CancellationToken cancellationToken)
 {
     try
@@ -1924,14 +2083,14 @@ static async Task<int> IssueAsync(
             throw new ArgumentException("Specify either --staging or --production, not both.");
         }
 
-        if (production && !acceptProductionRisk)
+        if (ca is not null && (staging || production))
         {
-            throw new InvalidOperationException(
-                "Production issuance requires --accept-production-risk. " +
-                "Run against staging first and confirm the IIS site and host names are correct.");
+            throw new ArgumentException("--ca chooses the certificate authority, so leave out --staging and --production.");
         }
 
-        var authorityId = production ? CertificateAuthorities.LetsEncryptId : CertificateAuthorities.LetsEncryptStagingId;
+        // Core refuses a CA whose certificates are trusted without --accept-production-risk.
+        var authorityId = ca?.Trim().ToLowerInvariant()
+            ?? (production ? CertificateAuthorities.LetsEncryptId : CertificateAuthorities.LetsEncryptStagingId);
         var hosts = string.IsNullOrWhiteSpace(hostsValue)
             ? Array.Empty<string>()
             : hostsValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -1951,7 +2110,8 @@ static async Task<int> IssueAsync(
                     authorityId,
                     ValidationMethod: validationMethod,
                     ConfirmManualDns: validationMethod == ValidationMethod.Dns01Manual ? ConfirmManualDnsAsync : null,
-                    CertificateNames: namesValue?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)),
+                    CertificateNames: namesValue?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                    AcceptProductionRisk: acceptProductionRisk),
                 new ConsoleProgress(),
                 cancellationToken)
             .ConfigureAwait(false);

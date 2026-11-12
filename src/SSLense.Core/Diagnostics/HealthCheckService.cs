@@ -610,7 +610,8 @@ internal sealed class HealthCheckService(
         timeout.CancelAfter(NetworkTimeout);
         try
         {
-            using var response = await httpClient.GetAsync(authority.DirectoryUri, timeout.Token).ConfigureAwait(false);
+            using var request = AcmeHttp.Get(authority.DirectoryUri);
+            using var response = await httpClient.SendAsync(request, timeout.Token).ConfigureAwait(false);
             return response.IsSuccessStatusCode
                 ? Pass(name, $"The ACME directory responded with HTTP {(int)response.StatusCode}.")
                 : new HealthCheckResult(

@@ -235,10 +235,29 @@ public sealed class DnsChallengeServiceTests
     [Fact]
     public async Task CheckBeforeOrder_CaaUnknownForThisCa_IsNotChecked()
     {
-        await Service().CheckBeforeOrderAsync(ValidationMethod.Dns01Provider, ["example.com"], "custom-ca", CancellationToken.None);
+        var custom = new CertificateAuthority("custom-ca", "Custom", new Uri("https://ca.example.net/directory"), IsTest: false);
+
+        await Service(authorities: Authorities(custom)).CheckBeforeOrderAsync(ValidationMethod.Dns01Provider, ["example.com"], "custom-ca", CancellationToken.None);
 
         Assert.Empty(_lookup.CaaQueries);
     }
+
+    [Fact]
+    public async Task CheckBeforeOrder_UsesTheCaaIdentitiesTheCaPublishes()
+    {
+        var zeroSsl = new CertificateAuthority("zerossl", "ZeroSSL", new Uri("https://acme.zerossl.com/v2/DV90"), IsTest: false, CaaIdentities: ["sectigo.com", "comodoca.com"]);
+        _lookup.Caa["example.com"] = [new DnsCaaRecord(0, "issue", "comodoca.com")];
+
+        await Service(authorities: Authorities(zeroSsl)).CheckBeforeOrderAsync(ValidationMethod.Dns01Provider, ["example.com"], "zerossl", CancellationToken.None);
+
+        _lookup.Caa["example.com"] = [new DnsCaaRecord(0, "issue", "letsencrypt.org")];
+        var message = (await Assert.ThrowsAsync<InvalidOperationException>(() => Service(authorities: Authorities(zeroSsl))
+            .CheckBeforeOrderAsync(ValidationMethod.Dns01Provider, ["example.com"], "zerossl", CancellationToken.None))).Message;
+        Assert.Contains("'sectigo.com'", message, StringComparison.Ordinal);
+    }
+
+    private static ICertificateAuthorityRegistry Authorities(params CertificateAuthority[] configured) =>
+        new CertificateAuthorityRegistry(new FakeConfigStore(new AppConfig { CertificateAuthorities = configured }));
 
     [Fact]
     public async Task Publish_WildcardAndBaseName_PublishesBothValuesAtOneName()
@@ -320,7 +339,7 @@ public sealed class DnsChallengeServiceTests
         Assert.Empty(_journal.Abandoned);
     }
 
-    private DnsChallengeService Service(DnsProviderProfile? profile = null, TimeSpan? timeout = null) => new(
+    private DnsChallengeService Service(DnsProviderProfile? profile = null, TimeSpan? timeout = null, ICertificateAuthorityRegistry? authorities = null) => new(
         new FakeConfigStore(new AppConfig { DnsProviders = [profile ?? Profile("Main", "example.com")] }),
         [_provider],
         _lookup,
@@ -331,7 +350,8 @@ public sealed class DnsChallengeServiceTests
             PollInterval = TimeSpan.FromMilliseconds(1),
             SettleDelay = TimeSpan.Zero,
             UncheckedWait = TimeSpan.Zero
-        }));
+        }),
+        authorities);
 
     private static DnsProviderProfile Profile(string name, string zone) =>
         new(name, DnsProviderType.Cloudflare, zone, new string('a', 32), "protected");

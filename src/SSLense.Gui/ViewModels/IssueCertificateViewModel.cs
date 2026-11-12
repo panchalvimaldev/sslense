@@ -22,6 +22,7 @@ public partial class IssueCertificateViewModel : ObservableObject
     private readonly ISettingsService _settingsService;
     private readonly IImportedCertificateService _certificates;
     private readonly IManagedCertificateStore _managedStore;
+    private readonly ICertificateAuthorityService _authorities;
     private readonly ILogger<IssueCertificateViewModel> _logger;
     private readonly AsyncRelayCommand _preflightCommand;
     private readonly AsyncRelayCommand _issueCommand;
@@ -35,7 +36,7 @@ public partial class IssueCertificateViewModel : ObservableObject
     [ObservableProperty] private bool preflightPassed;
     [ObservableProperty] private string? errorMessage;
     [ObservableProperty] private string resultMessage = string.Empty;
-    [ObservableProperty] private bool useProduction;
+    [ObservableProperty] private CertificateAuthorityOverview? selectedAuthority;
     [ObservableProperty] private bool productionRiskAccepted;
     [ObservableProperty] private ValidationMethod selectedValidation = ValidationMethod.Http01;
     [ObservableProperty] private string certificateNames = string.Empty;
@@ -50,9 +51,11 @@ public partial class IssueCertificateViewModel : ObservableObject
         ISettingsService settingsService,
         IImportedCertificateService certificates,
         IManagedCertificateStore managedStore,
+        ICertificateAuthorityService authorities,
         ILogger<IssueCertificateViewModel> logger)
     {
         _managedStore = managedStore;
+        _authorities = authorities;
         _iisService = iisService;
         _preflightService = preflightService;
         _acmeService = acmeService;
@@ -93,18 +96,21 @@ public partial class IssueCertificateViewModel : ObservableObject
     public bool UsesDns => SelectedValidation != ValidationMethod.Http01;
     public bool IsRenewingByHand => _renewing is not null;
 
+    /// <summary>A certificate renewed by hand stays with the CA that issued it; moving CA is a new issue with Replace.</summary>
+    public bool CanChooseAuthority => !IsRenewingByHand;
+
     public string ValidationHint => SelectedValidation switch
     {
         ValidationMethod.Dns01Provider =>
             "SSLense adds a temporary DNS record through a provider set up in Settings, and renews automatically. Port 80 is not needed.",
         ValidationMethod.Dns01Manual =>
             "You create the DNS records yourself, with any DNS service. Port 80 is not needed.",
-        _ => "Let's Encrypt checks the site over port 80, and SSLense renews automatically. This cannot issue wildcard certificates."
+        _ => "The certificate authority checks the site over port 80, and SSLense renews automatically. This cannot issue wildcard certificates."
     };
 
     public string PreflightSubtitle => UsesDns
-        ? "SSLense checks the bindings, certificate names, and DNS before contacting Let's Encrypt. Nothing in DNS changes yet."
-        : "SSLense checks access, bindings, and challenge-folder permissions before contacting Let's Encrypt.";
+        ? "SSLense checks the bindings, certificate names, and DNS before contacting the certificate authority. Nothing in DNS changes yet."
+        : "SSLense checks access, bindings, and challenge-folder permissions before contacting the certificate authority.";
 
     public ObservableCollection<IisSiteOption> Sites { get; } = [];
     public ObservableCollection<HostOptionViewModel> Hosts { get; } = [];
@@ -119,23 +125,36 @@ public partial class IssueCertificateViewModel : ObservableObject
     public bool IsStepOne => CurrentStep == 1;
     public bool IsStepTwo => CurrentStep == 2;
     public bool IsStepThree => CurrentStep == 3;
-    public bool UseStaging
-    {
-        get => !UseProduction;
-        set => UseProduction = !value;
-    }
+    /// <summary>Let's Encrypt and every CA added in Settings; Let's Encrypt staging is chosen first.</summary>
+    public ObservableCollection<CertificateAuthorityOverview> Authorities { get; } = [];
+
+    /// <summary>The chosen CA issues trusted certificates, so issuing needs the confirmation below.</summary>
+    public bool UseProduction => SelectedAuthority is { IsTest: false };
     public string StepTitle => $"Step {CurrentStep} of 3";
 
     /// <param name="renewSite">A site whose manual DNS certificate is being renewed by hand; the wizard is filled in from its record.</param>
     public async Task InitializeAsync(string? renewSite = null)
     {
-        if (Sites.Count > 0 && renewSite is null)
-        {
-            return;
-        }
-
         try
         {
+            // Read each time the wizard opens, so a CA added in Settings since appears.
+            if (!IsBusy)
+            {
+                var chosen = SelectedAuthority?.Id ?? CertificateAuthorities.LetsEncryptStagingId;
+                Authorities.Clear();
+                foreach (var authority in await _authorities.ListAsync())
+                {
+                    Authorities.Add(authority);
+                }
+
+                SelectedAuthority = Authorities.FirstOrDefault(value => value.Id == chosen) ?? Authorities.FirstOrDefault();
+            }
+
+            if (Sites.Count > 0 && renewSite is null)
+            {
+                return;
+            }
+
             if (Sites.Count == 0)
             {
                 var config = await _settingsService.GetAsync();
@@ -182,7 +201,12 @@ public partial class IssueCertificateViewModel : ObservableObject
 
         CertificateNames = record.CertificateNames is { } names ? string.Join(", ", names) : string.Empty;
         Email = record.Email;
-        UseProduction = record.AuthorityId == CertificateAuthorities.LetsEncryptId;
+        SelectedAuthority = Authorities.FirstOrDefault(value => string.Equals(value.Id, record.AuthorityId, StringComparison.OrdinalIgnoreCase));
+        if (SelectedAuthority is null)
+        {
+            ErrorMessage = $"The certificate for '{siteName}' came from '{record.AuthorityId}', which is no longer set up. Add it again under Settings → Certificate authorities.";
+            return;
+        }
         SetRenewing(record);
         Next();
     }
@@ -194,6 +218,7 @@ public partial class IssueCertificateViewModel : ObservableObject
             ? string.Empty
             : $"Renewing the certificate for '{record.SiteName}' by hand. The current certificate stays in place until the new one is ready.";
         OnPropertyChanged(nameof(IsRenewingByHand));
+        OnPropertyChanged(nameof(CanChooseAuthority));
     }
 
     /// <summary>
@@ -292,13 +317,12 @@ public partial class IssueCertificateViewModel : ObservableObject
     partial void OnEmailChanged(string value) => NotifyCommands();
     partial void OnPreflightPassedChanged(bool value) => NotifyCommands();
     partial void OnIsBusyChanged(bool value) => NotifyCommands();
-    partial void OnUseProductionChanged(bool value)
+    partial void OnSelectedAuthorityChanged(CertificateAuthorityOverview? value)
     {
-        OnPropertyChanged(nameof(UseStaging));
-        if (!value)
-        {
-            ProductionRiskAccepted = false;
-        }
+        OnPropertyChanged(nameof(UseProduction));
+
+        // A confirmation for one CA never carries over to another.
+        ProductionRiskAccepted = false;
         PreflightPassed = false;
         NotifyCommands();
     }
@@ -360,12 +384,12 @@ public partial class IssueCertificateViewModel : ObservableObject
                     ExpectedCurrentThumbprint: _renewing?.Thumbprint,
                     ValidationMethod: SelectedValidation,
                     ConfirmManualDns: SelectedValidation == ValidationMethod.Dns01Manual ? ConfirmManualDnsAsync : null,
-                    CertificateNames: UsesDns ? SelectedNames() : null),
+                    CertificateNames: UsesDns ? SelectedNames() : null,
+                    AcceptProductionRisk: UseProduction && ProductionRiskAccepted),
                 new Progress<ProgressEvent>(value =>
                     ProgressLines.Add($"[{DateTime.Now:HH:mm:ss}] [{value.Step}] {value.Message}")),
                 token).ConfigureAwait(true);
-            var environment = UseProduction ? "Production" : "Staging";
-            ResultMessage = $"{environment} certificate installed successfully. Thumbprint: {result.CertificateThumbprint}" +
+            ResultMessage = $"Certificate from {SelectedAuthority?.Name ?? "the certificate authority"} installed successfully. Thumbprint: {result.CertificateThumbprint}" +
                             (SelectedValidation == ValidationMethod.Dns01Manual ? " You can now delete the TXT records you created." : string.Empty);
         }, cancellationToken);
     }
@@ -412,7 +436,7 @@ public partial class IssueCertificateViewModel : ObservableObject
     }
 
     private IReadOnlyList<string> SelectedHosts() => Hosts.Where(value => value.IsSelected).Select(value => value.Host).ToArray();
-    private string SelectedAuthorityId() => UseProduction ? CertificateAuthorities.LetsEncryptId : CertificateAuthorities.LetsEncryptStagingId;
+    private string SelectedAuthorityId() => SelectedAuthority?.Id ?? CertificateAuthorities.LetsEncryptStagingId;
     private IReadOnlyList<string>? SelectedNames() =>
         CertificateNames.Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) is { Length: > 0 } names ? names : null;
     private bool CanNext() => !IsBusy && CurrentStep == 1 && SelectedSite is not null && Hosts.Any(value => value.IsSelected);

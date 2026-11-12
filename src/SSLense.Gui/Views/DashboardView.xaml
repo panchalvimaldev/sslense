@@ -72,7 +72,7 @@
                 <DockPanel Margin="18,14">
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                         <Button Content="View details" Command="{Binding ViewDetailsCommand}" Margin="0,0,8,0" />
-                        <Button Content="Renew selected" Command="{Binding RenewSelectedCommand}" Margin="0,0,8,0" ToolTip="Replace the selected certificate now, from the certificate authority that issued it (Let's Encrypt)." />
+                        <Button Content="Renew selected" Command="{Binding RenewSelectedCommand}" Margin="0,0,8,0" ToolTip="Replace the selected certificate now, from the certificate authority that issued it." />
                         <Button Content="Order replacement" Command="{Binding OrderReplacementCommand}" Margin="0,0,8,0" ToolTip="Certificates from other providers are renewed by ordering again from the provider: create a request, then complete it." />
                         <Button Content="Renew all due" Command="{Binding RenewAllCommand}" />
                     </StackPanel>
@@ -105,7 +105,7 @@
                 <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding Certificates.Count}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
                 <Border Width="46" Height="46" CornerRadius="23" Background="{StaticResource BrandSoftBrush}"><TextBlock Text="&#xE8D7;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource BrandBrush}" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
                 <TextBlock Text="No certificates managed yet" FontWeight="SemiBold" FontSize="15" HorizontalAlignment="Center" Margin="0,12,0,3" />
-                <TextBlock Text="Issue a Let's Encrypt certificate, or adopt certificates from other providers that are already in IIS on the Other Providers page." Style="{StaticResource CaptionText}" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="460" />
+                <TextBlock Text="Issue a certificate, or adopt certificates from other providers that are already in IIS on the Other Providers page." Style="{StaticResource CaptionText}" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="460" />
             </StackPanel>
             </Grid>
         </Border>

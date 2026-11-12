@@ -36,8 +36,11 @@ internal sealed class DnsChallengeService(
     IEnumerable<IDnsProvider> providers,
     IDnsLookup lookup,
     IDnsChallengeJournal journal,
-    DnsPropagationChecker propagation) : IDnsChallengeService
+    DnsPropagationChecker propagation,
+    ICertificateAuthorityRegistry? authorities = null) : IDnsChallengeService
 {
+    private readonly ICertificateAuthorityRegistry _authorities = authorities ?? CertificateAuthorityRegistry.BuiltInOnly;
+
     /// <summary>After this long a record that cannot be removed is reported once and no longer retried.</summary>
     private static readonly TimeSpan GiveUpAfter = TimeSpan.FromDays(7);
 
@@ -67,11 +70,13 @@ internal sealed class DnsChallengeService(
             await GetProvider(profile).VerifyAccessAsync(profile, cancellationToken).ConfigureAwait(false);
         }
 
-        if (CertificateAuthorities.CaaDomain(authorityId) is { } caDomain)
+        // A CA that publishes no CAA identities, and was given none, cannot be checked; the CA still checks CAA itself.
+        var authority = await _authorities.GetAsync(authorityId, cancellationToken).ConfigureAwait(false);
+        if (authority.CaaIdentities is { Count: > 0 } caDomains)
         {
             foreach (var name in certificateNames)
             {
-                await EnsureCaaAllowsAsync(name, caDomain, cancellationToken).ConfigureAwait(false);
+                await EnsureCaaAllowsAsync(name, caDomains, cancellationToken).ConfigureAwait(false);
             }
         }
     }
@@ -92,7 +97,7 @@ internal sealed class DnsChallengeService(
         }
     }
 
-    private async Task EnsureCaaAllowsAsync(string certificateName, string caDomain, CancellationToken cancellationToken)
+    private async Task EnsureCaaAllowsAsync(string certificateName, IReadOnlyList<string> caDomains, CancellationToken cancellationToken)
     {
         var name = DnsNames.Normalize(certificateName);
         var current = DnsNames.IsWildcard(name) ? name[2..] : name;
@@ -104,7 +109,7 @@ internal sealed class DnsChallengeService(
                 var records = await lookup.QueryCaaAsync(current, cancellationToken).ConfigureAwait(false);
                 if (records.Count > 0)
                 {
-                    if (CaaPolicy.FindProblem(name, current, records, caDomain) is { } problem)
+                    if (CaaPolicy.FindProblem(name, current, records, caDomains) is { } problem)
                     {
                         throw new InvalidOperationException(problem);
                     }

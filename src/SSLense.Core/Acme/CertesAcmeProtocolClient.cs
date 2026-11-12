@@ -6,11 +6,23 @@ namespace SSLense.Core.Acme;
 internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
 {
     private readonly IAcmeAccountStore _accountStore;
+    private readonly ISecretProtector _protector;
+    private readonly HttpClient? _httpClient;
 
-    public CertesAcmeProtocolClient(IAcmeAccountStore accountStore)
+    public CertesAcmeProtocolClient(IAcmeAccountStore accountStore, ISecretProtector protector)
+        : this(accountStore, protector, null)
+    {
+    }
+
+    /// <param name="httpClient">Only for tests against a local CA such as Pebble, whose certificate only they trust.</param>
+    internal CertesAcmeProtocolClient(IAcmeAccountStore accountStore, ISecretProtector protector, HttpClient? httpClient)
     {
         _accountStore = accountStore;
+        _protector = protector;
+        _httpClient = httpClient;
     }
+
+    private IAcmeHttpClient? Http(Uri directoryUri) => _httpClient is null ? null : new AcmeHttpClient(directoryUri, _httpClient);
 
     public async Task<IAcmeOrderSession> CreateOrderAsync(
         string email,
@@ -142,20 +154,55 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
         AcmeContext context;
         if (savedKey is null)
         {
-            context = new AcmeContext(authority.DirectoryUri);
-            await context.NewAccount(email, true)
-                .WaitAsync(cancellationToken)
-                .ConfigureAwait(false);
+            context = new AcmeContext(authority.DirectoryUri, null, Http(authority.DirectoryUri));
+            if (authority.HasExternalAccountBinding)
+            {
+                // The HMAC key is decrypted only for this request, and binds the new account to the CA account.
+                await context.NewAccount([$"mailto:{email}"], true, authority.EabKeyId, UnprotectHmacKey(authority), "HS256")
+                    .WaitAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                await context.NewAccount(email, true)
+                    .WaitAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             await _accountStore.SaveKeyAsync(authority.Id, context.AccountKey.ToPem(), cancellationToken)
                 .ConfigureAwait(false);
         }
         else
         {
-            context = new AcmeContext(authority.DirectoryUri, KeyFactory.FromPem(savedKey));
+            context = new AcmeContext(authority.DirectoryUri, KeyFactory.FromPem(savedKey), Http(authority.DirectoryUri));
             await context.Account().WaitAsync(cancellationToken).ConfigureAwait(false);
         }
 
         return context;
+    }
+
+    private string UnprotectHmacKey(CertificateAuthority authority)
+    {
+        byte[] plaintext;
+        try
+        {
+            plaintext = _protector.Unprotect(Convert.FromBase64String(authority.ProtectedEabHmacKey!));
+        }
+        catch (Exception exception) when (exception is FormatException or System.Security.Cryptography.CryptographicException or System.ComponentModel.Win32Exception)
+        {
+            throw new InvalidOperationException(
+                $"The EAB key for {authority.Name} cannot be decrypted on this server. Remove the CA and add it again with its EAB credentials.",
+                exception);
+        }
+
+        try
+        {
+            return System.Text.Encoding.UTF8.GetString(plaintext);
+        }
+        finally
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(plaintext);
+        }
     }
 
     private sealed record CertesChallenge(

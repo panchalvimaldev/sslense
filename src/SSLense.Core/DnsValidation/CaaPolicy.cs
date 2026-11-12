@@ -10,8 +10,13 @@ internal static class CaaPolicy
 
     /// <param name="owner">The name that holds <paramref name="records"/>: the certificate name or its closest parent with CAA records.</param>
     /// <returns>Why the CA would refuse, or null when it is allowed.</returns>
-    public static string? FindProblem(string certificateName, string owner, IReadOnlyList<DnsCaaRecord> records, string caDomain)
+    public static string? FindProblem(string certificateName, string owner, IReadOnlyList<DnsCaaRecord> records, string caDomain) =>
+        FindProblem(certificateName, owner, records, [caDomain]);
+
+    /// <param name="caDomains">Every domain the CA accepts in CAA records; the first is the one to suggest.</param>
+    public static string? FindProblem(string certificateName, string owner, IReadOnlyList<DnsCaaRecord> records, IReadOnlyList<string> caDomains)
     {
+        var caDomain = caDomains[0];
         var critical = records.FirstOrDefault(record =>
             (record.Flags & CriticalFlag) != 0 && !KnownTags.Contains(record.Tag, StringComparer.OrdinalIgnoreCase));
         if (critical is not null)
@@ -22,7 +27,7 @@ internal static class CaaPolicy
         var wildcard = DnsNames.IsWildcard(certificateName);
         var tag = wildcard && records.Any(record => HasTag(record, "issuewild")) ? "issuewild" : "issue";
         var relevant = records.Where(record => HasTag(record, tag)).ToArray();
-        if (relevant.Length == 0 || relevant.Any(record => string.Equals(IssuerDomain(record), caDomain, StringComparison.OrdinalIgnoreCase)))
+        if (relevant.Length == 0 || relevant.Any(record => caDomains.Contains(IssuerDomain(record), StringComparer.OrdinalIgnoreCase)))
         {
             return null;
         }

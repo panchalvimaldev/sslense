@@ -16,8 +16,42 @@
 
    <GroupBox Header="General" Margin="0,10,0,14"><StackPanel>
     <TextBlock Text="DEFAULT ACME EMAIL" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding DefaultEmail}" Margin="0,0,0,14"/>
-    <TextBlock Text="Staging is the safe default. Production must be selected and explicitly acknowledged for each new issuance. Let's Encrypt certificates renew when the CA recommends; reminders are set below." Style="{StaticResource CaptionText}" TextWrapping="Wrap"/>
+    <TextBlock Text="Let's Encrypt staging is the safe default. A certificate authority whose certificates are trusted must be chosen and confirmed for each new issue. Certificates renew when their CA recommends; reminders are set below." Style="{StaticResource CaptionText}" TextWrapping="Wrap"/>
     <Button Content="Save general settings" Command="{Binding SaveGeneralCommand}" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" Margin="0,16,0,0"/>
+   </StackPanel></GroupBox>
+
+   <GroupBox Header="Certificate authorities" Margin="0,0,0,14"><StackPanel>
+    <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,10"
+               Text="Let's Encrypt is built in. Add another ACME certificate authority to issue from it, then choose it in the Issue wizard. A certificate always renews with the CA that issued it. Most commercial CAs need External Account Binding (EAB): a key ID and an HMAC key from your account with them."/>
+    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="7" ClipToBounds="True" Margin="0,0,0,8">
+     <DataGrid ItemsSource="{Binding CertificateAuthorityList}" SelectedItem="{Binding SelectedCertificateAuthority}" Height="130" AutomationProperties.Name="Certificate authorities">
+      <DataGrid.Columns>
+       <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="130"/>
+       <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
+       <DataGridCheckBoxColumn Header="Test" Binding="{Binding IsTest, Mode=OneWay}" Width="50"/>
+       <DataGridCheckBoxColumn Header="EAB" Binding="{Binding HasExternalAccountBinding, Mode=OneWay}" Width="50"/>
+       <DataGridTextColumn Header="Renews" Binding="{Binding UsedBy.Count}" Width="70"/>
+      </DataGrid.Columns>
+     </DataGrid>
+    </Border>
+    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+     <Button Content="Test selected" Command="{Binding TestCaCommand}" Margin="0,0,8,0" ToolTip="Reads the CA's directory and reports what it requires and offers. Creates no account."/>
+     <Button Content="Remove selected" Command="{Binding RemoveCaCommand}" Style="{StaticResource DangerButton}" ToolTip="Refused while a certificate renews with it. Let's Encrypt cannot be removed."/>
+    </StackPanel>
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <StackPanel Margin="0,0,8,0"><TextBlock Text="CERTIFICATE AUTHORITY" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding CaChoices}" SelectedItem="{Binding SelectedCaChoice}" DisplayMemberPath="Label" AutomationProperties.Name="Certificate authority to add"/></StackPanel>
+     <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="EAB KEY ID" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewCaEabKeyId}" AutomationProperties.Name="EAB key ID"/></StackPanel>
+     <StackPanel Grid.Column="2" Margin="0,0,8,0"><TextBlock Text="EAB HMAC KEY" Style="{StaticResource FieldLabel}"/><PasswordBox x:Name="CaHmacBox" PasswordChanged="OnCaHmacChanged" AutomationProperties.Name="EAB HMAC key"/></StackPanel>
+     <Button Grid.Column="3" Content="Add certificate authority" Command="{Binding AddCaCommand}" Style="{StaticResource PrimaryButton}" VerticalAlignment="Bottom"/>
+    </Grid>
+    <Grid Margin="0,8,0,0" Visibility="{Binding NewCaIsCustom, Converter={StaticResource BooleanToVisibilityConverter}}">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <StackPanel Margin="0,0,8,0"><TextBlock Text="NAME" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewCaName}" AutomationProperties.Name="Certificate authority name"/></StackPanel>
+     <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="ACME DIRECTORY URL" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewCaDirectory}" AutomationProperties.Name="ACME directory URL"/></StackPanel>
+     <StackPanel Grid.Column="2" Margin="0,0,8,0"><TextBlock Text="CAA DOMAIN (OPTIONAL)" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewCaCaaDomain}" AutomationProperties.Name="CAA domain" ToolTip="Only for a CA whose directory does not publish its CAA identities."/></StackPanel>
+     <CheckBox Grid.Column="3" Content="Test CA (untrusted certificates)" IsChecked="{Binding NewCaIsTest}" VerticalAlignment="Bottom" Margin="0,0,0,6" AutomationProperties.Name="Test certificate authority"/>
+    </Grid>
+    <TextBlock Text="SSLense reads the CA's directory before saving. A CA that requires EAB is refused without it. The HMAC key is encrypted on this server and never shown again." Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,0"/>
    </StackPanel></GroupBox>
 
    <GroupBox Header="DNS providers" Margin="0,0,0,14"><StackPanel>
@@ -84,11 +118,11 @@
     </Grid>
     <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,8,0,0"
                Text="Reminders are daily in the last 7 days whatever the repeat says. The weekly summary is sent on that day even when all is well, so silence means something is wrong."/>
-    <CheckBox Content="Tell me once when a Let's Encrypt certificate is about to renew automatically" IsChecked="{Binding UpcomingRenewalNotices}" Margin="0,12,0,0"/>
-    <CheckBox Content="Keep reminding about Let's Encrypt certificates until they renew" IsChecked="{Binding RepeatAutomaticReminders}" Margin="0,8,0,0"
+    <CheckBox Content="Tell me once when a certificate is about to renew automatically" IsChecked="{Binding UpcomingRenewalNotices}" Margin="0,12,0,0"/>
+    <CheckBox Content="Keep reminding about automatically renewed certificates until they renew" IsChecked="{Binding RepeatAutomaticReminders}" Margin="0,8,0,0"
               ToolTip="Lists the certificate at the repeat interval from the start of the reminder window until it renews, instead of telling you once. No action is needed for these lines. Problems are reported either way."/>
     <CheckBox Content="Check renewal readiness and served certificates daily" IsChecked="{Binding ProactiveChecks}" Margin="0,8,0,0"
-              ToolTip="Runs the pre-flight checks in the 30 days before each Let's Encrypt renewal, and compares what this server serves with what SSLense expects. Problems are reported after two daily failures in a row. The checks only report. The only thing written is one small file, removed straight away, in the challenge folder of a site using HTTP validation; DNS is never changed."/>
+              ToolTip="Runs the pre-flight checks in the 30 days before each automatic renewal, and compares what this server serves with what SSLense expects. Problems are reported after two daily failures in a row. The checks only report. The only thing written is one small file, removed straight away, in the challenge folder of a site using HTTP validation; DNS is never changed."/>
     <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
      <Button Content="Save reminders" Command="{Binding SaveRemindersCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"/>
      <Button Content="Send sample digest" Command="{Binding SendSampleReminderCommand}" ToolTip="Sends today's digest now, marked as a sample. Nothing is recorded, so real reminders are unchanged."/>

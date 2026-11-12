@@ -163,7 +163,9 @@ public sealed record ReminderDigest(
             {
                 CertificateAuthorities.LetsEncryptId => "Let's Encrypt",
                 CertificateAuthorities.LetsEncryptStagingId => "Let's Encrypt staging",
-                var other => other
+
+                // A preset's name; a CA added by URL is shown by the ID the administrator gave it.
+                var other => CertificateAuthorities.Presets.FirstOrDefault(preset => preset.Id == other)?.Name ?? other
             };
         return item.Kind switch
         {

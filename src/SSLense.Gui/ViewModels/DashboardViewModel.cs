@@ -203,7 +203,7 @@ public partial class DashboardViewModel : ObservableObject
         }
 
         Activity = statuses.Count == 0
-            ? "No managed certificates yet. Issue a Let's Encrypt certificate, or adopt existing certificates on the Other Providers page."
+            ? "No managed certificates yet. Issue a certificate, or adopt existing certificates on the Other Providers page."
             : $"Loaded {statuses.Count} managed certificate(s).";
         OnPropertyChanged(nameof(TotalCount));
         OnPropertyChanged(nameof(HealthyCount));
