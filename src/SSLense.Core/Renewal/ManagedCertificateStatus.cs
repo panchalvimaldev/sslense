@@ -32,4 +32,5 @@ public sealed record ManagedCertificateStatus(
     int DeploymentStepCount = 0,
     DeploymentState? Deployment = null,
     bool DeploymentPending = false,
-    bool NoSite = false);
+    bool NoSite = false,
+    bool ExportableKey = false);

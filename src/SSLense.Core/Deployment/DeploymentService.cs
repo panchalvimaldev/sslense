@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Text;
+using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
 using SSLense.Core.DnsValidation;
@@ -10,7 +12,8 @@ namespace SSLense.Core.Deployment;
 /// <param name="Site">The IIS site whose certificate record gets the step.</param>
 /// <param name="Value">The account, the service name, or the script's path.</param>
 /// <param name="TimeoutSeconds">For a script, how long it may run; five minutes when left out.</param>
-public sealed record DeploymentStepRequest(string Site, DeploymentStepKind Kind, string Value, int? TimeoutSeconds = null)
+/// <param name="Password">For a PFX or Central Certificate Store export, the password that protects the files.</param>
+public sealed record DeploymentStepRequest(string Site, DeploymentStepKind Kind, string Value, int? TimeoutSeconds = null, string? Password = null)
 {
     public const int DefaultScriptTimeoutSeconds = 300;
 }
@@ -91,6 +94,8 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
     private readonly ICertificateStore _certificates;
     private readonly INotifier? _notifier;
     private readonly ICertificateOperationLock _operationLock;
+    private readonly ICertificateExporter? _exporter;
+    private readonly ISecretProtector? _protector;
 
     public DeploymentService(
         IManagedCertificateStore store,
@@ -101,8 +106,12 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
         IIisService iis,
         ICertificateStore certificates,
         INotifier? notifier = null,
-        ICertificateOperationLock? operationLock = null)
+        ICertificateOperationLock? operationLock = null,
+        ICertificateExporter? exporter = null,
+        ISecretProtector? protector = null)
     {
+        _exporter = exporter;
+        _protector = protector;
         _store = store;
         _keyAccess = keyAccess;
         _services = services;
@@ -122,6 +131,13 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
         if ((record.DeploymentSteps?.Count ?? 0) >= MaxSteps)
         {
             throw new InvalidOperationException($"A certificate can have at most {MaxSteps} deployment steps.");
+        }
+
+        if (request.Password is not null && request.Kind is not (DeploymentStepKind.ExportPfx or DeploymentStepKind.CentralStore))
+        {
+            throw new ArgumentException(request.Kind == DeploymentStepKind.ExportPem
+                ? "PEM files take no password: key.pem is written for Administrators and SYSTEM only."
+                : "Only a PFX or Central Certificate Store export takes a password.");
         }
 
         if (request.Kind != DeploymentStepKind.Script && request.TimeoutSeconds is not null)
@@ -162,6 +178,9 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
 
                 var sha256 = await _scripts.SaveAsync(ScriptName(id), request.Value, cancellationToken).ConfigureAwait(false);
                 step = new DeploymentStep(id, request.Kind, Path.GetFileName(request.Value.Trim().Trim('"')), sha256, timeout);
+                break;
+            case DeploymentStepKind.ExportPfx or DeploymentStepKind.ExportPem or DeploymentStepKind.CentralStore:
+                step = CreateExportStep(record, id, request);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(request), request.Kind, "Unknown deployment step.");
@@ -451,12 +470,91 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
             case DeploymentStepKind.Script:
                 await RunScriptAsync(record, step, previous, cancellationToken).ConfigureAwait(false);
                 break;
+            case DeploymentStepKind.ExportPfx:
+                await Exporter().ExportPfxAsync(record.Thumbprint, step.Value, Password(step), cancellationToken).ConfigureAwait(false);
+                break;
+            case DeploymentStepKind.ExportPem:
+                await Exporter().ExportPemAsync(record.Thumbprint, step.Value, cancellationToken).ConfigureAwait(false);
+                break;
+            case DeploymentStepKind.CentralStore:
+                await Exporter()
+                    .ExportCentralStoreAsync(record.Thumbprint, record.CertificateNames ?? record.Hosts, step.Value, Password(step), cancellationToken)
+                    .ConfigureAwait(false);
+                break;
             default:
                 throw new InvalidOperationException($"This SSLense version does not know deployment step kind {(int)step.Kind}.");
         }
     }
 
-    private async Task RunScriptAsync(ManagedCertificate record, DeploymentStep step, string? previous, CancellationToken cancellationToken)
+    private DeploymentStep CreateExportStep(ManagedCertificate record, Guid id, DeploymentStepRequest request)
+    {
+        if (!record.ExportableKey)
+        {
+            throw new InvalidOperationException(
+                $"The private key of the certificate for '{record.SiteName}' is not exportable, so it cannot be written to files. " +
+                "Issue the certificate again with an exportable key: add --exportable-key --force to its 'issue' command, or choose " +
+                "Exportable private key in the app.");
+        }
+
+        var path = request.Value.Trim().Trim('"');
+        if (!Path.IsPathFullyQualified(path))
+        {
+            throw new ArgumentException($"'{path}' is not a full path. Use one such as D:\\Certs\\shop.pfx or \\\\server\\share\\certs.");
+        }
+
+        if (request.Kind == DeploymentStepKind.ExportPfx &&
+            !string.Equals(Path.GetExtension(path), ".pfx", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException($"'{path}' must be a .pfx file.");
+        }
+
+        string? protectedPassword = null;
+        if (request.Kind is DeploymentStepKind.ExportPfx or DeploymentStepKind.CentralStore)
+        {
+            if (string.IsNullOrEmpty(request.Password))
+            {
+                throw new ArgumentException("A password is needed to protect the PFX files.");
+            }
+
+            var plaintext = Encoding.UTF8.GetBytes(request.Password);
+            try
+            {
+                protectedPassword = Convert.ToBase64String(
+                    (_protector ?? throw new InvalidOperationException("Passwords cannot be stored here.")).Protect(plaintext));
+            }
+            finally
+            {
+                System.Security.Cryptography.CryptographicOperations.ZeroMemory(plaintext);
+            }
+        }
+
+        return new DeploymentStep(id, request.Kind, Path.GetFullPath(path), ProtectedPassword: protectedPassword);
+    }
+
+    private ICertificateExporter Exporter() =>
+        _exporter ?? throw new InvalidOperationException("Export is not available in this SSLense process.");
+
+    private string Password(DeploymentStep step)
+    {
+        if (step.ProtectedPassword is null || _protector is null)
+        {
+            throw new InvalidOperationException("The step has no password. Remove it and add it again.");
+        }
+
+        try
+        {
+            return Encoding.UTF8.GetString(_protector.Unprotect(Convert.FromBase64String(step.ProtectedPassword)));
+        }
+        catch (Exception exception) when (exception is FormatException or System.Security.Cryptography.CryptographicException)
+        {
+            throw new InvalidOperationException(
+                "The step's password can no longer be read on this server, for example after the data folder was copied from " +
+                "another one. Remove the step and add it again.");
+        }
+    }
+
+    private async Task RunScriptAsync(
+ManagedCertificate record, DeploymentStep step, string? previous, CancellationToken cancellationToken)
     {
         var path = _scripts.GetVerifiedPath(
             ScriptName(step.Id),

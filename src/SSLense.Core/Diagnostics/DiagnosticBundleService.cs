@@ -112,7 +112,13 @@ internal sealed class DiagnosticBundleService(
                 }
             }
 
-            return records.Select(record => record with { Email = SecretRedactor.MaskEmail(record.Email) ?? string.Empty });
+            return records.Select(record => record with
+            {
+                Email = SecretRedactor.MaskEmail(record.Email) ?? string.Empty,
+                DeploymentSteps = record.DeploymentSteps?
+                    .Select(step => step with { ProtectedPassword = step.ProtectedPassword is null ? null : SecretRedactor.Marker })
+                    .ToArray()
+            });
         }).ConfigureAwait(false);
         await Collect("iis-sites.json", "IIS sites and bindings", async () =>
         {

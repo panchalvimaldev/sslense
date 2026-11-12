@@ -105,6 +105,10 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     {
         Description = "IIS site name."
     };
+    var exportableKeyOption = new Option<bool>("--exportable-key")
+    {
+        Description = "Install the private key as exportable, so deployment steps can export it to PFX or PEM files, or the IIS Central Certificate Store. Kept at every renewal."
+    };
     var noSiteOption = new Option<string?>("--no-site")
     {
         Description = "Issue a certificate with no IIS site, under this name, for Remote Desktop, SQL Server, or other services its deployment steps hand it to. Needs --names and DNS validation."
@@ -156,6 +160,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     issueCommand.Options.Add(validationOption);
     issueCommand.Options.Add(siteOption);
     issueCommand.Options.Add(noSiteOption);
+    issueCommand.Options.Add(exportableKeyOption);
     issueCommand.Options.Add(namesOption);
     issueCommand.Options.Add(hostsOption);
     issueCommand.Options.Add(emailOption);
@@ -179,6 +184,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         parseResult.GetRequiredValue(validationOption),
         parseResult.GetValue(namesOption),
         parseResult.GetValue(caOption),
+        parseResult.GetValue(exportableKeyOption),
         cancellationToken));
     rootCommand.Subcommands.Add(issueCommand);
     rootCommand.Subcommands.Add(CreateCaCommand(services));
@@ -816,12 +822,18 @@ static Command CreateDeployCommand(IServiceProvider services)
     var restartOption = new Option<string?>("--restart-service") { Description = "Restart this Windows service, by its service name, and wait for it to run." };
     var scriptOption = new Option<string?>("--script") { Description = "Run this PowerShell script. SSLense runs its own copy, checked by hash." };
     var timeoutOption = new Option<int?>("--timeout") { Description = $"For --script: seconds it may run (default {DeploymentStepRequest.DefaultScriptTimeoutSeconds})." };
+    var exportPfxOption = new Option<string?>("--export-pfx") { Description = "Write the certificate, its intermediates, and its key to this PFX file. The password is asked for. Needs an exportable key." };
+    var exportPemOption = new Option<string?>("--export-pem") { Description = "Write cert.pem, chain.pem, fullchain.pem, and key.pem to this folder; key.pem only for Administrators and SYSTEM. Needs an exportable key." };
+    var centralStoreOption = new Option<string?>("--central-store") { Description = "Write one PFX per name to this IIS Central Certificate Store folder. The store's password is asked for. Needs an exportable key." };
     var addCommand = new Command("add", "Add a step at the end. It runs after the next renewal, or now with 'deploy run'.");
     addCommand.Options.Add(siteOption);
     addCommand.Options.Add(keyAccessOption);
     addCommand.Options.Add(restartOption);
     addCommand.Options.Add(scriptOption);
     addCommand.Options.Add(timeoutOption);
+    addCommand.Options.Add(exportPfxOption);
+    addCommand.Options.Add(exportPemOption);
+    addCommand.Options.Add(centralStoreOption);
     addCommand.SetAction((parseResult, token) => AddDeploymentStepAsync(
         Deployment(),
         parseResult.GetRequiredValue(siteOption),
@@ -829,6 +841,9 @@ static Command CreateDeployCommand(IServiceProvider services)
         parseResult.GetValue(restartOption),
         parseResult.GetValue(scriptOption),
         parseResult.GetValue(timeoutOption),
+        parseResult.GetValue(exportPfxOption),
+        parseResult.GetValue(exportPemOption),
+        parseResult.GetValue(centralStoreOption),
         token));
     command.Subcommands.Add(addCommand);
 
@@ -862,22 +877,39 @@ static async Task<int> AddDeploymentStepAsync(
     string? restartService,
     string? script,
     int? timeout,
+    string? exportPfx,
+    string? exportPem,
+    string? centralStore,
     CancellationToken token)
 {
-    var given = new[] { keyAccess, restartService, script }.Count(value => value is not null);
+    var given = new[] { keyAccess, restartService, script, exportPfx, exportPem, centralStore }.Count(value => value is not null);
     if (given != 1)
     {
-        Console.Error.WriteLine("Error: give exactly one of --grant-key-access, --restart-service, or --script.");
+        Console.Error.WriteLine("Error: give exactly one of --grant-key-access, --restart-service, --script, --export-pfx, --export-pem, or --central-store.");
         return 1;
     }
 
     try
     {
+        string? ReadPassword(string prompt)
+        {
+            var first = ReadHiddenValue(prompt);
+            var again = ReadHiddenValue("Again, to confirm: ");
+            return first == again ? first : throw new ArgumentException("The passwords do not match.");
+        }
+
         var request = keyAccess is not null
             ? new DeploymentStepRequest(site, DeploymentStepKind.GrantKeyAccess, keyAccess, timeout)
             : restartService is not null
                 ? new DeploymentStepRequest(site, DeploymentStepKind.RestartService, restartService, timeout)
-                : new DeploymentStepRequest(site, DeploymentStepKind.Script, script!, timeout);
+                : script is not null
+                    ? new DeploymentStepRequest(site, DeploymentStepKind.Script, script, timeout)
+                    : exportPem is not null
+                        ? new DeploymentStepRequest(site, DeploymentStepKind.ExportPem, exportPem, timeout)
+                        : exportPfx is not null
+                            ? new DeploymentStepRequest(site, DeploymentStepKind.ExportPfx, exportPfx, timeout, ReadPassword("Password for the PFX file: "))
+                            : new DeploymentStepRequest(site, DeploymentStepKind.CentralStore, centralStore!, timeout,
+                                ReadPassword("The Central Certificate Store's private key password, as set in IIS: "));
         var step = await deployment.AddAsync(request, token).ConfigureAwait(false);
         var overview = await deployment.ListAsync(site, token).ConfigureAwait(false);
         Console.WriteLine($"Added step {overview.Steps.Count}: {step.Describe()}.");
@@ -2277,6 +2309,11 @@ static async Task<int> StatusAsync(
                     : "  Validation: DNS provider");
             }
 
+            if (status.ExportableKey)
+            {
+                Console.WriteLine("  Private key: exportable");
+            }
+
             if (status.DeploymentStepCount > 0)
             {
                 Console.WriteLine(status.DeploymentPending
@@ -2372,6 +2409,7 @@ static async Task<int> IssueAsync(
     string validation,
     string? namesValue,
     string? ca,
+    bool exportableKey,
     CancellationToken cancellationToken)
 {
     try
@@ -2423,7 +2461,8 @@ static async Task<int> IssueAsync(
                     ConfirmManualDns: validationMethod == ValidationMethod.Dns01Manual ? ConfirmManualDnsAsync : null,
                     CertificateNames: namesValue?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
                     AcceptProductionRisk: acceptProductionRisk,
-                    NoSite: noSite is not null),
+                    NoSite: noSite is not null,
+                    ExportableKey: exportableKey),
                 new ConsoleProgress(),
                 cancellationToken)
             .ConfigureAwait(false);

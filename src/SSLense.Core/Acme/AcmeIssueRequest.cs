@@ -14,6 +14,7 @@ namespace SSLense.Core.Acme;
 /// Issue a certificate bound to no IIS site, named <paramref name="SiteName"/>, for services that its deployment steps hand it to.
 /// Needs DNS validation; the certificate covers <paramref name="CertificateNames"/>, or <paramref name="Hosts"/> when there are none.
 /// </param>
+/// <param name="ExportableKey">Install the private key as exportable, so export steps can write it to files.</param>
 public sealed record AcmeIssueRequest(
     string SiteName,
     IReadOnlyList<string> Hosts,
@@ -26,4 +27,5 @@ public sealed record AcmeIssueRequest(
     ManualDnsConfirmation? ConfirmManualDns = null,
     IReadOnlyList<string>? CertificateNames = null,
     bool AcceptProductionRisk = false,
-    bool NoSite = false);
+    bool NoSite = false,
+    bool ExportableKey = false);

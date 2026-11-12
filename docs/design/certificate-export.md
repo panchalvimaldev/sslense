@@ -38,7 +38,7 @@ Exports are **deployment steps**, so they run after every install and renewal, a
 
 - **Exportable keys are opt-in, per certificate.** Without `--exportable-key`, an export step is refused when added, with how to issue the certificate again. The choice is kept at every renewal.
 - **Passwords** for PFX and the Central Certificate Store are asked for hidden, encrypted with DPAPI like other secrets, never logged, and left out of diagnostic bundles.
-- **`key.pem` is written only for Administrators and SYSTEM,** with inherited permissions removed, because it is not protected by a password. Giving another account access is the administrator's decision, made with Windows' own tools.
+- **`key.pem` is written only for Administrators, SYSTEM, and the account that wrote it** (SYSTEM or an elevated administrator), with inherited permissions removed, because it is not protected by a password. Giving another account access is the administrator's decision, made with Windows' own tools.
 - **Files are replaced atomically:** written to a temporary file in the same folder, then moved into place, so a reader never sees half a file.
 - **Paths must be absolute,** local or UNC. The service runs as SYSTEM, which reaches a share as the computer's account.
 - **The thumbprint is not trusted to stay:** the step exports the certificate the record holds at the time it runs, so a retry after a renewal exports the newest one.
@@ -53,13 +53,13 @@ Exports are **deployment steps**, so they run after every install and renewal, a
 | Step | Contents | Ships |
 |---|---|---|
 | 1 | This design | Docs |
-| 2 | Core and CLI: exportable keys at issue and renewal, the three export steps, schema 8, tests with real exported files | CLI |
+| 2 | Core and CLI: exportable keys at issue and renewal, the three export steps, schema 8, tests with real exported files. **Built** November 12, 2026: 5 tests, writing real PFX, PEM, and Central Certificate Store files and reading them back, checking key.pem's permissions, and refusing a key that cannot be exported | CLI |
 | 3 | The app; README, roadmap, website; release as 0.20 | Both |
 
 ## 6. Decisions taken by delegation
 
 1. **Exports are deployment steps,** so they get ordering, retries, notifications, and `deploy run` without new machinery.
 2. **Exportable keys are opt-in per certificate,** chosen at issue, never switched on for an existing key.
-3. **`key.pem` is restricted to Administrators and SYSTEM;** other access is left to the administrator.
+3. **`key.pem` is restricted to Administrators, SYSTEM, and the account that wrote it;** other access is left to the administrator.
 4. **Azure Key Vault is left out** of this release, because it needs a new package.
 5. **Managed certificates schema 8.**

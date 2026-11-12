@@ -37,7 +37,15 @@ internal sealed class WindowsCertificateStore : ICertificateStore
         byte[] pfxBytes,
         string password,
         string friendlyName,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ImportPfxAsync(pfxBytes, password, friendlyName, exportable: false, cancellationToken);
+
+    public Task<InstalledCertificate> ImportPfxAsync(
+        byte[] pfxBytes,
+        string password,
+        string friendlyName,
+        bool exportable,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(pfxBytes);
         ArgumentException.ThrowIfNullOrWhiteSpace(password);
@@ -51,7 +59,8 @@ internal sealed class WindowsCertificateStore : ICertificateStore
                 pfxBytes,
                 password,
                 X509KeyStorageFlags.MachineKeySet |
-                X509KeyStorageFlags.PersistKeySet);
+                X509KeyStorageFlags.PersistKeySet |
+                (exportable ? X509KeyStorageFlags.Exportable : X509KeyStorageFlags.DefaultKeySet));
             if (!certificate.HasPrivateKey)
             {
                 throw new CryptographicException("The issued PFX does not contain a private key.");

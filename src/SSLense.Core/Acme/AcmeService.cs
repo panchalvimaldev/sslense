@@ -272,6 +272,11 @@ internal sealed partial class AcmeService : IAcmeService
                 preparedRecord = preparedRecord.WithTargets(sharedPlan.Targets);
             }
 
+            if (request.ExportableKey)
+            {
+                preparedRecord = preparedRecord with { ExportableKey = true };
+            }
+
             if (request.NoSite)
             {
                 preparedRecord = preparedRecord with { NoSite = true, LastRenewalMessage = "Certificate issued. It has no IIS site to bind." };
@@ -286,11 +291,10 @@ internal sealed partial class AcmeService : IAcmeService
             progress?.Report(new ProgressEvent(
                 "install",
                 $"Importing the {environmentName} certificate into LocalMachine\\My with a non-exportable key."));
-            var installedCertificate = await _certificateStore.ImportPfxAsync(
-                    bundle.PfxBytes,
-                    pfxPassword,
-                    $"SSLense: {names[0]} ({DateTimeOffset.UtcNow:yyyy-MM-dd})",
-                    cancellationToken)
+            var friendlyName = $"SSLense: {names[0]} ({DateTimeOffset.UtcNow:yyyy-MM-dd})";
+            var installedCertificate = await (request.ExportableKey
+                    ? _certificateStore.ImportPfxAsync(bundle.PfxBytes, pfxPassword, friendlyName, exportable: true, cancellationToken)
+                    : _certificateStore.ImportPfxAsync(bundle.PfxBytes, pfxPassword, friendlyName, cancellationToken))
                 .ConfigureAwait(false);
 
             var pendingRecord = preparedRecord with

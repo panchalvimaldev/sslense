@@ -95,7 +95,8 @@ internal sealed class RenewalService : IRenewalService
                 value.DeploymentSteps?.Count ?? 0,
                 value.Deployment,
                 value.HasPendingDeployment(),
-                value.NoSite));
+                value.NoSite,
+                value.ExportableKey));
         }
 
         return statuses;
@@ -215,6 +216,7 @@ internal sealed class RenewalService : IRenewalService
                         certificate.ValidationMethod,
                         CertificateNames: certificate.CertificateNames,
                         NoSite: certificate.NoSite,
+                        ExportableKey: certificate.ExportableKey,
 
                         // Confirmed when the certificate was first issued from this CA.
                         AcceptProductionRisk: true),

@@ -18,6 +18,17 @@ public interface ICertificateStore
         string friendlyName,
         CancellationToken cancellationToken = default);
 
+    /// <summary>As <see cref="ImportPfxAsync(byte[], string, string, CancellationToken)"/>, with the key exportable when asked.</summary>
+    Task<InstalledCertificate> ImportPfxAsync(
+        byte[] pfxBytes,
+        string password,
+        string friendlyName,
+        bool exportable,
+        CancellationToken cancellationToken) =>
+        exportable
+            ? throw new NotSupportedException("This certificate store cannot import exportable keys.")
+            : ImportPfxAsync(pfxBytes, password, friendlyName, cancellationToken);
+
     /// <summary>
     /// Imports the certificate with a private key from a PFX as non-exportable, and adds any intermediate
     /// certificates it contains to the CA store. Root certificates are never added to the trusted roots.

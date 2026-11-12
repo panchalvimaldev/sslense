@@ -9,25 +9,39 @@ public enum DeploymentStepKind
     RestartService = 1,
 
     /// <summary>Runs SSLense's own copy of a PowerShell script, checked by hash.</summary>
-    Script = 2
+    Script = 2,
+
+    /// <summary>Writes the certificate, its intermediates, and its key to a password-protected PFX file.</summary>
+    ExportPfx = 3,
+
+    /// <summary>Writes cert.pem, chain.pem, fullchain.pem, and key.pem to a folder.</summary>
+    ExportPem = 4,
+
+    /// <summary>Writes one PFX per name to an IIS Central Certificate Store folder.</summary>
+    CentralStore = 5
 }
 
 /// <summary>Something that runs after every install and renewal of a certificate. See docs/design/deployment-steps.md.</summary>
 /// <param name="Value">The account, as Windows names it; the service name; or, for a script, the original file's name, for display.</param>
 /// <param name="ScriptSha256">For a script, the hash of SSLense's copy, which is checked before every run.</param>
 /// <param name="TimeoutSeconds">For a script, how long it may run.</param>
+/// <param name="ProtectedPassword">For a PFX or Central Certificate Store export, the password, encrypted with DPAPI.</param>
 public sealed record DeploymentStep(
     Guid Id,
     DeploymentStepKind Kind,
     string Value,
     string? ScriptSha256 = null,
-    int? TimeoutSeconds = null)
+    int? TimeoutSeconds = null,
+    string? ProtectedPassword = null)
 {
     public string Describe() => Kind switch
     {
         DeploymentStepKind.GrantKeyAccess => $"Grant '{Value}' read access to the private key",
         DeploymentStepKind.RestartService => $"Restart the service '{Value}'",
         DeploymentStepKind.Script => $"Run the script '{Value}'",
+        DeploymentStepKind.ExportPfx => $"Export a PFX to '{Value}'",
+        DeploymentStepKind.ExportPem => $"Export PEM files to '{Value}'",
+        DeploymentStepKind.CentralStore => $"Export to the IIS Central Certificate Store at '{Value}'",
         _ => $"Unknown step '{Value}'"
     };
 }
