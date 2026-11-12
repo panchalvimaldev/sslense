@@ -34,6 +34,7 @@ public partial class SettingsView : UserControl
         if (e.PropertyName == nameof(SettingsViewModel.HeartbeatUrl) && vm.HeartbeatUrl.Length == 0) HeartbeatUrlBox.Clear();
         if (e.PropertyName == nameof(SettingsViewModel.NewDnsToken) && vm.NewDnsToken.Length == 0) DnsTokenBox.Clear();
         if (e.PropertyName == nameof(SettingsViewModel.NewCaEabHmacKey) && vm.NewCaEabHmacKey.Length == 0) CaHmacBox.Clear();
+        if (e.PropertyName == nameof(SettingsViewModel.NewAcmeDnsPassword) && vm.NewAcmeDnsPassword.Length == 0) AcmeDnsPasswordBox.Clear();
     }
 
     private void OnDnsTokenChanged(object sender, RoutedEventArgs e)
@@ -44,6 +45,11 @@ public partial class SettingsView : UserControl
     private void OnCaHmacChanged(object sender, RoutedEventArgs e)
     {
         if (ViewModel is { } vm) vm.NewCaEabHmacKey = CaHmacBox.Password;
+    }
+
+    private void OnAcmeDnsPasswordChanged(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is { } vm) vm.NewAcmeDnsPassword = AcmeDnsPasswordBox.Password;
     }
 
     private void OnBrowseDnsScriptClick(object sender, RoutedEventArgs e)

@@ -68,6 +68,11 @@
          <Style TargetType="TextBlock"><Setter Property="TextTrimming" Value="CharacterEllipsis"/><Setter Property="ToolTip" Value="{Binding ScriptSha256}"/></Style>
         </DataGridTextColumn.ElementStyle>
        </DataGridTextColumn>
+       <DataGridTextColumn Header="acme-dns CNAME to create" Binding="{Binding AcmeDnsCname}" Width="2*">
+        <DataGridTextColumn.ElementStyle>
+         <Style TargetType="TextBlock"><Setter Property="TextTrimming" Value="CharacterEllipsis"/><Setter Property="ToolTip" Value="{Binding AcmeDnsCname}"/></Style>
+        </DataGridTextColumn.ElementStyle>
+       </DataGridTextColumn>
       </DataGrid.Columns>
      </DataGrid>
     </Border>
@@ -80,7 +85,15 @@
     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
      <StackPanel Margin="0,0,8,0"><TextBlock Text="SERVICE" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding DnsServices}" SelectedItem="{Binding NewDnsService}" AutomationProperties.Name="DNS service"/></StackPanel>
      <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="NAME" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewDnsName}" AutomationProperties.Name="DNS provider name"/></StackPanel>
-     <StackPanel Grid.Column="2" Margin="0,0,8,0"><TextBlock Text="ZONE" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewDnsZone}" AutomationProperties.Name="DNS zone"/></StackPanel>
+     <StackPanel Grid.Column="2" Margin="0,0,8,0">
+      <TextBlock Text="ZONE" Style="{StaticResource FieldLabel}" Visibility="{Binding NewDnsUsesZone, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+      <TextBlock Text="DOMAIN" Style="{StaticResource FieldLabel}" Visibility="{Binding NewDnsIsAcmeDns, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+      <TextBox Text="{Binding NewDnsZone}" AutomationProperties.Name="DNS zone, or the domain for acme-dns"/>
+     </StackPanel>
+     <StackPanel Grid.Column="3" Margin="0,0,8,0" Visibility="{Binding NewDnsIsAcmeDns, Converter={StaticResource BooleanToVisibilityConverter}}">
+      <TextBlock Text="ACME-DNS SERVER" Style="{StaticResource FieldLabel}"/>
+      <TextBox Text="{Binding NewAcmeDnsServer}" AutomationProperties.Name="acme-dns server" ToolTip="Such as https://auth.acme-dns.io, the free public server, or your own."/>
+     </StackPanel>
      <StackPanel Grid.Column="3" Margin="0,0,8,0" Visibility="{Binding NewDnsIsCloudflare, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="CLOUDFLARE ZONE ID" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewDnsZoneId}" AutomationProperties.Name="Cloudflare zone ID"/></StackPanel>
      <StackPanel Grid.Column="3" Margin="0,0,8,0" Visibility="{Binding NewDnsIsScript, Converter={StaticResource BooleanToVisibilityConverter}}">
       <TextBlock Text="SCRIPT" Style="{StaticResource FieldLabel}"/>
@@ -89,16 +102,32 @@
        <TextBox Text="{Binding NewDnsScriptPath}" AutomationProperties.Name="DNS script path"/>
       </DockPanel>
      </StackPanel>
-     <StackPanel Grid.Column="4" Margin="0,0,8,0">
+     <StackPanel Grid.Column="4" Margin="0,0,8,0" Visibility="{Binding NewDnsUsesZone, Converter={StaticResource BooleanToVisibilityConverter}}">
       <TextBlock Text="API TOKEN" Style="{StaticResource FieldLabel}" Visibility="{Binding NewDnsIsCloudflare, Converter={StaticResource BooleanToVisibilityConverter}}"/>
       <TextBlock Text="SECRET (OPTIONAL)" Style="{StaticResource FieldLabel}" Visibility="{Binding NewDnsIsScript, Converter={StaticResource BooleanToVisibilityConverter}}"/>
       <PasswordBox x:Name="DnsTokenBox" PasswordChanged="OnDnsTokenChanged" AutomationProperties.Name="DNS API token or script secret"/>
+     </StackPanel>
+     <StackPanel Grid.Column="4" Margin="0,0,8,0" Visibility="{Binding NewDnsIsAcmeDns, Converter={StaticResource BooleanToVisibilityConverter}}">
+      <TextBlock Text="ALLOW FROM (OPTIONAL)" Style="{StaticResource FieldLabel}"/>
+      <TextBox Text="{Binding NewAcmeDnsAllowFrom}" AutomationProperties.Name="acme-dns allowed networks" ToolTip="Networks that may update the account, such as this server's address, 203.0.113.10/32. Comma-separated."/>
      </StackPanel>
      <Button Grid.Column="5" Content="Add provider" Command="{Binding AddDnsProviderCommand}" Style="{StaticResource PrimaryButton}" VerticalAlignment="Bottom"/>
     </Grid>
     <StackPanel Orientation="Horizontal" Margin="0,8,0,0" Visibility="{Binding NewDnsIsScript, Converter={StaticResource BooleanToVisibilityConverter}}">
      <TextBlock Text="TIMEOUT (SECONDS)" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
      <TextBox Text="{Binding NewDnsScriptTimeout}" Width="70" AutomationProperties.Name="DNS script timeout in seconds" ToolTip="How long one call may run before it is stopped. Empty means 120."/>
+    </StackPanel>
+    <StackPanel Margin="0,8,0,0" Visibility="{Binding NewDnsIsAcmeDns, Converter={StaticResource BooleanToVisibilityConverter}}">
+     <CheckBox Content="Import an account another tool registered, instead of registering a new one" IsChecked="{Binding NewAcmeDnsImport}" AutomationProperties.Name="Import an acme-dns account"/>
+     <Grid Margin="0,8,0,0" Visibility="{Binding NewAcmeDnsShowsImport, Converter={StaticResource BooleanToVisibilityConverter}}">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="2*"/></Grid.ColumnDefinitions>
+      <StackPanel Margin="0,0,8,0"><TextBlock Text="USERNAME" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewAcmeDnsUsername}" AutomationProperties.Name="acme-dns username"/></StackPanel>
+      <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="PASSWORD" Style="{StaticResource FieldLabel}"/><PasswordBox x:Name="AcmeDnsPasswordBox" PasswordChanged="OnAcmeDnsPasswordChanged" AutomationProperties.Name="acme-dns password"/></StackPanel>
+      <StackPanel Grid.Column="2" Margin="0,0,8,0"><TextBlock Text="SUBDOMAIN" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewAcmeDnsSubdomain}" AutomationProperties.Name="acme-dns subdomain"/></StackPanel>
+      <StackPanel Grid.Column="3"><TextBlock Text="FULL DOMAIN" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewAcmeDnsFullDomain}" AutomationProperties.Name="acme-dns full domain"/></StackPanel>
+     </Grid>
+     <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,0"
+                Text="acme-dns needs one CNAME, created once at any DNS host, even one without an API, and stores a credential that can change only the validation record. Add provider registers an account and shows the CNAME to create; then use Test selected. The free public server, https://auth.acme-dns.io, is run by volunteers with no promise of uptime; for an important domain, run your own."/>
     </StackPanel>
     <TextBlock Text="The zone ID is on the domain's Overview page in Cloudflare. The token is encrypted on this server and is never shown again." Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,0"
                Visibility="{Binding NewDnsIsCloudflare, Converter={StaticResource BooleanToVisibilityConverter}}"/>

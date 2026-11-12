@@ -63,7 +63,7 @@ SSLense.Cli issue --site "Shop" --email ops@example.com --validation dns --names
 |---|---|---|
 | 1 | This design | Docs |
 | 2 | Core and CLI: the acme-dns provider, `dns add --provider acme-dns` with registration and `--import`, the CNAME check, the two-value rule, schema 8, health and readiness checks. Unit tests against a fake acme-dns server. **Built** November 12, 2026: 21 tests, with a fake server that checks credentials, accepts only 43-character values, and keeps the two newest; the diagnostic bundle test covers the account's username and password | CLI |
-| 3 | App, README, roadmap, website; acceptance; release as 0.17 | Both |
+| 3 | App, README, roadmap, website; acceptance; release as 0.17. **App and documents built** November 12, 2026: acme-dns in Settings → DNS providers, with registration, import, allowed networks, and the CNAME to create shown in the provider list. Acceptance is still to do | Both |
 
 Acceptance, with Let's Encrypt staging and the public acme-dns server: register an account for a name under `accept.sslense.com`, create its CNAME in Cloudflare, `dns test`, issue a wildcard with its base name, renew it, refuse a third value, and confirm that the stored password appears nowhere in the logs or a diagnostic bundle.
 
