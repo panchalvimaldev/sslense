@@ -19,7 +19,7 @@
   <Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="1.15*"/></Grid.ColumnDefinitions>
    <Border Style="{StaticResource Card}" Margin="0,0,14,0">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="115"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="115"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
      <TextBlock Grid.ColumnSpan="2" Text="Certificate information" Style="{StaticResource SectionTitle}" Margin="0,0,0,16"/>
      <TextBlock Grid.Row="1" Text="Host names" Style="{StaticResource CaptionText}"/><TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Hosts}" TextWrapping="Wrap" FontWeight="SemiBold"/>
      <TextBlock Grid.Row="2" Text="Source" Style="{StaticResource CaptionText}" Margin="0,14,0,0"/><TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Environment}" TextWrapping="Wrap" Margin="0,14,0,0" FontWeight="SemiBold"/>
@@ -71,6 +71,36 @@
        <CheckBox Content="Replace the site's own certificate" IsChecked="{Binding ReplaceExistingCertificate}" Margin="0,0,0,8" ToolTip="Needed when SSLense already manages another certificate for this site. That certificate stops being managed."/>
        <Button Content="Add site" Command="{Binding AddSiteCommand}" HorizontalAlignment="Left" ToolTip="Bind the site to this certificate and confirm it over HTTPS. Nothing is ordered from the certificate authority."/>
       </StackPanel>
+     </StackPanel>
+     <StackPanel Grid.Row="13" Grid.ColumnSpan="2" Margin="0,22,0,0">
+      <DockPanel Margin="0,0,0,8">
+       <Button DockPanel.Dock="Right" Content="Run now" Command="{Binding RunDeploymentCommand}" ToolTip="Run every step now, for the certificate in use."/>
+       <TextBlock Text="Deployment steps" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
+      </DockPanel>
+      <TextBlock x:Name="DeploymentStateText" Text="{Binding DeploymentState}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+      <ItemsControl ItemsSource="{Binding DeploymentSteps}" Focusable="False" AutomationProperties.Name="Deployment steps">
+       <ItemsControl.ItemTemplate>
+        <DataTemplate>
+         <DockPanel Margin="0,0,0,6">
+          <Button DockPanel.Dock="Right" Content="Remove" Command="{Binding DataContext.RemoveDeploymentStepCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" Style="{StaticResource LinkButton}" VerticalAlignment="Top" ToolTip="Remove this step. What it already did is not undone."/>
+          <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Margin="0,0,8,0"/>
+         </DockPanel>
+        </DataTemplate>
+       </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <TextBlock Text="ADD A STEP" Style="{StaticResource FieldLabel}" Margin="0,6,0,0"/>
+      <ComboBox ItemsSource="{Binding DeploymentKinds}" SelectedItem="{Binding SelectedDeploymentKind}" Margin="0,0,0,8" AutomationProperties.Name="Kind of deployment step"/>
+      <TextBlock Text="{Binding SelectedDeploymentKind.ValueLabel}" Style="{StaticResource FieldLabel}"/>
+      <DockPanel Margin="0,0,0,4">
+       <Button DockPanel.Dock="Right" Content="Browse…" Click="OnBrowseScriptClick" Margin="8,0,0,0" Visibility="{Binding SelectedDeploymentKind.IsScript, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+       <TextBox Text="{Binding DeploymentValue, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Account, service name, or script path"/>
+      </DockPanel>
+      <StackPanel Visibility="{Binding SelectedDeploymentKind.NeedsPassword, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,0,8">
+       <TextBlock Text="PASSWORD" Style="{StaticResource FieldLabel}"/>
+       <PasswordBox x:Name="DeploymentPasswordBox" PasswordChanged="OnDeploymentPasswordChanged" AutomationProperties.Name="Password for the exported files"/>
+      </StackPanel>
+      <TextBlock Text="{Binding SelectedDeploymentKind.Hint}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+      <Button Content="Add step" Command="{Binding AddDeploymentStepCommand}" HorizontalAlignment="Left" ToolTip="Add the step at the end. It runs after the next renewal, or now with Run now."/>
      </StackPanel>
     </Grid>
     </ScrollViewer>

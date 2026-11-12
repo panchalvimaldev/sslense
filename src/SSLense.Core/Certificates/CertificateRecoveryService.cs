@@ -136,6 +136,13 @@ internal sealed class CertificateRecoveryService(
             return recovered;
         }
 
+        // Nothing was bound for a certificate with no IIS site; only the record remains to be saved.
+        if (certificate.NoSite)
+        {
+            await FinishAsync(transaction, certificate).ConfigureAwait(false);
+            return recovered;
+        }
+
         var sites = await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
         if (certificate.IsShared())
         {

@@ -8,4 +8,5 @@ public sealed record DnsPreflightRequest(
     IReadOnlyList<string> Hosts,
     IReadOnlyList<string>? CertificateNames,
     ValidationMethod ValidationMethod,
-    string AuthorityId);
+    string AuthorityId,
+    bool NoSite = false);

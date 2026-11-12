@@ -47,6 +47,8 @@ public static class AppPaths
     /// <summary>SSLense's own copies of DNS scripts; the service runs only these (docs/design/dns-script.md).</summary>
     public static string DnsScriptDirectory => Path.Combine(DataDirectory, "dns-scripts");
 
+    public static string DeployScriptDirectory => Path.Combine(DataDirectory, "deploy-scripts");
+
     public static string PendingRequestsFile => Path.Combine(DataDirectory, "pending-requests.json");
 
     public static string ReminderStateFile => Path.Combine(DataDirectory, "reminder-state.json");

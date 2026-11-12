@@ -55,6 +55,13 @@ internal sealed class CertificateManagementService(
                 $"'SSLense.Cli share remove --site \"{siteName}\"'. To remove the certificate from every site, use 'SSLense.Cli remove --site \"{record.SiteName}\"'.");
         }
 
+        // Services outside IIS may still use a certificate with no site, and SSLense cannot tell which, so it stays installed.
+        if (record.NoSite)
+        {
+            await managedStore.RemoveAsync(record.SiteName, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         var existingSites = await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
         foreach (var target in record.AllTargets())
         {

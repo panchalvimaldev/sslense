@@ -12,9 +12,13 @@ internal static class StateSchema
     /// (see <see cref="ManagedCertificateMigrations"/>). Version 3 replaces the fixed reminder and expiry-warning markers
     /// with the per-certificate reminder setting; the new fields default and the old ones are dropped. Version 4 adds
     /// the validation method and certificate names, which default to HTTP-01 and the record's hosts. Version 5 adds the
-    /// sites sharing a certificate, which default to none.
+    /// sites sharing a certificate, which default to none. Version 6 adds deployment steps and their state, which an
+    /// older version would drop on its next save. Version 7 adds certificates with no IIS site, which
+    /// 0.18 would try to bind to a site. Version 8 adds exportable keys and the export steps, which 0.19 would not
+    /// know. Version 9 adds the key type, preferred chain, and profile, which 0.20 would
+    /// replace with the defaults at renewal. Version 10 adds reusing the key at renewal, which 0.21 would not do.
     /// </summary>
-    public const int ManagedCertificates = 5;
+    public const int ManagedCertificates = 10;
 
     /// <summary>
     /// Version 0 had no version field. Version 2 replaced the single SMTP server and generic webhook with
@@ -22,9 +26,10 @@ internal static class StateSchema
     /// configured certificate authorities. Version 4 adds reminder settings, which default when absent. Version 5 adds
     /// the proactive-checks and repeat-automatic-reminders settings, which also default when absent. Version 6 adds
     /// DNS providers, which default to none. Version 7 adds script DNS providers with their script hash and timeout,
-    /// which an older version would not recognize.
+    /// which an older version would not recognize. Version 8 adds acme-dns providers with their server, account, and
+    /// domain, which 0.16 would not recognize either.
     /// </summary>
-    public const int Config = 7;
+    public const int Config = 8;
 
     /// <summary>Version 2 stores the certificate snapshot in managed-certificate schema 2. Version 3 can list several sites, which an older version would only partly recover.</summary>
     public const int Transactions = 3;

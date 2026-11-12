@@ -112,7 +112,13 @@ internal sealed class DiagnosticBundleService(
                 }
             }
 
-            return records.Select(record => record with { Email = SecretRedactor.MaskEmail(record.Email) ?? string.Empty });
+            return records.Select(record => record with
+            {
+                Email = SecretRedactor.MaskEmail(record.Email) ?? string.Empty,
+                DeploymentSteps = record.DeploymentSteps?
+                    .Select(step => step with { ProtectedPassword = step.ProtectedPassword is null ? null : SecretRedactor.Marker })
+                    .ToArray()
+            });
         }).ConfigureAwait(false);
         await Collect("iis-sites.json", "IIS sites and bindings", async () =>
         {
@@ -205,6 +211,9 @@ internal sealed class DiagnosticBundleService(
             {
                 ZoneId = provider.ZoneId is null ? null : SecretRedactor.Marker,
                 ProtectedToken = SecretRedactor.Marker,
+
+                // Half of the acme-dns credential; the server, subdomain, and domain help diagnosis and are public in DNS.
+                AcmeDnsUsername = provider.AcmeDnsUsername is null ? null : SecretRedactor.Marker,
 
                 // Enough to tell which script runs. The whole hash is long enough to be redacted as a possible secret.
                 ScriptSha256 = provider.ScriptSha256 is { Length: > 16 } sha256 ? $"{sha256[..16]}..." : provider.ScriptSha256

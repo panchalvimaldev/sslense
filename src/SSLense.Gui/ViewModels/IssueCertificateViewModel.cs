@@ -43,6 +43,13 @@ public partial class IssueCertificateViewModel : ObservableObject
     [ObservableProperty] private bool replaceExisting;
     [ObservableProperty] private bool isWaitingForManualDns;
     [ObservableProperty] private string renewalNotice = string.Empty;
+    [ObservableProperty] private bool noSite;
+    [ObservableProperty] private bool exportableKey;
+    [ObservableProperty] private KeyTypeChoice? selectedKeyType;
+    [ObservableProperty] private string preferredChain = string.Empty;
+    [ObservableProperty] private string profile = string.Empty;
+    [ObservableProperty] private bool reuseKey;
+    [ObservableProperty] private string noSiteName = string.Empty;
 
     public IssueCertificateViewModel(
         IIisService iisService,
@@ -66,6 +73,7 @@ public partial class IssueCertificateViewModel : ObservableObject
         BackCommand = new RelayCommand(Back, () => !IsBusy && CurrentStep > 1);
         _preflightCommand = new AsyncRelayCommand(RunPreflightAsync, CanRunPreflight);
         _issueCommand = new AsyncRelayCommand(IssueAsync, CanIssue);
+        SelectedKeyType = KeyTypes[0];
         CancelCommand = new RelayCommand(Cancel, () => IsBusy);
         StartOverCommand = new RelayCommand(StartOver, () => !IsBusy);
         ConfirmManualRecordsCommand = new RelayCommand(() => _manualAnswer?.TrySetResult(true), () => IsWaitingForManualDns);
@@ -94,6 +102,30 @@ public partial class IssueCertificateViewModel : ObservableObject
     }
 
     public bool UsesDns => SelectedValidation != ValidationMethod.Http01;
+
+    /// <summary>The key types offered under Advanced, ECDSA P-256 first.</summary>
+    public IReadOnlyList<KeyTypeChoice> KeyTypes { get; } = CertificateKeyTypes.All.Select(value => new KeyTypeChoice(value.Type, value.Label)).ToArray();
+
+    /// <summary>The site picker and host names apply only to a certificate for an IIS site.</summary>
+    public bool ShowSitePicker => !NoSite;
+
+    /// <summary>The name of the certificate: the IIS site's, or the one chosen for a certificate with no site.</summary>
+    private string CertificateName() => NoSite ? NoSiteName.Trim() : SelectedSite!.Name;
+
+    partial void OnNoSiteChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowSitePicker));
+
+        // HTTP validation needs a site to serve the file.
+        if (value && SelectedValidation == ValidationMethod.Http01)
+        {
+            SelectedValidation = ValidationMethod.Dns01Provider;
+        }
+
+        NotifyCommands();
+    }
+
+    partial void OnNoSiteNameChanged(string value) => NotifyCommands();
     public bool IsRenewingByHand => _renewing is not null;
 
     /// <summary>A certificate renewed by hand stays with the CA that issued it; moving CA is a new issue with Replace.</summary>
@@ -185,6 +217,20 @@ public partial class IssueCertificateViewModel : ObservableObject
         var records = await _managedStore.GetAllAsync();
         var record = records.FirstOrDefault(value => string.Equals(value.SiteName, siteName, StringComparison.OrdinalIgnoreCase));
         var site = Sites.FirstOrDefault(value => string.Equals(value.Name, siteName, StringComparison.OrdinalIgnoreCase));
+        if (record is { NoSite: true })
+        {
+            StartOver();
+            NoSite = true;
+            NoSiteName = record.SiteName;
+            SelectedValidation = record.ValidationMethod;
+            CertificateNames = string.Join(", ", record.CertificateNames ?? record.Hosts);
+            Email = record.Email;
+            SelectedAuthority = Authorities.FirstOrDefault(value => string.Equals(value.Id, record.AuthorityId, StringComparison.OrdinalIgnoreCase)) ?? SelectedAuthority;
+            SetRenewing(record);
+            Next();
+            return;
+        }
+
         if (record is null || site is null)
         {
             ErrorMessage = $"The certificate or IIS site for '{siteName}' was not found.";
@@ -353,7 +399,7 @@ public partial class IssueCertificateViewModel : ObservableObject
             PreflightChecks.Clear();
             var checks = UsesDns
                 ? await _preflightService.CheckDnsAsync(
-                    new DnsPreflightRequest(SelectedSite!.Name, SelectedHosts(), SelectedNames(), SelectedValidation, SelectedAuthorityId()),
+                    new DnsPreflightRequest(CertificateName(), NoSite ? [] : SelectedHosts(), SelectedNames(), SelectedValidation, SelectedAuthorityId(), NoSite),
                     token).ConfigureAwait(true)
                 : await _preflightService.CheckAsync(SelectedSite!.Name, SelectedHosts(), token).ConfigureAwait(true);
             foreach (var check in checks)
@@ -375,8 +421,8 @@ public partial class IssueCertificateViewModel : ObservableObject
         {
             var result = await _acmeService.IssueAsync(
                 new AcmeIssueRequest(
-                    SelectedSite!.Name,
-                    SelectedHosts(),
+                    CertificateName(),
+                    NoSite ? [] : SelectedHosts(),
                     Email,
                     OutputDirectory: _renewing?.OutputDirectory,
                     Force: ReplaceExisting || _renewing is not null,
@@ -385,7 +431,13 @@ public partial class IssueCertificateViewModel : ObservableObject
                     ValidationMethod: SelectedValidation,
                     ConfirmManualDns: SelectedValidation == ValidationMethod.Dns01Manual ? ConfirmManualDnsAsync : null,
                     CertificateNames: UsesDns ? SelectedNames() : null,
-                    AcceptProductionRisk: UseProduction && ProductionRiskAccepted),
+                    AcceptProductionRisk: UseProduction && ProductionRiskAccepted,
+                    NoSite: NoSite,
+                    ExportableKey: _renewing?.ExportableKey ?? ExportableKey,
+                    KeyType: _renewing?.KeyType ?? SelectedKeyType?.Type ?? CertificateKeyType.EcdsaP256,
+                    PreferredChain: _renewing is not null ? _renewing.PreferredChain : PreferredChain,
+                    Profile: _renewing is not null ? _renewing.Profile : Profile,
+                    ReuseKey: _renewing?.ReuseKey ?? ReuseKey),
                 new Progress<ProgressEvent>(value =>
                     ProgressLines.Add($"[{DateTime.Now:HH:mm:ss}] [{value.Step}] {value.Message}")),
                 token).ConfigureAwait(true);
@@ -439,12 +491,14 @@ public partial class IssueCertificateViewModel : ObservableObject
     private string SelectedAuthorityId() => SelectedAuthority?.Id ?? CertificateAuthorities.LetsEncryptStagingId;
     private IReadOnlyList<string>? SelectedNames() =>
         CertificateNames.Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) is { Length: > 0 } names ? names : null;
-    private bool CanNext() => !IsBusy && CurrentStep == 1 && SelectedSite is not null && Hosts.Any(value => value.IsSelected);
-    private bool CanRunPreflight() => !IsBusy && CurrentStep == 2 && SelectedSite is not null && !string.IsNullOrWhiteSpace(Email);
+    private bool CanNext() => !IsBusy && CurrentStep == 1 && (NoSite
+        ? !string.IsNullOrWhiteSpace(NoSiteName) && SelectedNames() is not null && UsesDns
+        : SelectedSite is not null && Hosts.Any(value => value.IsSelected));
+    private bool CanRunPreflight() => !IsBusy && CurrentStep == 2 && (NoSite || SelectedSite is not null) && !string.IsNullOrWhiteSpace(Email);
     private bool CanIssue() =>
         !IsBusy && CurrentStep == 2 && PreflightPassed && (!UseProduction || ProductionRiskAccepted);
     private void Cancel() { _preflightCommand.Cancel(); _issueCommand.Cancel(); }
-    private void StartOver() { CurrentStep = 1; PreflightPassed = false; ProductionRiskAccepted = false; ReplaceExisting = false; CertificateNames = string.Empty; SetRenewing(null); PreflightChecks.Clear(); ProgressLines.Clear(); ManualRecords.Clear(); ErrorMessage = null; ResultMessage = string.Empty; }
+    private void StartOver() { CurrentStep = 1; NoSite = false; ExportableKey = false; SelectedKeyType = KeyTypes[0]; PreferredChain = string.Empty; Profile = string.Empty; ReuseKey = false; NoSiteName = string.Empty; PreflightPassed = false; ProductionRiskAccepted = false; ReplaceExisting = false; CertificateNames = string.Empty; SetRenewing(null); PreflightChecks.Clear(); ProgressLines.Clear(); ManualRecords.Clear(); ErrorMessage = null; ResultMessage = string.Empty; }
     private void NotifyCommands()
     {
         (NextCommand as RelayCommand)?.NotifyCanExecuteChanged();
@@ -455,4 +509,9 @@ public partial class IssueCertificateViewModel : ObservableObject
         (StartOverCommand as RelayCommand)?.NotifyCanExecuteChanged();
         (ConfirmManualRecordsCommand as RelayCommand)?.NotifyCanExecuteChanged();
     }
+}
+
+public sealed record KeyTypeChoice(CertificateKeyType Type, string Label)
+{
+    public override string ToString() => Label;
 }

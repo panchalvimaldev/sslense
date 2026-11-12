@@ -2,6 +2,7 @@ using SSLense;
 using SSLense.Core;
 using SSLense.Core.Acme;
 using SSLense.Core.Config;
+using SSLense.Core.Deployment;
 using SSLense.Core.DnsValidation;
 using SSLense.Core.Iis;
 using SSLense.Core.Reminders;
@@ -100,10 +101,33 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         ListSitesAsync(services.GetRequiredService<IIisService>(), cancellationToken));
     rootCommand.Subcommands.Add(listSitesCommand);
 
-    var siteOption = new Option<string>("--site")
+    var siteOption = new Option<string?>("--site")
     {
-        Description = "IIS site name.",
-        Required = true
+        Description = "IIS site name."
+    };
+    var keyOption = new Option<string?>("--key")
+    {
+        Description = "The key type: ecdsa-p256 (default), ecdsa-p384, rsa-2048, rsa-3072, or rsa-4096. Kept at every renewal."
+    };
+    var preferredChainOption = new Option<string?>("--preferred-chain")
+    {
+        Description = "The root the chain should end at, as the CA names it, such as \"ISRG Root X1\". The default chain is used when the CA offers none to it."
+    };
+    var reuseKeyOption = new Option<bool>("--reuse-key")
+    {
+        Description = "Keep the same private key at every renewal, for key pinning or DANE. The first certificate gets a new key."
+    };
+    var profileOption = new Option<string?>("--profile")
+    {
+        Description = "An ACME profile the CA offers, such as shortlived at Let's Encrypt. 'ca test' lists them."
+    };
+    var exportableKeyOption = new Option<bool>("--exportable-key")
+    {
+        Description = "Install the private key as exportable, so deployment steps can export it to PFX or PEM files, or the IIS Central Certificate Store. Kept at every renewal."
+    };
+    var noSiteOption = new Option<string?>("--no-site")
+    {
+        Description = "Issue a certificate with no IIS site, under this name, for Remote Desktop, SQL Server, or other services its deployment steps hand it to. Needs --names and DNS validation."
     };
     var hostsOption = new Option<string?>("--hosts")
     {
@@ -151,6 +175,12 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     var issueCommand = new Command("issue", "Obtain and install a certificate, validated over HTTP or DNS.");
     issueCommand.Options.Add(validationOption);
     issueCommand.Options.Add(siteOption);
+    issueCommand.Options.Add(noSiteOption);
+    issueCommand.Options.Add(exportableKeyOption);
+    issueCommand.Options.Add(keyOption);
+    issueCommand.Options.Add(preferredChainOption);
+    issueCommand.Options.Add(profileOption);
+    issueCommand.Options.Add(reuseKeyOption);
     issueCommand.Options.Add(namesOption);
     issueCommand.Options.Add(hostsOption);
     issueCommand.Options.Add(emailOption);
@@ -162,7 +192,8 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     issueCommand.Options.Add(forceOption);
     issueCommand.SetAction((parseResult, cancellationToken) => IssueAsync(
         services.GetRequiredService<IAcmeService>(),
-        parseResult.GetRequiredValue(siteOption),
+        parseResult.GetValue(siteOption),
+        parseResult.GetValue(noSiteOption),
         parseResult.GetValue(hostsOption),
         parseResult.GetRequiredValue(emailOption),
         parseResult.GetValue(outputOption),
@@ -173,11 +204,17 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         parseResult.GetRequiredValue(validationOption),
         parseResult.GetValue(namesOption),
         parseResult.GetValue(caOption),
+        parseResult.GetValue(exportableKeyOption),
+        parseResult.GetValue(keyOption),
+        parseResult.GetValue(preferredChainOption),
+        parseResult.GetValue(profileOption),
+        parseResult.GetValue(reuseKeyOption),
         cancellationToken));
     rootCommand.Subcommands.Add(issueCommand);
     rootCommand.Subcommands.Add(CreateCaCommand(services));
     rootCommand.Subcommands.Add(CreateDnsCommand(services));
     rootCommand.Subcommands.Add(CreateShareCommand(services));
+    rootCommand.Subcommands.Add(CreateDeployCommand(services));
 
     var renewAllOption = new Option<bool>("--all")
     {
@@ -799,7 +836,213 @@ static async Task<int> RemoveSharedSiteAsync(ICertificateSharingService sharing,
     }
 }
 
-static void WriteSharedSites(string firstSite, IReadOnlyList<CertificateTarget>? others, DateTimeOffset? firstPendingSince)
+static Command CreateDeployCommand(IServiceProvider services)
+{
+    IDeploymentService Deployment() => services.GetRequiredService<IDeploymentService>();
+    var command = new Command("deploy", "Steps that run after every install and renewal of a certificate: key access, service restarts, and scripts.");
+
+    var siteOption = new Option<string>("--site") { Required = true, Description = "An IIS site using the certificate." };
+    var keyAccessOption = new Option<string?>("--grant-key-access") { Description = "Give this account read access to the private key, such as 'IIS AppPool\\Shop'." };
+    var restartOption = new Option<string?>("--restart-service") { Description = "Restart this Windows service, by its service name, and wait for it to run." };
+    var scriptOption = new Option<string?>("--script") { Description = "Run this PowerShell script. SSLense runs its own copy, checked by hash." };
+    var timeoutOption = new Option<int?>("--timeout") { Description = $"For --script: seconds it may run (default {DeploymentStepRequest.DefaultScriptTimeoutSeconds})." };
+    var exportPfxOption = new Option<string?>("--export-pfx") { Description = "Write the certificate, its intermediates, and its key to this PFX file. The password is asked for. Needs an exportable key." };
+    var exportPemOption = new Option<string?>("--export-pem") { Description = "Write cert.pem, chain.pem, fullchain.pem, and key.pem to this folder; key.pem only for Administrators and SYSTEM. Needs an exportable key." };
+    var centralStoreOption = new Option<string?>("--central-store") { Description = "Write one PFX per name to this IIS Central Certificate Store folder. The store's password is asked for. Needs an exportable key." };
+    var addCommand = new Command("add", "Add a step at the end. It runs after the next renewal, or now with 'deploy run'.");
+    addCommand.Options.Add(siteOption);
+    addCommand.Options.Add(keyAccessOption);
+    addCommand.Options.Add(restartOption);
+    addCommand.Options.Add(scriptOption);
+    addCommand.Options.Add(timeoutOption);
+    addCommand.Options.Add(exportPfxOption);
+    addCommand.Options.Add(exportPemOption);
+    addCommand.Options.Add(centralStoreOption);
+    addCommand.SetAction((parseResult, token) => AddDeploymentStepAsync(
+        Deployment(),
+        parseResult.GetRequiredValue(siteOption),
+        parseResult.GetValue(keyAccessOption),
+        parseResult.GetValue(restartOption),
+        parseResult.GetValue(scriptOption),
+        parseResult.GetValue(timeoutOption),
+        parseResult.GetValue(exportPfxOption),
+        parseResult.GetValue(exportPemOption),
+        parseResult.GetValue(centralStoreOption),
+        token));
+    command.Subcommands.Add(addCommand);
+
+    var listSiteOption = new Option<string?>("--site") { Description = "An IIS site using the certificate (default: every certificate with steps)." };
+    var listCommand = new Command("list", "List the deployment steps and how they last ran.");
+    listCommand.Options.Add(listSiteOption);
+    listCommand.SetAction((parseResult, token) => ListDeploymentStepsAsync(Deployment(), parseResult.GetValue(listSiteOption), token));
+    command.Subcommands.Add(listCommand);
+
+    var runSiteOption = new Option<string>("--site") { Required = true, Description = "An IIS site using the certificate." };
+    var runCommand = new Command("run", "Run every step now, for the certificate in use.");
+    runCommand.Options.Add(runSiteOption);
+    runCommand.SetAction((parseResult, token) => RunDeploymentStepsAsync(Deployment(), parseResult.GetRequiredValue(runSiteOption), token));
+    command.Subcommands.Add(runCommand);
+
+    var removeSiteOption = new Option<string>("--site") { Required = true, Description = "An IIS site using the certificate." };
+    var stepOption = new Option<int>("--step") { Required = true, Description = "The step's number, as 'deploy list' shows it." };
+    var removeCommand = new Command("remove", "Remove a step. Access already granted and services already restarted are not changed.");
+    removeCommand.Options.Add(removeSiteOption);
+    removeCommand.Options.Add(stepOption);
+    removeCommand.SetAction((parseResult, token) => RemoveDeploymentStepAsync(
+        Deployment(), parseResult.GetRequiredValue(removeSiteOption), parseResult.GetRequiredValue(stepOption), token));
+    command.Subcommands.Add(removeCommand);
+    return command;
+}
+
+static async Task<int> AddDeploymentStepAsync(
+    IDeploymentService deployment,
+    string site,
+    string? keyAccess,
+    string? restartService,
+    string? script,
+    int? timeout,
+    string? exportPfx,
+    string? exportPem,
+    string? centralStore,
+    CancellationToken token)
+{
+    var given = new[] { keyAccess, restartService, script, exportPfx, exportPem, centralStore }.Count(value => value is not null);
+    if (given != 1)
+    {
+        Console.Error.WriteLine("Error: give exactly one of --grant-key-access, --restart-service, --script, --export-pfx, --export-pem, or --central-store.");
+        return 1;
+    }
+
+    try
+    {
+        string? ReadPassword(string prompt)
+        {
+            var first = ReadHiddenValue(prompt);
+            var again = ReadHiddenValue("Again, to confirm: ");
+            return first == again ? first : throw new ArgumentException("The passwords do not match.");
+        }
+
+        var request = keyAccess is not null
+            ? new DeploymentStepRequest(site, DeploymentStepKind.GrantKeyAccess, keyAccess, timeout)
+            : restartService is not null
+                ? new DeploymentStepRequest(site, DeploymentStepKind.RestartService, restartService, timeout)
+                : script is not null
+                    ? new DeploymentStepRequest(site, DeploymentStepKind.Script, script, timeout)
+                    : exportPem is not null
+                        ? new DeploymentStepRequest(site, DeploymentStepKind.ExportPem, exportPem, timeout)
+                        : exportPfx is not null
+                            ? new DeploymentStepRequest(site, DeploymentStepKind.ExportPfx, exportPfx, timeout, ReadPassword("Password for the PFX file: "))
+                            : new DeploymentStepRequest(site, DeploymentStepKind.CentralStore, centralStore!, timeout,
+                                ReadPassword("The Central Certificate Store's private key password, as set in IIS: "));
+        var step = await deployment.AddAsync(request, token).ConfigureAwait(false);
+        var overview = await deployment.ListAsync(site, token).ConfigureAwait(false);
+        Console.WriteLine($"Added step {overview.Steps.Count}: {step.Describe()}.");
+        if (step.Kind == DeploymentStepKind.Script)
+        {
+            Console.WriteLine("SSLense runs its own copy of the script. After changing the original, remove the step and add it again.");
+        }
+
+        Console.WriteLine($"The steps run after every renewal. To run them now: SSLense.Cli deploy run --site \"{overview.Site}\"");
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to add a deployment step for IIS site {SiteName}", site);
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> ListDeploymentStepsAsync(IDeploymentService deployment, string? site, CancellationToken token)
+{
+    try
+    {
+        IReadOnlyList<DeploymentOverview> overviews = site is null
+            ? await deployment.ListAllAsync(token).ConfigureAwait(false)
+            : [await deployment.ListAsync(site, token).ConfigureAwait(false)];
+        if (overviews.All(overview => overview.Steps.Count == 0))
+        {
+            Console.WriteLine(site is null ? "No certificate has deployment steps." : $"'{site}' has no deployment steps.");
+            return 0;
+        }
+
+        foreach (var overview in overviews)
+        {
+            Console.WriteLine($"{overview.Site} (certificate {overview.Thumbprint})");
+            for (var index = 0; index < overview.Steps.Count; index++)
+            {
+                var step = overview.Steps[index];
+                Console.WriteLine($"  {index + 1}. {step.Describe()}" +
+                                  (step.TimeoutSeconds is { } seconds ? $", up to {seconds} seconds" : string.Empty));
+            }
+
+            var state = overview.State;
+            Console.WriteLine(overview.Pending
+                ? "  Pending: not yet succeeded for this certificate; the service retries every hour."
+                : "  Done for this certificate.");
+            if (state?.LastAttempt is { } attempt)
+            {
+                Console.WriteLine($"  Last run: {attempt:yyyy-MM-dd HH:mm} UTC, " +
+                                  (state.LastError is null ? "succeeded" : $"failed {state.ConsecutiveFailures} time(s) in a row: {state.LastError}"));
+            }
+
+            if (state?.RetainedThumbprint is { } retained)
+            {
+                Console.WriteLine($"  Kept until the steps succeed: previous certificate {retained}");
+            }
+        }
+
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to list deployment steps");
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> RunDeploymentStepsAsync(IDeploymentService deployment, string site, CancellationToken token)
+{
+    try
+    {
+        var result = await deployment.RunAsync(site, new ConsoleProgress(), token).ConfigureAwait(false);
+        if (result.Succeeded)
+        {
+            Console.WriteLine(result.Message);
+            return 0;
+        }
+
+        Log.Error("Deployment steps failed for IIS site {SiteName}: {Message}", result.Site, result.Message);
+        Console.Error.WriteLine($"Error: {result.Message}");
+        return 1;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to run deployment steps for IIS site {SiteName}", site);
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
+static async Task<int> RemoveDeploymentStepAsync(IDeploymentService deployment, string site, int number, CancellationToken token)
+{
+    try
+    {
+        var removed = await deployment.RemoveAsync(site, number, token).ConfigureAwait(false);
+        Console.WriteLine($"Removed step {number}: {removed.Describe()}. What it already did is not undone.");
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to remove a deployment step for IIS site {SiteName}", site);
+        Console.Error.WriteLine($"Error: {exception.Message}");
+        return 1;
+    }
+}
+
+static void WriteSharedSites(
+string firstSite, IReadOnlyList<CertificateTarget>? others, DateTimeOffset? firstPendingSince)
 {
     if (others is not { Count: > 0 })
     {
@@ -828,11 +1071,27 @@ static Command CreateDnsCommand(IServiceProvider services)
     var providerOption = new Option<string>("--provider")
     {
         Required = true,
-        Description = "The DNS service: cloudflare, or script for your own PowerShell script that works with any DNS service."
+        Description = "The DNS service: cloudflare; script, for your own PowerShell script that works with any DNS service; or acme-dns, for an account on an acme-dns server reached through one CNAME."
     };
-    providerOption.AcceptOnlyFromAmong("cloudflare", "script");
+    providerOption.AcceptOnlyFromAmong("cloudflare", "script", "acme-dns");
     var addNameOption = new Option<string>("--name") { Required = true, Description = "A label for this provider." };
-    var zoneOption = new Option<string>("--zone") { Required = true, Description = "The DNS zone, such as example.com." };
+    var zoneOption = new Option<string?>("--zone") { Description = "Cloudflare and script: the DNS zone, such as example.com." };
+    var domainOption = new Option<string?>("--domain")
+    {
+        Description = "acme-dns only: the domain whose _acme-challenge CNAME will point to the account, such as example.com. It also covers *.example.com."
+    };
+    var serverOption = new Option<string?>("--server")
+    {
+        Description = "acme-dns only: the server, such as https://auth.acme-dns.io, the free public one, or your own."
+    };
+    var allowFromOption = new Option<string?>("--allow-from")
+    {
+        Description = "acme-dns only: comma-separated networks that may update the account, such as this server's address, 203.0.113.10/32."
+    };
+    var importOption = new Option<bool>("--import")
+    {
+        Description = "acme-dns only: use an account another tool registered. Prompts for its username, subdomain, and full domain, and its password without echo."
+    };
     var zoneIdOption = new Option<string>("--zone-id") { Description = "Cloudflare only: the zone ID, from the domain's Overview page." };
     var scriptOption = new Option<string>("--script")
     {
@@ -843,19 +1102,34 @@ static Command CreateDnsCommand(IServiceProvider services)
     var addCommand = new Command(
         "add",
         "Add a DNS provider. For Cloudflare, the API token is prompted without echo; use a token with Zone > DNS > Edit on this one zone, " +
-        "because it can change every record in the zone. For a script, read it before adding it: the renewal service runs it as SYSTEM.");
+        "because it can change every record in the zone. For a script, read it before adding it: the renewal service runs it as SYSTEM. " +
+        "For acme-dns, SSLense registers an account and shows the one CNAME to create at your DNS host.");
     addCommand.Options.Add(providerOption);
     addCommand.Options.Add(addNameOption);
     addCommand.Options.Add(zoneOption);
+    addCommand.Options.Add(domainOption);
+    addCommand.Options.Add(serverOption);
+    addCommand.Options.Add(allowFromOption);
+    addCommand.Options.Add(importOption);
     addCommand.Options.Add(zoneIdOption);
     addCommand.Options.Add(scriptOption);
     addCommand.Options.Add(secretOption);
     addCommand.Options.Add(timeoutOption);
-    addCommand.SetAction((parseResult, token) => AddDnsProviderAsync(
+    addCommand.SetAction((parseResult, token) => parseResult.GetRequiredValue(providerOption) == "acme-dns"
+        ? AddAcmeDnsProviderAsync(
+            Providers(),
+            parseResult.GetRequiredValue(addNameOption),
+            parseResult.GetValue(domainOption),
+            parseResult.GetValue(serverOption),
+            parseResult.GetValue(allowFromOption),
+            parseResult.GetValue(importOption),
+            parseResult.GetValue(zoneOption) is not null || parseResult.GetValue(zoneIdOption) is not null || parseResult.GetValue(scriptOption) is not null,
+            token)
+        : AddDnsProviderAsync(
         Providers(),
         parseResult.GetRequiredValue(providerOption),
         parseResult.GetRequiredValue(addNameOption),
-        parseResult.GetRequiredValue(zoneOption),
+        parseResult.GetValue(zoneOption),
         parseResult.GetValue(zoneIdOption),
         parseResult.GetValue(scriptOption),
         parseResult.GetValue(secretOption),
@@ -878,7 +1152,8 @@ static Command CreateDnsCommand(IServiceProvider services)
     var testCommand = new Command(
         "test",
         "Prove the provider can change the zone, by adding and removing a temporary TXT record. " +
-        "For a script, SSLense also waits until every authoritative name server returns the record.");
+        "For a script, SSLense also waits until every authoritative name server returns the record. " +
+        "For acme-dns, SSLense checks the CNAME, updates the account, and waits until its name servers return the value.");
     testCommand.Options.Add(testNameOption);
     testCommand.SetAction((parseResult, token) => TestDnsProviderAsync(
         Providers(), parseResult.GetRequiredValue(testNameOption), token));
@@ -920,6 +1195,11 @@ static async Task<int> ListDnsProvidersAsync(IDnsProviderService providers, Canc
             {
                 Console.WriteLine($"  Script SHA-256: {sha256}. Compare with Get-FileHash on your original script.");
             }
+
+            if (provider.AcmeDnsCname is { } cname)
+            {
+                Console.WriteLine($"  CNAME at your DNS host: {cname}");
+            }
         }
 
         return 0;
@@ -930,11 +1210,69 @@ static async Task<int> ListDnsProvidersAsync(IDnsProviderService providers, Canc
     }
 }
 
+static async Task<int> AddAcmeDnsProviderAsync(
+    IDnsProviderService providers,
+    string name,
+    string? domain,
+    string? server,
+    string? allowFrom,
+    bool import,
+    bool otherProviderOptions,
+    CancellationToken token)
+{
+    try
+    {
+        if (otherProviderOptions)
+        {
+            throw new ArgumentException("--zone, --zone-id, and --script are not used with acme-dns. Give --domain and --server.");
+        }
+
+        if (string.IsNullOrWhiteSpace(domain) || string.IsNullOrWhiteSpace(server))
+        {
+            throw new ArgumentException("acme-dns needs --domain, such as example.com, and --server, such as https://auth.acme-dns.io.");
+        }
+
+        AcmeDnsAccount? account = null;
+        if (import)
+        {
+            Console.Write("Username: ");
+            var username = Console.ReadLine()?.Trim() ?? string.Empty;
+            var password = ReadHiddenValue("Password: ");
+            Console.Write("Subdomain: ");
+            var subdomain = Console.ReadLine()?.Trim() ?? string.Empty;
+            Console.Write("Full domain: ");
+            var fullDomain = Console.ReadLine()?.Trim() ?? string.Empty;
+            account = new AcmeDnsAccount(username, password, subdomain, fullDomain);
+        }
+
+        var added = await providers.AddAcmeDnsAsync(
+                new AcmeDnsProviderRequest(
+                    name,
+                    domain,
+                    server,
+                    allowFrom?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                    account),
+                token)
+            .ConfigureAwait(false);
+        Console.WriteLine($"DNS provider '{name}' added: {(import ? "the account was imported" : "an acme-dns account was registered")}.");
+        Console.WriteLine("Create this record at your DNS host. It stays there; renewals need nothing more:");
+        Console.WriteLine();
+        Console.WriteLine($"  {added.AcmeDnsCname}");
+        Console.WriteLine();
+        Console.WriteLine($"Then run 'SSLense.Cli dns test --name \"{name}\"'.");
+        return 0;
+    }
+    catch (Exception exception)
+    {
+        return ReportFailure(exception, "Failed to add an acme-dns account");
+    }
+}
+
 static async Task<int> AddDnsProviderAsync(
     IDnsProviderService providers,
     string provider,
     string name,
-    string zone,
+    string? zone,
     string? zoneId,
     string? script,
     bool promptForSecret,
@@ -944,6 +1282,11 @@ static async Task<int> AddDnsProviderAsync(
     try
     {
         var type = Enum.Parse<DnsProviderType>(provider, ignoreCase: true);
+        if (string.IsNullOrWhiteSpace(zone))
+        {
+            throw new ArgumentException("--zone is required, such as --zone example.com.");
+        }
+
         if (type == DnsProviderType.Script)
         {
             var secret = promptForSecret ? ReadHiddenValue("Secret for the script: ") : string.Empty;
@@ -1974,7 +2317,9 @@ static async Task<int> StatusAsync(
             {
                 Console.WriteLine($"  Issuer: {status.Issuer}");
             }
-            Console.WriteLine($"  Hosts: {string.Join(", ", status.Hosts)}");
+            Console.WriteLine(status.NoSite
+                ? $"  No IIS site; names: {string.Join(", ", status.Hosts)}"
+                : $"  Hosts: {string.Join(", ", status.Hosts)}");
             WriteSharedSites(status.SiteName, status.AdditionalTargets, status.SitePendingSince);
             if (status.CertificateNames is { } certificateNames)
             {
@@ -1986,6 +2331,31 @@ static async Task<int> StatusAsync(
                 Console.WriteLine(status.ValidationMethod == ValidationMethod.Dns01Manual
                     ? "  Validation: manual DNS; renew it by hand"
                     : "  Validation: DNS provider");
+            }
+
+            if (status.KeyType != CertificateKeyType.EcdsaP256 || status.Profile is not null || status.PreferredChain is not null)
+            {
+                Console.WriteLine($"  Key: {CertificateKeyTypes.Name(status.KeyType)}" +
+                                  (status.Profile is { } shownProfile ? $"; profile: {shownProfile}" : string.Empty) +
+                                  (status.PreferredChain is { } shownChain ? $"; preferred chain: {shownChain}" : string.Empty));
+            }
+
+            if (status.ReuseKey)
+            {
+                Console.WriteLine("  Private key: kept at every renewal");
+            }
+
+            if (status.ExportableKey)
+            {
+                Console.WriteLine("  Private key: exportable");
+            }
+
+            if (status.DeploymentStepCount > 0)
+            {
+                Console.WriteLine(status.DeploymentPending
+                    ? $"  Deployment steps: {status.DeploymentStepCount}, pending" +
+                      (status.Deployment?.LastError is { } deployError ? $"; last error: {deployError}" : string.Empty)
+                    : $"  Deployment steps: {status.DeploymentStepCount}, done for this certificate");
             }
 
             Console.WriteLine($"  Issued: {status.NotBefore:yyyy-MM-dd HH:mm:ss} UTC");
@@ -2063,7 +2433,8 @@ static async Task<int> UninstallServiceAsync(
 
 static async Task<int> IssueAsync(
     IAcmeService acmeService,
-    string siteName,
+    string? site,
+    string? noSite,
     string? hostsValue,
     string email,
     string? outputDirectory,
@@ -2074,10 +2445,27 @@ static async Task<int> IssueAsync(
     string validation,
     string? namesValue,
     string? ca,
+    bool exportableKey,
+    string? keyType,
+    string? preferredChain,
+    string? profile,
+    bool reuseKey,
     CancellationToken cancellationToken)
 {
     try
     {
+        if ((site is null) == (noSite is null))
+        {
+            Console.Error.WriteLine("Error: give either --site, for an IIS site, or --no-site with a name, for a certificate with no IIS site.");
+            return 1;
+        }
+
+        if (noSite is not null && hostsValue is not null)
+        {
+            Console.Error.WriteLine("Error: a certificate with no IIS site has nothing to bind; give its names with --names instead of --hosts.");
+            return 1;
+        }
+
         if (staging && production)
         {
             throw new ArgumentException("Specify either --staging or --production, not both.");
@@ -2088,6 +2476,7 @@ static async Task<int> IssueAsync(
             throw new ArgumentException("--ca chooses the certificate authority, so leave out --staging and --production.");
         }
 
+        var siteName = (site ?? noSite)!;
         // Core refuses a CA whose certificates are trusted without --accept-production-risk.
         var authorityId = ca?.Trim().ToLowerInvariant()
             ?? (production ? CertificateAuthorities.LetsEncryptId : CertificateAuthorities.LetsEncryptStagingId);
@@ -2111,12 +2500,26 @@ static async Task<int> IssueAsync(
                     ValidationMethod: validationMethod,
                     ConfirmManualDns: validationMethod == ValidationMethod.Dns01Manual ? ConfirmManualDnsAsync : null,
                     CertificateNames: namesValue?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
-                    AcceptProductionRisk: acceptProductionRisk),
+                    AcceptProductionRisk: acceptProductionRisk,
+                    NoSite: noSite is not null,
+                    ExportableKey: exportableKey,
+                    KeyType: keyType is null ? CertificateKeyType.EcdsaP256 : CertificateKeyTypes.Parse(keyType),
+                    PreferredChain: preferredChain,
+                    Profile: profile,
+                    ReuseKey: reuseKey),
                 new ConsoleProgress(),
                 cancellationToken)
             .ConfigureAwait(false);
 
-        Console.WriteLine($"{CertificateAuthorities.Label(authorityId)} certificate issued, installed, and bound successfully.");
+        Console.WriteLine(noSite is null
+            ? $"{CertificateAuthorities.Label(authorityId)} certificate issued, installed, and bound successfully."
+            : $"{CertificateAuthorities.Label(authorityId)} certificate '{noSite}' issued and installed in LocalMachine\\My. It has no IIS site: " +
+              $"add deployment steps to hand it to its services, such as 'SSLense.Cli deploy add --site \"{noSite}\" --script <path>'.");
+        if (result.Deployment is { } deployment)
+        {
+            Console.WriteLine($"Deployment steps: {deployment.Message}");
+        }
+
         Console.WriteLine($"Thumbprint: {result.CertificateThumbprint}");
         Console.WriteLine($"Valid from: {result.NotBefore:yyyy-MM-dd HH:mm:ss} UTC");
         Console.WriteLine($"Valid until: {result.NotAfter:yyyy-MM-dd HH:mm:ss} UTC");
@@ -2133,7 +2536,7 @@ static async Task<int> IssueAsync(
     }
     catch (Exception exception)
     {
-        Log.Error(exception, "Failed to issue a certificate for IIS site {SiteName}", siteName);
+        Log.Error(exception, "Failed to issue a certificate for {SiteName}", site ?? noSite);
         Console.Error.WriteLine($"Error: {exception.Message}");
         return 1;
     }

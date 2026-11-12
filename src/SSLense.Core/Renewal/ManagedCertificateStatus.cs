@@ -28,4 +28,13 @@ public sealed record ManagedCertificateStatus(
     ValidationMethod ValidationMethod = ValidationMethod.Http01,
     IReadOnlyList<string>? CertificateNames = null,
     IReadOnlyList<CertificateTarget>? AdditionalTargets = null,
-    DateTimeOffset? SitePendingSince = null);
+    DateTimeOffset? SitePendingSince = null,
+    int DeploymentStepCount = 0,
+    DeploymentState? Deployment = null,
+    bool DeploymentPending = false,
+    bool NoSite = false,
+    bool ExportableKey = false,
+    CertificateKeyType KeyType = CertificateKeyType.EcdsaP256,
+    string? PreferredChain = null,
+    string? Profile = null,
+    bool ReuseKey = false);

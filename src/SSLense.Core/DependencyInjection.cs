@@ -1,6 +1,7 @@
 using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
+using SSLense.Core.Deployment;
 using SSLense.Core.DnsValidation;
 using SSLense.Core.Iis;
 using SSLense.Core.Validation;
@@ -38,6 +39,8 @@ public static class DependencyInjection
         services.AddSingleton<IDnsScriptStore>(_ => new DnsScriptStore());
         services.AddSingleton<IScriptRunner, PowerShellScriptRunner>();
         services.AddSingleton<IDnsProvider, ScriptDnsProvider>();
+        services.AddSingleton<IAcmeDnsClient, AcmeDnsClient>();
+        services.AddSingleton<IDnsProvider, AcmeDnsProvider>();
         services.AddSingleton<IDnsChallengeJournal, JsonDnsChallengeJournal>();
         services.AddTransient<DnsPropagationChecker>();
         services.AddTransient<IDnsChallengeService, DnsChallengeService>();
@@ -52,6 +55,20 @@ public static class DependencyInjection
         services.AddSingleton<ITlsBindingProbe, TlsBindingProbe>();
         services.AddTransient<IIisService, IisService>();
         services.AddTransient<ICertificateSharingService, CertificateSharingService>();
+        services.AddTransient<DeploymentService>(provider => new DeploymentService(
+            provider.GetRequiredService<IManagedCertificateStore>(),
+            new PrivateKeyAccess(provider.GetRequiredService<ICertificateStore>()),
+            new ScServiceRestarter(),
+            DnsScriptStore.ForDeploymentScripts(),
+            provider.GetRequiredService<IScriptRunner>(),
+            provider.GetRequiredService<IIisService>(),
+            provider.GetRequiredService<ICertificateStore>(),
+            provider.GetRequiredService<INotifier>(),
+            provider.GetRequiredService<ICertificateOperationLock>(),
+            new CertificateExporter(provider.GetRequiredService<ICertificateStore>()),
+            provider.GetRequiredService<ISecretProtector>()));
+        services.AddTransient<IDeploymentService>(provider => provider.GetRequiredService<DeploymentService>());
+        services.AddTransient<IDeploymentRunner>(provider => provider.GetRequiredService<DeploymentService>());
         services.AddTransient<IRenewalService, RenewalService>();
         services.AddTransient<IReminderService, ReminderService>();
         services.AddTransient<IOutsideRenewalDetector, OutsideRenewalDetector>();

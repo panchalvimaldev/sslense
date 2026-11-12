@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
+using SSLense.Core.Deployment;
 using SSLense.Core.DnsValidation;
 using SSLense.Core.Iis;
 using SSLense.Core.Reminders;
@@ -10,7 +11,7 @@ using SSLense.Core.Validation;
 
 namespace SSLense.Core.Acme;
 
-internal sealed class AcmeService : IAcmeService
+internal sealed partial class AcmeService : IAcmeService
 {
     private readonly IIisService _iisService;
     private readonly IAcmeProtocolClient _protocolClient;
@@ -20,6 +21,8 @@ internal sealed class AcmeService : IAcmeService
     private readonly ICertificateStore _certificateStore;
     private readonly IManagedCertificateStore _managedCertificateStore;
     private readonly ICertificateOperationLock _operationLock;
+    private readonly IDeploymentRunner? _deployment;
+    private readonly IAcmeDirectoryReader? _directoryReader;
     private readonly ICertificateTransactionJournal _transactionJournal;
     private readonly ICertificateAuthorityRegistry _authorities;
     private readonly IDnsChallengeService? _dnsChallenges;
@@ -37,8 +40,12 @@ internal sealed class AcmeService : IAcmeService
         ICertificateTransactionJournal? transactionJournal = null,
         ICertificateAuthorityRegistry? authorities = null,
         IDnsChallengeService? dnsChallenges = null,
-        ICertificateAuthorityLock? authorityLock = null)
+        ICertificateAuthorityLock? authorityLock = null,
+        IDeploymentRunner? deployment = null,
+        IAcmeDirectoryReader? directoryReader = null)
     {
+        _directoryReader = directoryReader;
+        _deployment = deployment;
         _authorityLock = authorityLock ?? NoOpCertificateAuthorityLock.Instance;
         _iisService = iisService;
         _protocolClient = protocolClient;
@@ -88,6 +95,31 @@ internal sealed class AcmeService : IAcmeService
         var sites = await _iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
         var site = sites.SingleOrDefault(candidate =>
             string.Equals(candidate.Name, request.SiteName, StringComparison.OrdinalIgnoreCase));
+        var existingRecord = (await _managedCertificateStore.GetAllAsync(cancellationToken).ConfigureAwait(false))
+            .FirstOrDefault(record => string.Equals(record.SiteName, request.SiteName.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (request.NoSite)
+        {
+            // One name never means both a site and a certificate without one.
+            if (site is not null || existingRecord is { NoSite: false })
+            {
+                throw new InvalidOperationException(
+                    $"'{request.SiteName.Trim()}' is the name of an IIS site{(site is null ? " that SSLense manages" : "")}. Choose another name for a certificate with no IIS site.");
+            }
+
+            if (existingRecord is not null && !request.Force)
+            {
+                throw new InvalidOperationException(
+                    $"'{existingRecord.SiteName}' already has a certificate, which expires on {existingRecord.NotAfter:yyyy-MM-dd}. Use --force to replace it now.");
+            }
+
+            site = new IisSite(0, request.SiteName.Trim(), "None", null, []);
+        }
+        else if (existingRecord is { NoSite: true })
+        {
+            throw new InvalidOperationException(
+                $"'{existingRecord.SiteName}' is a certificate with no IIS site. Renew it with 'SSLense.Cli renew --site \"{existingRecord.SiteName}\"', or remove it first to use the name for a site.");
+        }
+
         if (sharedRecord is null && site is null)
         {
             throw new InvalidOperationException($"IIS site '{request.SiteName}' was not found.");
@@ -112,14 +144,20 @@ internal sealed class AcmeService : IAcmeService
               string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase)
             : string.Equals(binding.Protocol, "http", StringComparison.OrdinalIgnoreCase) && binding.Port == 80;
 
-        var requestedNames = NormalizeCertificateNames(request.CertificateNames, usesDns);
+        // Without a site there are no bindings to take hosts from: the certificate covers the names given.
+        var requestedNames = NormalizeCertificateNames(request.NoSite ? request.CertificateNames ?? request.Hosts : request.CertificateNames, usesDns);
+        if (request.NoSite && requestedNames is null)
+        {
+            throw new ArgumentException("Give the names the certificate covers, such as --names rdp.example.com.", nameof(request));
+        }
+
         var requestedHosts = request.Hosts.Count > 0
             ? request.Hosts
             : sharedRecord?.Hosts ?? site.Bindings
                 .Where(binding => IsUsableBinding(binding) && !string.IsNullOrWhiteSpace(binding.HostName))
                 .Select(binding => binding.HostName)
                 .Where(host => requestedNames is null || CertificateInspector.Covers(requestedNames, host));
-        var hosts = NormalizeAndValidateHosts(
+        var hosts = request.NoSite ? requestedNames! : NormalizeAndValidateHosts(
             requestedHosts,
             requestedNames is not null
                 ? $"No host names were supplied and the IIS site has no named HTTP or HTTPS bindings that {string.Join(", ", requestedNames)} covers."
@@ -133,7 +171,7 @@ internal sealed class AcmeService : IAcmeService
                 $"Host name '{uncovered}' is not covered by the certificate names {string.Join(", ", names)}.");
         }
 
-        foreach (var host in sharedRecord is null ? hosts : [])
+        foreach (var host in sharedRecord is null && !request.NoSite ? hosts : [])
         {
             var hasBinding = site.Bindings.Any(binding =>
                 IsUsableBinding(binding) &&
@@ -167,15 +205,26 @@ internal sealed class AcmeService : IAcmeService
                 .ConfigureAwait(false);
         }
 
+        var orderOptions = request.OrderOptions;
+        if (orderOptions.Profile is { } profile)
+        {
+            await ThrowIfProfileNotOfferedAsync(authority, profile, cancellationToken).ConfigureAwait(false);
+        }
+
         progress?.Report(new ProgressEvent(
             "account",
             $"Loading or creating the {environmentName} ACME account."));
         IAcmeOrderSession order;
         try
         {
+            // The defaults go through the original calls, so clients that offer no options keep working.
             order = await (usesDns
-                    ? _protocolClient.CreateDnsOrderAsync(request.Email.Trim(), names, authority, cancellationToken)
-                    : _protocolClient.CreateOrderAsync(request.Email.Trim(), hosts, authority, cancellationToken))
+                    ? orderOptions.IsDefault
+                        ? _protocolClient.CreateDnsOrderAsync(request.Email.Trim(), names, authority, cancellationToken)
+                        : _protocolClient.CreateDnsOrderAsync(request.Email.Trim(), names, authority, orderOptions, cancellationToken)
+                    : orderOptions.IsDefault
+                        ? _protocolClient.CreateOrderAsync(request.Email.Trim(), hosts, authority, cancellationToken)
+                        : _protocolClient.CreateOrderAsync(request.Email.Trim(), hosts, authority, orderOptions, cancellationToken))
                 .ConfigureAwait(false);
         }
         catch (HttpRequestException exception)
@@ -201,11 +250,26 @@ internal sealed class AcmeService : IAcmeService
             $"Finalizing and downloading the {environmentName} certificate."));
         var passwordBytes = RandomNumberGenerator.GetBytes(32);
         CertificateBundle? bundle = null;
+        ReusedKey? reusedKey = null;
         try
         {
             var pfxPassword = Convert.ToBase64String(passwordBytes);
-            bundle = await order.FinalizeAsync(names[0], pfxPassword, cancellationToken)
-                .ConfigureAwait(false);
+            reusedKey = request.ReuseKey
+                ? await OpenKeyToReuseAsync(existingRecord, request.KeyType, progress, cancellationToken).ConfigureAwait(false)
+                : null;
+            if (reusedKey is not null)
+            {
+                // The request is signed in the Windows key store; the key itself never leaves it.
+                var certificateRequest = ImportedCertificateService.BuildRequest(reusedKey.Key, names).CreateSigningRequest();
+                bundle = new CertificateBundle(
+                    await order.FinalizeWithRequestAsync(certificateRequest, cancellationToken).ConfigureAwait(false),
+                    []);
+            }
+            else
+            {
+                bundle = await order.FinalizeAsync(names[0], pfxPassword, cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
             progress?.Report(new ProgressEvent(
                 "save",
@@ -237,6 +301,24 @@ internal sealed class AcmeService : IAcmeService
                 preparedRecord = preparedRecord.WithTargets(sharedPlan.Targets);
             }
 
+            if (request.ExportableKey)
+            {
+                preparedRecord = preparedRecord with { ExportableKey = true };
+            }
+
+            preparedRecord = preparedRecord with { ReuseKey = request.ReuseKey };
+            preparedRecord = preparedRecord with
+            {
+                KeyType = orderOptions.KeyType,
+                PreferredChain = orderOptions.PreferredChain,
+                Profile = orderOptions.Profile
+            };
+
+            if (request.NoSite)
+            {
+                preparedRecord = preparedRecord with { NoSite = true, LastRenewalMessage = "Certificate issued. It has no IIS site to bind." };
+            }
+
             var transaction = await _transactionJournal.BeginAsync(
                     preparedRecord,
                     request.ExpectedCurrentThumbprint,
@@ -246,11 +328,12 @@ internal sealed class AcmeService : IAcmeService
             progress?.Report(new ProgressEvent(
                 "install",
                 $"Importing the {environmentName} certificate into LocalMachine\\My with a non-exportable key."));
-            var installedCertificate = await _certificateStore.ImportPfxAsync(
-                    bundle.PfxBytes,
-                    pfxPassword,
-                    $"SSLense: {names[0]} ({DateTimeOffset.UtcNow:yyyy-MM-dd})",
-                    cancellationToken)
+            var friendlyName = $"SSLense: {names[0]} ({DateTimeOffset.UtcNow:yyyy-MM-dd})";
+            var installedCertificate = await (reusedKey is not null
+                    ? InstallWithReusedKeyAsync(bundle.CertificatePem, reusedKey, friendlyName, cancellationToken)
+                    : request.ExportableKey
+                    ? _certificateStore.ImportPfxAsync(bundle.PfxBytes, pfxPassword, friendlyName, exportable: true, cancellationToken)
+                    : _certificateStore.ImportPfxAsync(bundle.PfxBytes, pfxPassword, friendlyName, cancellationToken))
                 .ConfigureAwait(false);
 
             var pendingRecord = preparedRecord with
@@ -270,7 +353,11 @@ internal sealed class AcmeService : IAcmeService
                 progress?.Report(new ProgressEvent(
                     "binding",
                     "Creating or updating IIS HTTPS bindings with SNI, then confirming over HTTPS that the new certificate is served."));
-                if (sharedPlan is null)
+                if (request.NoSite)
+                {
+                    // Nothing to bind: deployment steps hand the certificate to the services that use it.
+                }
+                else if (sharedPlan is null)
                 {
                     await _iisService.ConfigureHttpsBindingsAsync(
                             site.Name,
@@ -335,7 +422,10 @@ internal sealed class AcmeService : IAcmeService
                 .ConfigureAwait(false);
             await _transactionJournal.CompleteAsync(transaction.Id, CancellationToken.None)
                 .ConfigureAwait(false);
-            if (replaced is not null)
+
+            // The certificate is installed, bound, and saved: deployment steps run now, and a failure never undoes that.
+            var deployment = await RunDeploymentAsync(site.Name, replaced, leftOut, progress).ConfigureAwait(false);
+            if (replaced is not null && deployment?.KeepReplaced != true)
             {
                 await RemoveReplacedCertificateAsync(replaced, installedCertificate.Thumbprint, leftOut, progress).ConfigureAwait(false);
             }
@@ -345,12 +435,16 @@ internal sealed class AcmeService : IAcmeService
                 CertificateThumbprint = installedCertificate.Thumbprint,
                 NotBefore = installedCertificate.NotBefore,
                 NotAfter = installedCertificate.NotAfter,
-                LeftOutSites = leftOut
+                LeftOutSites = leftOut,
+                Deployment = deployment?.Result,
+                PreviousCertificateKept = deployment?.KeepReplaced == true,
+                KeyReused = request.ReuseKey ? reusedKey is not null : null
             };
         }
         finally
         {
             CryptographicOperations.ZeroMemory(passwordBytes);
+            reusedKey?.Dispose();
             if (bundle is not null)
             {
                 CryptographicOperations.ZeroMemory(bundle.PfxBytes);
@@ -379,7 +473,33 @@ internal sealed class AcmeService : IAcmeService
         }
     }
 
+    private async Task<DeploymentAfterInstall?> RunDeploymentAsync(
+        string siteName,
+        string? replaced,
+        IReadOnlyList<LeftOutSite> leftOut,
+        IProgress<ProgressEvent>? progress)
+    {
+        if (_deployment is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await _deployment
+                .RunAfterInstallAsync(siteName, replaced, leftOut.Select(value => value.SiteName).ToArray(), progress, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            // The steps' state could not be read or saved, so the previous certificate is kept to be safe.
+            progress?.Report(new ProgressEvent("deploy", $"The certificate is installed, but its deployment steps could not run: {exception.Message}"));
+            return new DeploymentAfterInstall(null, replaced is not null);
+        }
+    }
+
     private async Task RemoveReplacedCertificateAsync(
+
         string oldThumbprint,
         string newThumbprint,
         IReadOnlyList<LeftOutSite> leftOut,
@@ -491,7 +611,130 @@ internal sealed class AcmeService : IAcmeService
     }
 
     /// <summary>The site's shared record, read again under the locks, because the sites can change while waiting for them.</summary>
+    /// <summary>A profile the CA does not list would fail at the order; checked first, with the ones it does list.</summary>
+    private async Task ThrowIfProfileNotOfferedAsync(CertificateAuthority authority, string profile, CancellationToken cancellationToken)
+    {
+        if (_directoryReader is null)
+        {
+            return;
+        }
+
+        var offered = (await _directoryReader.ReadAsync(authority.DirectoryUri, cancellationToken).ConfigureAwait(false)).Profiles;
+        if (offered is null || !offered.ContainsKey(profile))
+        {
+            throw new InvalidOperationException(offered is { Count: > 0 }
+                ? $"{authority.Name} does not offer the profile '{profile}'. It offers: {string.Join(", ", offered.Keys)}."
+                : $"{authority.Name} offers no profiles, so '{profile}' cannot be used. Leave out --profile.");
+        }
+    }
+
+    /// <summary>A key in the Windows store, with the certificate it came from, which must outlive its use.</summary>
+    private sealed class ReusedKey(X509Certificate2 certificate, AsymmetricAlgorithm key) : IDisposable
+    {
+        public AsymmetricAlgorithm Key { get; } = key;
+
+        public void Dispose()
+        {
+            Key.Dispose();
+            certificate.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// The key of the current certificate, when it can be reused for this key type. Otherwise null, with the reason
+    /// reported: the renewal then uses a new key rather than fail (docs/design/key-reuse.md, section 3).
+    /// </summary>
+    private async Task<ReusedKey?> OpenKeyToReuseAsync(
+        ManagedCertificate? current,
+        CertificateKeyType keyType,
+        IProgress<ProgressEvent>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (current is null)
+        {
+            progress?.Report(new ProgressEvent("key", "There is no current key to reuse, so a new one is created and reused from the next renewal."));
+            return null;
+        }
+
+        X509Certificate2? certificate = null;
+        try
+        {
+            certificate = await _certificateStore.OpenAsync(current.Thumbprint, cancellationToken).ConfigureAwait(false);
+            AsymmetricAlgorithm? key = certificate is null ? null : (AsymmetricAlgorithm?)certificate.GetRSAPrivateKey() ?? certificate.GetECDsaPrivateKey();
+            if (certificate is null || key is null)
+            {
+                progress?.Report(new ProgressEvent("key", $"The key of certificate {current.Thumbprint} cannot be reused because it is no longer installed with its key. A new key is used."));
+                certificate?.Dispose();
+                return null;
+            }
+
+            if (!Matches(key, keyType))
+            {
+                progress?.Report(new ProgressEvent("key", $"The current key is not {CertificateKeyTypes.Name(keyType)}, so a new one is created and reused from the next renewal."));
+                key.Dispose();
+                certificate.Dispose();
+                return null;
+            }
+
+            progress?.Report(new ProgressEvent("key", $"Reusing the private key of certificate {current.Thumbprint}."));
+            return new ReusedKey(certificate, key);
+        }
+        catch (CryptographicException exception)
+        {
+            certificate?.Dispose();
+            progress?.Report(new ProgressEvent("key", $"The current key cannot be reused ({exception.Message}). A new key is used."));
+            return null;
+        }
+    }
+
+    internal static bool Matches(AsymmetricAlgorithm key, CertificateKeyType keyType) => (key, keyType) switch
+    {
+        (ECDsa ecdsa, CertificateKeyType.EcdsaP256) => ecdsa.KeySize == 256,
+        (ECDsa ecdsa, CertificateKeyType.EcdsaP384) => ecdsa.KeySize == 384,
+        (RSA rsa, CertificateKeyType.Rsa2048) => rsa.KeySize == 2048,
+        (RSA rsa, CertificateKeyType.Rsa3072) => rsa.KeySize == 3072,
+        (RSA rsa, CertificateKeyType.Rsa4096) => rsa.KeySize == 4096,
+        _ => false
+    };
+
+    /// <summary>Links the issued certificate to the key already in the store, and adds its intermediates.</summary>
+    private async Task<InstalledCertificate> InstallWithReusedKeyAsync(
+        string pem,
+        ReusedKey reused,
+        string friendlyName,
+        CancellationToken cancellationToken)
+    {
+        var chain = new X509Certificate2Collection();
+        chain.ImportFromPem(pem);
+        try
+        {
+            var leaf = chain[0];
+            var intermediates = chain.Skip(1).Where(value => value.SubjectName.Name != value.IssuerName.Name).ToArray();
+            if (intermediates.Length > 0)
+            {
+                await _certificateStore.AddIntermediatesAsync(intermediates, cancellationToken).ConfigureAwait(false);
+            }
+
+            using var withKey = reused.Key switch
+            {
+                RSA rsa => leaf.CopyWithPrivateKey(rsa),
+                ECDsa ecdsa => leaf.CopyWithPrivateKey(ecdsa),
+                _ => throw new InvalidOperationException("The reused key is neither RSA nor ECDSA.")
+            };
+            return await _certificateStore.AddAsync(withKey, friendlyName, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            foreach (var certificate in chain)
+            {
+                certificate.Dispose();
+            }
+        }
+    }
+
     private async Task<ManagedCertificate?> FindSharedRecordAsync(
+
+
         string siteName,
         IReadOnlyList<string> lockedSites,
         CancellationToken cancellationToken)
@@ -747,11 +990,30 @@ internal sealed class AcmeService : IAcmeService
             throw new ArgumentException("A valid account email address is required.", nameof(request), exception);
         }
 
+        if (request.NoSite)
+        {
+            if (request.ValidationMethod == ValidationMethod.Http01)
+            {
+                throw new ArgumentException(
+                    "A certificate with no IIS site needs DNS validation: HTTP validation needs a site to serve the file.", nameof(request));
+            }
+
+            if (!NoSiteName().IsMatch(request.SiteName.Trim()))
+            {
+                throw new ArgumentException(
+                    $"'{request.SiteName.Trim()}' cannot name a certificate. Use letters, digits, spaces, dots, hyphens, underscores, and brackets, up to 100 characters.",
+                    nameof(request));
+            }
+        }
+
         if (request.ValidationMethod == ValidationMethod.Dns01Manual && request.ConfirmManualDns is null)
         {
             throw new ArgumentException("Manual DNS validation needs someone to create the records.", nameof(request));
         }
     }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,99}$")]
+    private static partial System.Text.RegularExpressions.Regex NoSiteName();
 
     /// <summary>Null when the request lists no names, so the certificate covers the hosts.</summary>
     internal static IReadOnlyList<string>? NormalizeCertificateNames(IReadOnlyList<string>? requestedNames, bool usesDns)

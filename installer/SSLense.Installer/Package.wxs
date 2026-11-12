@@ -40,6 +40,7 @@
         <Directory Id="CliFolder" Name="cli" />
         <Directory Id="ServiceFolder" Name="service" />
         <Directory Id="DnsScriptsFolder" Name="dns-scripts" />
+        <Directory Id="DeployScriptsFolder" Name="deploy-scripts" />
       </Directory>
     </StandardDirectory>
 
@@ -51,6 +52,7 @@
       <ComponentRef Id="CliOnPath" />
       <ComponentGroupRef Id="LicenseFiles" />
       <ComponentGroupRef Id="DnsScriptFiles" />
+      <ComponentGroupRef Id="DeployScriptFiles" />
     </Feature>
 
     <!--
@@ -100,7 +102,27 @@
       </Component>
     </ComponentGroup>
 
+    <!--
+      Example deployment scripts (docs/design/deployment-steps.md), for Remote Desktop, SQL Server, and Exchange, and a
+      template. As with the DNS scripts, SSLense never runs these files: 'deploy add' takes its own copy.
+    -->
+    <ComponentGroup Id="DeployScriptFiles" Directory="DeployScriptsFolder">
+      <Component Id="DeployScriptTemplate">
+        <File Id="DeployScriptTemplatePs1" Source="$(RepoRoot)deploy-scripts\Template.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="DeployScriptRemoteDesktop">
+        <File Id="DeployScriptRemoteDesktopPs1" Source="$(RepoRoot)deploy-scripts\RemoteDesktop.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="DeployScriptSqlServer">
+        <File Id="DeployScriptSqlServerPs1" Source="$(RepoRoot)deploy-scripts\SqlServer.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="DeployScriptExchange">
+        <File Id="DeployScriptExchangePs1" Source="$(RepoRoot)deploy-scripts\Exchange.ps1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
     <ComponentGroup Id="GuiFiles" Directory="GuiFolder">
+
       <Files Include="$(PublishDir)gui\**">
         <Exclude Files="$(PublishDir)gui\SSLense.Gui.exe" />
       </Files>

@@ -21,6 +21,10 @@ internal interface IDnsScriptStore
 
     /// <summary>Removes a copy that is no longer used. A copy that cannot be removed is left; it is never run.</summary>
     void Delete(string providerName, string sha256);
+
+    /// <summary>Removes copies whose owner is not in <paramref name="keep"/> and that are older than <paramref name="minimumAge"/>.</summary>
+    /// <returns>How many copies were removed.</returns>
+    int DeleteUnused(IReadOnlySet<string> keep, TimeSpan minimumAge);
 }
 
 internal sealed partial class DnsScriptStore : IDnsScriptStore
@@ -32,6 +36,8 @@ internal sealed partial class DnsScriptStore : IDnsScriptStore
 
     private readonly string _directory;
     private readonly bool _secure;
+    private readonly string _owner;
+    private readonly Func<string, string> _refreshHint;
 
     public DnsScriptStore()
         : this(AppPaths.DnsScriptDirectory, secure: true)
@@ -39,11 +45,24 @@ internal sealed partial class DnsScriptStore : IDnsScriptStore
     }
 
     /// <param name="secure">False only in tests, which run without elevation and so cannot set owners.</param>
-    internal DnsScriptStore(string directory, bool secure)
+    /// <param name="owner">What the scripts belong to, for messages, such as "DNS provider".</param>
+    /// <param name="refreshHint">How to take a new copy of a script that can no longer be trusted, given the owner's name.</param>
+    internal DnsScriptStore(string directory, bool secure, string owner = "DNS provider", Func<string, string>? refreshHint = null)
     {
         _directory = directory;
         _secure = secure;
+        _owner = owner;
+        _refreshHint = refreshHint ??
+            (name => $"Check the original script, then take a new copy with 'SSLense.Cli dns update-script --name \"{name}\" --script <path>'.");
     }
+
+    /// <summary>SSLense's copies of deployment step scripts, named by step.</summary>
+    public static DnsScriptStore ForDeploymentScripts() =>
+        new(
+            AppPaths.DeployScriptDirectory,
+            secure: true,
+            "deployment step",
+            _ => "Check the original script, then remove the step and add it again with 'SSLense.Cli deploy add'.");
 
     /// <summary>A provider name that can safely be part of a file name.</summary>
     public static void ValidateName(string name)
@@ -116,8 +135,7 @@ internal sealed partial class DnsScriptStore : IDnsScriptStore
         if (problems.Count > 0)
         {
             throw new InvalidOperationException(
-                $"SSLense will not run the script for DNS provider '{providerName}': {string.Join(" ", problems)} " +
-                $"Check the original script, then take a new copy with 'SSLense.Cli dns update-script --name \"{providerName}\" --script <path>'.");
+                $"SSLense will not run the script for {_owner} '{providerName}': {string.Join(" ", problems)} {_refreshHint(providerName)}");
         }
 
         return PathFor(providerName, sha256);
@@ -159,6 +177,38 @@ internal sealed partial class DnsScriptStore : IDnsScriptStore
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
         }
+    }
+
+    public int DeleteUnused(IReadOnlySet<string> keep, TimeSpan minimumAge)
+    {
+        if (!Directory.Exists(_directory))
+        {
+            return 0;
+        }
+
+        var removed = 0;
+        foreach (var path in Directory.EnumerateFiles(_directory, "*.ps1"))
+        {
+            // The name is "<owner>-<16 hex characters>.ps1"; anything else is not SSLense's.
+            var name = Path.GetFileNameWithoutExtension(path);
+            var dash = name.LastIndexOf('-');
+            if (dash <= 0 || name.Length - dash - 1 != 16 || keep.Contains(name[..dash]) ||
+                DateTime.UtcNow - File.GetLastWriteTimeUtc(path) < minimumAge)
+            {
+                continue;
+            }
+
+            try
+            {
+                File.Delete(path);
+                removed++;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+
+        return removed;
     }
 
     /// <summary>The hash is part of the name, so an update can be checked before the copy it replaces is removed.</summary>

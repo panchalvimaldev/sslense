@@ -117,7 +117,7 @@ internal sealed class PreflightService(
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.SiteName);
-        if (request.Hosts.Count == 0)
+        if (request.Hosts.Count == 0 && !request.NoSite)
         {
             throw new ArgumentException("Select at least one host name.", nameof(request));
         }
@@ -129,6 +129,37 @@ internal sealed class PreflightService(
         };
 
         var sites = await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
+        if (request.NoSite)
+        {
+            var taken = sites.Any(value => string.Equals(value.Name, request.SiteName.Trim(), StringComparison.OrdinalIgnoreCase));
+            results.Add(new PreflightCheck(
+                "Name",
+                !taken,
+                taken
+                    ? $"'{request.SiteName.Trim()}' is the name of an IIS site. Choose another name for a certificate with no IIS site."
+                    : $"The certificate will be named '{request.SiteName.Trim()}'. Nothing is bound in IIS; deployment steps hand it to its services."));
+            IReadOnlyList<string>? noSiteNames;
+            try
+            {
+                noSiteNames = AcmeService.NormalizeCertificateNames(request.CertificateNames, usesDns: true);
+            }
+            catch (ArgumentException exception)
+            {
+                results.Add(new PreflightCheck("Certificate names", false, exception.Message));
+                return results;
+            }
+
+            if (noSiteNames is null)
+            {
+                results.Add(new PreflightCheck("Certificate names", false, "Enter the names the certificate covers, such as rdp.example.com."));
+                return results;
+            }
+
+            results.Add(new PreflightCheck("Certificate names", true, $"The certificate will cover {string.Join(", ", noSiteNames)}."));
+            results.Add(await CheckDnsRecordsAsync(request, noSiteNames, cancellationToken).ConfigureAwait(false));
+            return results;
+        }
+
         var site = sites.SingleOrDefault(value => string.Equals(value.Name, request.SiteName, StringComparison.OrdinalIgnoreCase));
         if (site is null)
         {

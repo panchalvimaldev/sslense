@@ -3,6 +3,7 @@ using SSLense.Core;
 using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
+using SSLense.Core.Deployment;
 using SSLense.Core.Iis;
 using SSLense.Core.Renewal;
 using SSLense.Core.Notifications;
@@ -302,7 +303,64 @@ public sealed class RenewalServiceTests
     }
 
     [Fact]
+    public async Task RenewAsync_KeepsTheKeyTypeChainProfileAndExportableKey()
+    {
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(5)) with
+            {
+                KeyType = CertificateKeyType.Rsa4096,
+                PreferredChain = "ISRG Root X1",
+                Profile = "tlsserver",
+                ExportableKey = true
+            }]);
+        var acme = new Mock<IAcmeService>(MockBehavior.Strict);
+        acme.Setup(value => value.IssueAsync(
+                It.Is<AcmeIssueRequest>(request => request.KeyType == CertificateKeyType.Rsa4096 && request.PreferredChain == "ISRG Root X1" &&
+                                                   request.Profile == "tlsserver" && request.ExportableKey),
+                null,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AcmeIssueResult("pem", "pfx", ["example.com"], "NEW", PreviousCertificateKept: true, KeyReused: false));
+        var service = CreateService(managed, MockConfig(), acme, new Mock<IIisService>(MockBehavior.Strict), new Mock<ICertificateStore>(MockBehavior.Strict));
+
+        var result = Assert.Single(await service.RenewAsync(new RenewalRequest(All: true)));
+
+        Assert.Contains("update any pins", result.Message, StringComparison.Ordinal);
+        Assert.True(result.Succeeded, result.Message);
+        acme.VerifyAll();
+    }
+
+    [Fact]
+    public async Task RenewAsync_DeploymentStepsPending_KeepsTheOldCertificate_AndReportsTheSteps()
+
+    {
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(5))]);
+        var acme = new Mock<IAcmeService>(MockBehavior.Strict);
+        acme.Setup(value => value.IssueAsync(It.IsAny<AcmeIssueRequest>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AcmeIssueResult(
+                "pem",
+                "pfx",
+                ["example.com"],
+                "NEW",
+                Deployment: new DeploymentRunResult("My Site", "NEW", false, 0, 1, "Step 1 (Restart the service 'MSSQLSERVER') failed."),
+                PreviousCertificateKept: true));
+        var iis = new Mock<IIisService>(MockBehavior.Strict);
+        var certificateStore = new Mock<ICertificateStore>(MockBehavior.Strict);
+        var service = CreateService(managed, MockConfig(), acme, iis, certificateStore);
+
+        var result = Assert.Single(await service.RenewAsync(new RenewalRequest(All: true)));
+
+        Assert.True(result.Succeeded);
+        Assert.Contains("MSSQLSERVER", result.Message, StringComparison.Ordinal);
+        certificateStore.VerifyNoOtherCalls();
+        iis.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task RenewAsync_Failure_PersistsRetryScheduleInsteadOfWaiting()
+
     {
         var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
         managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))

@@ -15,4 +15,26 @@ public interface IAcmeProtocolClient
         IReadOnlyList<string> names,
         CertificateAuthority authority,
         CancellationToken cancellationToken);
+
+    /// <summary>As <see cref="CreateOrderAsync(string, IReadOnlyList{string}, CertificateAuthority, CancellationToken)"/>, with a key type, chain, or profile.</summary>
+    Task<IAcmeOrderSession> CreateOrderAsync(
+        string email,
+        IReadOnlyList<string> hosts,
+        CertificateAuthority authority,
+        AcmeOrderOptions options,
+        CancellationToken cancellationToken) =>
+        options.IsDefault
+            ? CreateOrderAsync(email, hosts, authority, cancellationToken)
+            : throw new NotSupportedException("This ACME client cannot change the key, chain, or profile.");
+
+    /// <summary>As <see cref="CreateDnsOrderAsync(string, IReadOnlyList{string}, CertificateAuthority, CancellationToken)"/>, with a key type, chain, or profile.</summary>
+    Task<IAcmeOrderSession> CreateDnsOrderAsync(
+        string email,
+        IReadOnlyList<string> names,
+        CertificateAuthority authority,
+        AcmeOrderOptions options,
+        CancellationToken cancellationToken) =>
+        options.IsDefault
+            ? CreateDnsOrderAsync(email, names, authority, cancellationToken)
+            : throw new NotSupportedException("This ACME client cannot change the key, chain, or profile.");
 }

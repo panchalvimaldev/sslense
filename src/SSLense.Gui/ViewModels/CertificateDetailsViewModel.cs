@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
+using SSLense.Core.Deployment;
 using SSLense.Core.Iis;
 using SSLense.Core.Reminders;
 using SSLense.Core.Renewal;
@@ -20,6 +21,10 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private readonly IReminderService _reminderService;
     private readonly ICertificateSharingService _sharingService;
     private readonly IIisService _iisService;
+    private readonly IDeploymentService _deploymentService;
+    private readonly AsyncRelayCommand _addDeploymentStepCommand;
+    private readonly AsyncRelayCommand<DeploymentStepRow> _removeDeploymentStepCommand;
+    private readonly AsyncRelayCommand _runDeploymentCommand;
     private readonly AsyncRelayCommand _addSiteCommand;
     private readonly AsyncRelayCommand<SharedSiteRow> _stopManagingCommand;
     private readonly AsyncRelayCommand _catchUpCommand;
@@ -28,6 +33,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private readonly AsyncRelayCommand _renewCommand;
     private readonly AsyncRelayCommand _removeCommand;
     private bool _suppressSelectionRefresh;
+    private bool _isNoSite;
 
     [ObservableProperty] private string? selectedSite;
     [ObservableProperty] private bool isBusy;
@@ -53,6 +59,11 @@ public partial class CertificateDetailsViewModel : ObservableObject
     [ObservableProperty] private string hostsToAdd = string.Empty;
     [ObservableProperty] private bool replaceExistingCertificate;
     [ObservableProperty] private bool hasSitesLeftBehind;
+    [ObservableProperty] private string deploymentState = string.Empty;
+    [ObservableProperty] private bool deploymentPending;
+    [ObservableProperty] private DeploymentKindChoice? selectedDeploymentKind;
+    [ObservableProperty] private string deploymentValue = string.Empty;
+    [ObservableProperty] private string deploymentPassword = string.Empty;
 
     public CertificateDetailsViewModel(
         ICertificateManagementService managementService,
@@ -61,8 +72,14 @@ public partial class CertificateDetailsViewModel : ObservableObject
         INavigationService navigation,
         IReminderService reminderService,
         ICertificateSharingService sharingService,
-        IIisService iisService)
+        IIisService iisService,
+        IDeploymentService deploymentService)
     {
+        _deploymentService = deploymentService;
+        _addDeploymentStepCommand = new AsyncRelayCommand(AddDeploymentStepAsync, () => CanOperate() && SelectedDeploymentKind is not null && !string.IsNullOrWhiteSpace(DeploymentValue));
+        _removeDeploymentStepCommand = new AsyncRelayCommand<DeploymentStepRow>(RemoveDeploymentStepAsync, row => CanOperate() && row is not null);
+        _runDeploymentCommand = new AsyncRelayCommand(RunDeploymentAsync, () => CanOperate() && DeploymentSteps.Count > 0);
+        SelectedDeploymentKind = DeploymentKinds[0];
         _reminderService = reminderService;
         _sharingService = sharingService;
         _iisService = iisService;
@@ -94,6 +111,29 @@ public partial class CertificateDetailsViewModel : ObservableObject
     public ObservableCollection<string> SitesToAdd { get; } = [];
 
     public IAsyncRelayCommand AddSiteCommand => _addSiteCommand;
+
+    /// <summary>The selected certificate's deployment steps, in the order they run.</summary>
+    public ObservableCollection<DeploymentStepRow> DeploymentSteps { get; } = [];
+
+    public IReadOnlyList<DeploymentKindChoice> DeploymentKinds { get; } =
+    [
+        new("Give an account access to the private key", DeploymentStepKind.GrantKeyAccess, "ACCOUNT", "Such as IIS AppPool\\Shop or NT Service\\MSSQLSERVER."),
+        new("Restart a Windows service", DeploymentStepKind.RestartService, "SERVICE NAME", "The service name, such as MSSQLSERVER, not its display name."),
+        new("Run a PowerShell script", DeploymentStepKind.Script, "SCRIPT", "SSLense runs its own copy, checked by hash. Examples are in the deploy-scripts folder where SSLense is installed."),
+        new("Export a PFX file", DeploymentStepKind.ExportPfx, "PFX FILE", "A full path, such as D:\\Certs\\shop.pfx. Needs a certificate issued with an exportable private key."),
+        new("Export PEM files", DeploymentStepKind.ExportPem, "FOLDER", "cert.pem, chain.pem, fullchain.pem, and key.pem, which only administrators can read. Needs an exportable private key."),
+        new("Export to the IIS Central Certificate Store", DeploymentStepKind.CentralStore, "STORE FOLDER", "One PFX per name, protected by the store's password as set in IIS. Needs an exportable private key.")
+    ];
+
+    public IAsyncRelayCommand AddDeploymentStepCommand => _addDeploymentStepCommand;
+    public IAsyncRelayCommand<DeploymentStepRow> RemoveDeploymentStepCommand => _removeDeploymentStepCommand;
+
+    /// <summary>Raised after a step is added, so the view can clear its password box, which cannot be bound.</summary>
+    public event Action? PasswordCleared;
+
+    /// <summary>Runs every step now, for the certificate in use.</summary>
+    public IAsyncRelayCommand RunDeploymentCommand => _runDeploymentCommand;
+
     public IAsyncRelayCommand<SharedSiteRow> StopManagingCommand => _stopManagingCommand;
 
     /// <summary>Moves sites left behind to the current certificate, without ordering a new one.</summary>
@@ -161,6 +201,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
             LoadSharedSites(detail);
             await LoadReminderAsync(token).ConfigureAwait(true);
             await LoadSitesToAddAsync(token).ConfigureAwait(true);
+            await LoadDeploymentAsync(token).ConfigureAwait(true);
             RecentLogLines.Clear();
             foreach (var line in detail.RecentLogLines) RecentLogLines.Add(line);
         }, cancellationToken);
@@ -239,7 +280,73 @@ public partial class CertificateDetailsViewModel : ObservableObject
         }, cancellationToken);
     }
 
+    private async Task LoadDeploymentAsync(CancellationToken cancellationToken)
+    {
+        if (SelectedSite is null) return;
+        var overview = await _deploymentService.ListAsync(SelectedSite, cancellationToken).ConfigureAwait(true);
+        DeploymentSteps.Clear();
+        for (var index = 0; index < overview.Steps.Count; index++)
+        {
+            var step = overview.Steps[index];
+            DeploymentSteps.Add(new DeploymentStepRow(
+                index + 1,
+                $"{index + 1}. {step.Describe()}" + (step.TimeoutSeconds is { } seconds ? $", up to {seconds} seconds" : string.Empty)));
+        }
+
+        DeploymentPending = overview.Pending;
+        var state = overview.State;
+        DeploymentState = overview.Steps.Count == 0
+            ? "None. Steps run after every install and renewal, such as giving an application pool access to the key or restarting a service."
+            : overview.Pending
+                ? "Pending: not yet succeeded for this certificate. SSLense retries every hour." +
+                  (state?.LastError is { } error ? $" Last error: {error}" : string.Empty) +
+                  (state?.RetainedThumbprint is { } kept ? $" The previous certificate {kept} is kept until they succeed." : string.Empty)
+                : "Done for this certificate." +
+                  (state?.LastAttempt is { } at ? $" Last run {at.ToLocalTime():dd MMM yyyy HH:mm}." : " They run after the next renewal, or now with Run now.");
+        _runDeploymentCommand.NotifyCanExecuteChanged();
+    }
+
+    private async Task AddDeploymentStepAsync(CancellationToken cancellationToken)
+    {
+        if (SelectedSite is null || SelectedDeploymentKind is not { } kind) return;
+        await RunAsync(async token =>
+        {
+            var step = await _deploymentService
+                .AddAsync(new DeploymentStepRequest(SelectedSite, kind.Kind, DeploymentValue.Trim(), Password: kind.NeedsPassword ? DeploymentPassword : null), token)
+                .ConfigureAwait(true);
+            DeploymentValue = string.Empty;
+            DeploymentPassword = string.Empty;
+            PasswordCleared?.Invoke();
+            ResultMessage = $"Added: {step.Describe()}. The steps run after every renewal; Run now runs them for this certificate.";
+            await LoadDeploymentAsync(token).ConfigureAwait(true);
+        }, cancellationToken);
+    }
+
+    private async Task RemoveDeploymentStepAsync(DeploymentStepRow? row, CancellationToken cancellationToken)
+    {
+        if (SelectedSite is null || row is null) return;
+        await RunAsync(async token =>
+        {
+            var removed = await _deploymentService.RemoveAsync(SelectedSite, row.Number, token).ConfigureAwait(true);
+            ResultMessage = $"Removed: {removed.Describe()}. What it already did is not undone.";
+            await LoadDeploymentAsync(token).ConfigureAwait(true);
+        }, cancellationToken);
+    }
+
+    private async Task RunDeploymentAsync(CancellationToken cancellationToken)
+    {
+        if (SelectedSite is null) return;
+        await RunAsync(async token =>
+        {
+            var result = await _deploymentService.RunAsync(SelectedSite, null, token).ConfigureAwait(true);
+            await LoadDeploymentAsync(token).ConfigureAwait(true);
+            if (!result.Succeeded) throw new InvalidOperationException(result.Message);
+            ResultMessage = result.Message;
+        }, cancellationToken);
+    }
+
     private async Task LoadReminderAsync(CancellationToken cancellationToken)
+
     {
         var overview = await _reminderService.GetOverviewAsync(cancellationToken).ConfigureAwait(true);
         var record = overview.Certificates.FirstOrDefault(value =>
@@ -254,10 +361,20 @@ public partial class CertificateDetailsViewModel : ObservableObject
                 ValidationMethod.Dns01Manual => "Manual DNS; renew it by hand",
                 _ => "HTTP (port 80); renews automatically"
             };
+        var options = new List<string>();
+        if (record.KeyType != CertificateKeyType.EcdsaP256) options.Add($"key {CertificateKeyTypes.Name(record.KeyType)}");
+        if (record.Profile is { } profile) options.Add($"profile {profile}");
+        if (record.PreferredChain is { } chain) options.Add($"chain to {chain}");
+        if (record.ExportableKey) options.Add("exportable key");
+        if (record.ReuseKey) options.Add("key kept at renewal");
+        if (options.Count > 0) Validation += $". Options: {string.Join(", ", options)}";
         CertificateNames = string.Join(", ", record.CertificateNames ?? record.Hosts);
         CanShare = record.CanBeShared();
+        _isNoSite = record.NoSite;
         SharingNote = CanShare
             ? string.Empty
+            : record.NoSite
+                ? "This certificate has no IIS site, so nothing is bound. Its deployment steps hand it to its services."
             : record.Source == CertificateSource.Imported
                 ? "Certificates from other providers cannot be shared for now."
                 : "To share this certificate with other sites, issue it again with DNS validation.";
@@ -309,7 +426,9 @@ public partial class CertificateDetailsViewModel : ObservableObject
         await RunAsync(async token =>
         {
             await _managementService.RemoveAsync(removedSite, token).ConfigureAwait(true);
-            ResultMessage = SharedSites.Count > 1
+            ResultMessage = _isNoSite
+                ? $"Stopped managing '{removedSite}'. The certificate stays in LocalMachine\\My for the services that may use it; delete it in certlm when they no longer do."
+                : SharedSites.Count > 1
                 ? $"Removed the managed certificate and its IIS HTTPS bindings on {string.Join(", ", SharedSites.Select(row => $"'{row.SiteName}'"))}."
                 : $"Removed the managed certificate and its matching IIS HTTPS bindings for '{removedSite}'.";
             await InitializeAsync().ConfigureAwait(true);
@@ -334,6 +453,8 @@ public partial class CertificateDetailsViewModel : ObservableObject
     partial void OnCanShareChanged(bool value) => NotifyCommands();
     partial void OnSiteToAddChanged(string? value) => NotifyCommands();
     partial void OnHasSitesLeftBehindChanged(bool value) => NotifyCommands();
+    partial void OnSelectedDeploymentKindChanged(DeploymentKindChoice? value) => NotifyCommands();
+    partial void OnDeploymentValueChanged(string value) => NotifyCommands();
     private void NotifyCommands()
     {
         (RenewByHandCommand as RelayCommand)?.NotifyCanExecuteChanged();
@@ -343,6 +464,9 @@ public partial class CertificateDetailsViewModel : ObservableObject
         _addSiteCommand?.NotifyCanExecuteChanged();
         _stopManagingCommand?.NotifyCanExecuteChanged();
         _catchUpCommand?.NotifyCanExecuteChanged();
+        _addDeploymentStepCommand?.NotifyCanExecuteChanged();
+        _removeDeploymentStepCommand?.NotifyCanExecuteChanged();
+        _runDeploymentCommand?.NotifyCanExecuteChanged();
     }
     partial void OnSelectedReminderChoiceChanged(ReminderChoice? value) => _applyReminderCommand?.NotifyCanExecuteChanged();
     private static RenewalResult AssertSingle(IReadOnlyList<RenewalResult> results) => results.Single();
@@ -353,5 +477,17 @@ public sealed record SharedSiteRow(string SiteName, string Hosts, string State, 
 
 public sealed record ReminderChoice(string Label, ReminderMode Mode, int? SnoozeDays)
 {
+    public override string ToString() => Label;
+}
+
+/// <summary>One deployment step, numbered as 'deploy list' numbers it.</summary>
+public sealed record DeploymentStepRow(int Number, string Description);
+
+public sealed record DeploymentKindChoice(string Label, DeploymentStepKind Kind, string ValueLabel, string Hint)
+{
+    public bool IsScript => Kind == DeploymentStepKind.Script;
+
+    public bool NeedsPassword => Kind is DeploymentStepKind.ExportPfx or DeploymentStepKind.CentralStore;
+
     public override string ToString() => Label;
 }

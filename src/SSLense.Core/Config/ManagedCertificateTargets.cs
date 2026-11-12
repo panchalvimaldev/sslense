@@ -11,9 +11,12 @@ public static class ManagedCertificateTargets
 
     public static bool IsShared(this ManagedCertificate record) => record.AdditionalTargets is { Count: > 0 };
 
-    /// <summary>Only certificates SSLense obtains through DNS validation, because HTTP validation would have to reach every site.</summary>
+    /// <summary>
+    /// Only certificates SSLense obtains through DNS validation, because HTTP validation would have to reach every site, and
+    /// not one with no IIS site, which has no sites to share.
+    /// </summary>
     public static bool CanBeShared(this ManagedCertificate record) =>
-        record.Source == CertificateSource.Acme && record.ValidationMethod != ValidationMethod.Http01;
+        record.Source == CertificateSource.Acme && record.ValidationMethod != ValidationMethod.Http01 && !record.NoSite;
 
     /// <summary>Every site using the record's certificate, starting with the first site.</summary>
     public static IReadOnlyList<CertificateTarget> AllTargets(this ManagedCertificate record) =>

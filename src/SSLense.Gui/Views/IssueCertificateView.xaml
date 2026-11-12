@@ -24,6 +24,13 @@
     <StackPanel Visibility="{Binding IsStepOne, Converter={StaticResource BoolToVisibility}}">
      <TextBlock Text="Choose an IIS site" Style="{StaticResource SectionTitle}"/>
      <TextBlock Text="Select the website and host names SSLense should secure." Style="{StaticResource PageSubtitle}" Margin="0,4,0,20"/>
+     <CheckBox Content="No IIS site: for Remote Desktop, SQL Server, Exchange, or another service" IsChecked="{Binding NoSite}" Margin="0,0,0,10" AutomationProperties.Name="Certificate with no IIS site" ToolTip="Nothing is bound in IIS. After issuing, add deployment steps in Certificate Details to hand the certificate to its service. Needs DNS validation."/>
+     <StackPanel Visibility="{Binding NoSite, Converter={StaticResource BoolToVisibility}}" Margin="0,0,0,10">
+      <TextBlock Text="NAME" Style="{StaticResource FieldLabel}"/>
+      <TextBox Text="{Binding NoSiteName, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Certificate name"/>
+      <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0" Text="How SSLense lists this certificate, such as Remote Desktop. It must not be the name of an IIS site. Enter the names it covers under Certificate names, and choose a DNS validation method."/>
+     </StackPanel>
+     <StackPanel Visibility="{Binding ShowSitePicker, Converter={StaticResource BoolToVisibility}}">
      <TextBlock Text="IIS SITE" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding Sites}" SelectedItem="{Binding SelectedSite}" DisplayMemberPath="DisplayName" Margin="0,0,0,10" AutomationProperties.Name="IIS site"/>
      <Border Style="{StaticResource InfoBanner}" Margin="0,0,0,10" Visibility="{Binding SelectedSite.HasHttps, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}">
       <StackPanel>
@@ -34,6 +41,21 @@
        <CheckBox Content="Replace the current certificate even if it is still valid" IsChecked="{Binding ReplaceExisting}" Margin="0,8,0,0" AutomationProperties.Name="Replace the current certificate even if it is still valid"/>
       </StackPanel>
      </Border>
+     </StackPanel>
+     <CheckBox Content="Exportable private key, to export it to PFX or PEM files or the IIS Central Certificate Store" IsChecked="{Binding ExportableKey}" Margin="0,4,0,0" AutomationProperties.Name="Exportable private key" ToolTip="Off by default: a key that cannot be exported cannot be copied off this server. Turn it on only to add export steps in Certificate Details. Kept at every renewal."/>
+     <Expander Header="Advanced: key type, chain, and profile" Margin="0,8,0,0" AutomationProperties.Name="Advanced options">
+      <StackPanel Margin="0,8,0,0">
+       <TextBlock Text="KEY TYPE" Style="{StaticResource FieldLabel}"/>
+       <ComboBox ItemsSource="{Binding KeyTypes}" SelectedItem="{Binding SelectedKeyType}" Margin="0,0,0,8" MaxWidth="320" HorizontalAlignment="Left" MinWidth="240" AutomationProperties.Name="Key type"/>
+       <TextBlock Text="PREFERRED CHAIN (OPTIONAL)" Style="{StaticResource FieldLabel}"/>
+       <TextBox Text="{Binding PreferredChain, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,4" AutomationProperties.Name="Preferred chain"/>
+       <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,8" Text="The root the chain should end at, as the CA names it, such as ISRG Root X1. The default chain is used when the CA offers none to it."/>
+       <TextBlock Text="PROFILE (OPTIONAL)" Style="{StaticResource FieldLabel}"/>
+       <TextBox Text="{Binding Profile, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,4" AutomationProperties.Name="ACME profile"/>
+       <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Text="A profile the CA offers, such as shortlived at Let's Encrypt for certificates valid about six days. 'SSLense.Cli ca test' lists them. All three are kept at every renewal."/>
+       <CheckBox Content="Reuse the private key at renewal" IsChecked="{Binding ReuseKey}" Margin="0,8,0,0" AutomationProperties.Name="Reuse the private key at renewal" ToolTip="For key pinning or DANE. The first certificate gets a new key, and every renewal keeps it. If it cannot be reused, a new key is used and you are told."/>
+      </StackPanel>
+     </Expander>
      <TextBlock Text="VALIDATION" Style="{StaticResource FieldLabel}" Margin="0,10,0,6"/>
      <WrapPanel>
       <RadioButton GroupName="Validation" Content="HTTP (port 80)" IsChecked="{Binding UseHttpValidation}" Margin="0,0,20,0" AutomationProperties.Name="HTTP validation"/>
@@ -52,6 +74,7 @@
       <TextBox Text="{Binding CertificateNames, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Certificate names"/>
       <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0" Text="For a wildcard, enter for example *.example.com, example.com. A wildcard covers one level and does not include example.com itself. Leave this empty to cover only the host names below."/>
      </StackPanel>
+     <StackPanel Visibility="{Binding ShowSitePicker, Converter={StaticResource BoolToVisibility}}">
      <Border Height="10"/>
      <TextBlock Text="HOST NAMES" Style="{StaticResource FieldLabel}"/>
      <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="7" Padding="12,7">
@@ -61,6 +84,7 @@
        <TextBlock Grid.Column="1" Text="{Binding BindingStatus}" HorizontalAlignment="Right"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/><Style.Triggers><DataTrigger Binding="{Binding IsReady}" Value="False"><Setter Property="Foreground" Value="{StaticResource DangerBrush}"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
       </Grid>
      </DataTemplate></ItemsControl.ItemTemplate></ItemsControl></Border>
+     </StackPanel>
     </StackPanel>
 
     <StackPanel Visibility="{Binding IsStepTwo, Converter={StaticResource BoolToVisibility}}">

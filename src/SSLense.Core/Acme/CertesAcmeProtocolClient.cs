@@ -24,16 +24,25 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
 
     private IAcmeHttpClient? Http(Uri directoryUri) => _httpClient is null ? null : new AcmeHttpClient(directoryUri, _httpClient);
 
+    public Task<IAcmeOrderSession> CreateOrderAsync(
+        string email,
+        IReadOnlyList<string> hosts,
+        CertificateAuthority authority,
+        CancellationToken cancellationToken) =>
+        CreateOrderAsync(email, hosts, authority, AcmeOrderOptions.Default, cancellationToken);
+
     public async Task<IAcmeOrderSession> CreateOrderAsync(
         string email,
         IReadOnlyList<string> hosts,
         CertificateAuthority authority,
+        AcmeOrderOptions options,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(authority);
         try
         {
-            return await CreateOrderCoreAsync(email, hosts, authority, cancellationToken).ConfigureAwait(false);
+            return await CreateOrderCoreAsync(email, hosts, authority, options, cancellationToken).ConfigureAwait(false);
         }
         catch (AcmeRequestException exception) when (IsRateLimited(exception))
         {
@@ -41,16 +50,25 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
         }
     }
 
+    public Task<IAcmeOrderSession> CreateDnsOrderAsync(
+        string email,
+        IReadOnlyList<string> names,
+        CertificateAuthority authority,
+        CancellationToken cancellationToken) =>
+        CreateDnsOrderAsync(email, names, authority, AcmeOrderOptions.Default, cancellationToken);
+
     public async Task<IAcmeOrderSession> CreateDnsOrderAsync(
         string email,
         IReadOnlyList<string> names,
         CertificateAuthority authority,
+        AcmeOrderOptions options,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(authority);
         try
         {
-            return await CreateDnsOrderCoreAsync(email, names, authority, cancellationToken).ConfigureAwait(false);
+            return await CreateDnsOrderCoreAsync(email, names, authority, options, cancellationToken).ConfigureAwait(false);
         }
         catch (AcmeRequestException exception) when (IsRateLimited(exception))
         {
@@ -77,10 +95,15 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
         string email,
         IReadOnlyList<string> hosts,
         CertificateAuthority authority,
+        AcmeOrderOptions options,
         CancellationToken cancellationToken)
     {
         var context = await OpenAccountAsync(email, authority, cancellationToken).ConfigureAwait(false);
-        var order = await context.NewOrder(hosts.ToArray()).WaitAsync(cancellationToken).ConfigureAwait(false);
+        var order = await (options.Profile is { } profile
+                ? context.NewOrderWithProfile(hosts.ToList(), profile)
+                : context.NewOrder(hosts.ToArray()))
+            .WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
         var authorizations = await order.Authorizations().WaitAsync(cancellationToken).ConfigureAwait(false);
         var challenges = new List<CertesChallenge>(authorizations.Count());
         foreach (var authorization in authorizations)
@@ -102,17 +125,22 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
                 challenge));
         }
 
-        return new CertesOrderSession(order, challenges, authority);
+        return new CertesOrderSession(order, challenges, authority, options);
     }
 
     private async Task<IAcmeOrderSession> CreateDnsOrderCoreAsync(
         string email,
         IReadOnlyList<string> names,
         CertificateAuthority authority,
+        AcmeOrderOptions options,
         CancellationToken cancellationToken)
     {
         var context = await OpenAccountAsync(email, authority, cancellationToken).ConfigureAwait(false);
-        var order = await context.NewOrder(names.ToArray()).WaitAsync(cancellationToken).ConfigureAwait(false);
+        var order = await (options.Profile is { } profile
+                ? context.NewOrderWithProfile(names.ToList(), profile)
+                : context.NewOrder(names.ToArray()))
+            .WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
         var authorizations = await order.Authorizations().WaitAsync(cancellationToken).ConfigureAwait(false);
         var challenges = new List<CertesChallenge>(authorizations.Count());
         foreach (var authorization in authorizations)
@@ -142,7 +170,7 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
                 challenge));
         }
 
-        return new CertesOrderSession(order, challenges, authority);
+        return new CertesOrderSession(order, challenges, authority, options);
     }
 
     private async Task<AcmeContext> OpenAccountAsync(
@@ -212,17 +240,30 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
         IAuthorizationContext Authorization,
         IChallengeContext Context);
 
+    internal static IKey NewCertificateKey(CertificateKeyType type) => type switch
+    {
+        CertificateKeyType.EcdsaP256 => KeyFactory.NewKey(KeyAlgorithm.ES256),
+        CertificateKeyType.EcdsaP384 => KeyFactory.NewKey(KeyAlgorithm.ES384),
+        CertificateKeyType.Rsa2048 => KeyFactory.NewKey(KeyAlgorithm.RS256, 2048),
+        CertificateKeyType.Rsa3072 => KeyFactory.NewKey(KeyAlgorithm.RS256, 3072),
+        CertificateKeyType.Rsa4096 => KeyFactory.NewKey(KeyAlgorithm.RS256, 4096),
+        _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown key type.")
+    };
+
     private sealed class CertesOrderSession : IAcmeOrderSession
     {
         private readonly IOrderContext _order;
         private readonly IReadOnlyList<CertesChallenge> _challenges;
         private readonly CertificateAuthority _authority;
+        private readonly AcmeOrderOptions _options;
 
         public CertesOrderSession(
             IOrderContext order,
             IReadOnlyList<CertesChallenge> challenges,
-            CertificateAuthority authority)
+            CertificateAuthority authority,
+            AcmeOrderOptions options)
         {
+            _options = options;
             _order = order;
             _challenges = challenges;
             _authority = authority;
@@ -308,15 +349,43 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
             }
         }
 
+        public async Task<string> FinalizeWithRequestAsync(byte[] certificateRequest, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var order = await _order.Finalize(certificateRequest).WaitAsync(cancellationToken).ConfigureAwait(false);
+                for (var attempt = 0; order.Status is Certes.Acme.Resource.OrderStatus.Ready or Certes.Acme.Resource.OrderStatus.Processing && attempt < 60; attempt++)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+                    order = await _order.Resource().WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+
+                if (order.Status != Certes.Acme.Resource.OrderStatus.Valid)
+                {
+                    throw new InvalidOperationException(
+                        $"{_authority.Name} did not issue the certificate: the order is {order.Status?.ToString().ToLowerInvariant() ?? "in an unknown state"}.");
+                }
+
+                var chain = await _order.Download(_options.PreferredChain).WaitAsync(cancellationToken).ConfigureAwait(false);
+                return chain.ToPem();
+            }
+            catch (AcmeRequestException exception) when (IsRateLimited(exception))
+            {
+                throw ToRateLimitedException(exception, _authority);
+            }
+        }
+
         private async Task<CertificateBundle> FinalizeCoreAsync(
+
             string commonName,
             string pfxPassword,
             CancellationToken cancellationToken)
         {
-            var certificateKey = KeyFactory.NewKey(KeyAlgorithm.ES256);
+            var certificateKey = NewCertificateKey(_options.KeyType);
             var certificate = await _order.Generate(
                     new CsrInfo { CommonName = commonName },
-                    certificateKey)
+                    certificateKey,
+                    _options.PreferredChain)
                 .WaitAsync(cancellationToken)
                 .ConfigureAwait(false);
             var certificatePem = certificate.ToPem();

@@ -5,6 +5,7 @@ using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core;
 using SSLense.Core.Config;
+using SSLense.Core.Deployment;
 using SSLense.Core.DnsValidation;
 using SSLense.Core.Iis;
 using SSLense.Core.Validation;
@@ -794,7 +795,212 @@ public sealed class AcmeServiceTests
     }
 
     [Fact]
+    public async Task IssueAsync_DeploymentStepsPending_KeepsTheReplacedCertificate()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "AABBCC", "My", true));
+        harness.SetManaged(Previous());
+        harness.Deployment.Next = new DeploymentAfterInstall(
+            new DeploymentRunResult("My Site", "AABBCC", false, 0, 1, "Step 1 failed"), KeepReplaced: true);
+
+        var result = await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider));
+
+        Assert.Equal([("My Site", "OLD")], harness.Deployment.Calls);
+        Assert.True(result.PreviousCertificateKept);
+        Assert.False(result.Deployment!.Succeeded);
+        harness.Store.Verify(value => value.RemoveAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task IssueAsync_DeploymentStepsCannotRun_KeepsTheReplacedCertificate_AndStillSucceeds()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "AABBCC", "My", true));
+        harness.SetManaged(Previous());
+        harness.Deployment.Fail = new IOException("The state file is locked.");
+
+        var result = await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider));
+
+        Assert.Equal("AABBCC", result.CertificateThumbprint);
+        Assert.True(result.PreviousCertificateKept);
+        harness.Store.Verify(value => value.RemoveAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task IssueAsync_ReuseKey_SignsWithTheCurrentKey_AndLinksTheNewCertificateToIt()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+        harness.SetManaged(Previous());
+        using var currentKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var current = new CertificateRequest("CN=example.com", currentKey, HashAlgorithmName.SHA256)
+            .CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-60), DateTimeOffset.UtcNow.AddDays(4));
+        harness.Store.Setup(value => value.OpenAsync("OLD", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => X509CertificateLoader.LoadPkcs12(current.Export(X509ContentType.Pkcs12, "pw"), "pw", X509KeyStorageFlags.EphemeralKeySet | X509KeyStorageFlags.Exportable));
+        using var caKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var caRequest = new CertificateRequest("CN=Test CA", caKey, HashAlgorithmName.SHA256);
+        caRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+        using var ca = caRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(90));
+        harness.Order.Setup(value => value.FinalizeWithRequestAsync(It.IsAny<byte[]>(), It.IsAny<CancellationToken>()))
+            .Returns<byte[], CancellationToken>((csr, _) =>
+            {
+                using var leaf = CertificateRequest.LoadSigningRequest(csr, HashAlgorithmName.SHA256)
+                    .Create(ca, DateTimeOffset.UtcNow.AddMinutes(-5), DateTimeOffset.UtcNow.AddDays(60), [1, 2, 3, 4]);
+                return Task.FromResult(leaf.ExportCertificatePem() + "\n" + ca.ExportCertificatePem());
+            });
+        byte[]? linkedKey = null;
+        harness.Store.Setup(value => value.AddAsync(It.IsAny<X509Certificate2>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<X509Certificate2, string, CancellationToken>((certificate, _, _) =>
+            {
+                Assert.True(certificate.HasPrivateKey);
+                linkedKey = certificate.GetECDsaPublicKey()!.ExportSubjectPublicKeyInfo();
+            })
+            .ReturnsAsync(new InstalledCertificate("REUSED", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(60), true));
+
+        var result = await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider, ReuseKey: true));
+
+        Assert.Equal("REUSED", result.CertificateThumbprint);
+        Assert.True(result.KeyReused);
+        Assert.Equal(currentKey.ExportSubjectPublicKeyInfo(), linkedKey);
+        Assert.DoesNotContain("finalize", harness.Steps);
+        harness.Store.Verify(value => value.ImportPfxAsync(
+            It.IsAny<byte[]>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        harness.Managed.Verify(value => value.UpsertAsync(It.Is<ManagedCertificate>(record => record.ReuseKey), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task IssueAsync_ReuseKey_WithAKeyOfAnotherType_UsesANewKey_AndSaysSo()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+        harness.SetManaged(Previous());
+        using var currentKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var current = new CertificateRequest("CN=example.com", currentKey, HashAlgorithmName.SHA256)
+            .CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-60), DateTimeOffset.UtcNow.AddDays(4));
+        harness.Store.Setup(value => value.OpenAsync("OLD", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => X509CertificateLoader.LoadPkcs12(current.Export(X509ContentType.Pkcs12, "pw"), "pw", X509KeyStorageFlags.EphemeralKeySet | X509KeyStorageFlags.Exportable));
+        harness.Protocol.Setup(value => value.CreateDnsOrderAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateAuthority>(), It.IsAny<AcmeOrderOptions>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(harness.Order.Object);
+        var lines = new List<string>();
+
+        var result = await harness.Service.IssueAsync(
+            new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider,
+                KeyType: CertificateKeyType.Rsa2048, ReuseKey: true),
+            new SynchronousProgress(value => lines.Add(value.Message)));
+
+        Assert.Contains("finalize", harness.Steps);
+        Assert.Contains(lines, line => line.Contains("is not rsa-2048", StringComparison.Ordinal));
+        Assert.False(result.KeyReused);
+    }
+
+    [Theory]
+    [InlineData(CertificateKeyType.EcdsaP256, true)]
+    [InlineData(CertificateKeyType.EcdsaP384, false)]
+    [InlineData(CertificateKeyType.Rsa2048, false)]
+    public void KeyMatches_OnlyTheSameFamilyAndSize(CertificateKeyType type, bool expected)
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+
+        Assert.Equal(expected, AcmeService.Matches(key, type));
+    }
+
+    [Fact]
+    public async Task IssueAsync_KeyChainAndProfile_GoToTheOrder_AndAreSavedWithTheCertificate()
+
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+        harness.Directory.Profiles = new Dictionary<string, string> { ["shortlived"] = "Six days" };
+        AcmeOrderOptions? used = null;
+        harness.Protocol.Setup(value => value.CreateDnsOrderAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateAuthority>(), It.IsAny<AcmeOrderOptions>(), It.IsAny<CancellationToken>()))
+            .Callback<string, IReadOnlyList<string>, CertificateAuthority, AcmeOrderOptions, CancellationToken>((_, _, _, options, _) => used = options)
+            .ReturnsAsync(harness.Order.Object);
+
+        await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider,
+            KeyType: CertificateKeyType.Rsa3072, PreferredChain: "ISRG Root X1", Profile: "shortlived"));
+
+        Assert.Equal(new AcmeOrderOptions(CertificateKeyType.Rsa3072, "ISRG Root X1", "shortlived"), used);
+        harness.Managed.Verify(value => value.UpsertAsync(
+            It.Is<ManagedCertificate>(record => record.KeyType == CertificateKeyType.Rsa3072 && record.PreferredChain == "ISRG Root X1" && record.Profile == "shortlived"),
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task IssueAsync_AProfileTheCaDoesNotOffer_IsRefusedBeforeOrdering_WithTheOnesItDoes()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+        harness.Directory.Profiles = new Dictionary<string, string> { ["classic"] = "", ["tlsserver"] = "" };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider, Profile: "shortlived")));
+
+        Assert.Contains("classic, tlsserver", exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("finalize", harness.Steps);
+    }
+
+    [Fact]
+    public async Task IssueAsync_NoSite_InstallsWithoutBindingAnything_AndSavesANoSiteRecord()
+
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
+
+        var result = await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "RDP", [], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider, CertificateNames: ["Example.com"], NoSite: true));
+
+        Assert.Equal("AABBCC", result.CertificateThumbprint);
+        harness.Iis.Verify(value => value.ConfigureHttpsBindingsAsync(
+            It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        harness.Managed.Verify(value => value.UpsertAsync(
+            It.Is<ManagedCertificate>(record => record.NoSite && record.SiteName == "RDP" && record.Hosts.SequenceEqual(new[] { "example.com" })),
+            CancellationToken.None));
+        Assert.Contains("validate example.com", harness.Steps);
+    }
+
+    [Theory]
+    [InlineData("My Site", ValidationMethod.Dns01Provider, "is the name of an IIS site")]
+    [InlineData("RDP", ValidationMethod.Http01, "needs DNS validation")]
+    [InlineData("RDP: host", ValidationMethod.Dns01Provider, "cannot name a certificate")]
+    public async Task IssueAsync_NoSite_RefusesASiteNameHttpValidationAndUnsafeNames(string name, ValidationMethod method, string expected)
+    {
+        var harness = new DnsHarness();
+
+        var exception = await Assert.ThrowsAnyAsync<Exception>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            name, [], "admin@example.com", ValidationMethod: method, CertificateNames: ["example.com"], NoSite: true)));
+
+        Assert.Contains(expected, exception.Message, StringComparison.Ordinal);
+        harness.Protocol.Verify(value => value.CreateDnsOrderAsync(
+            It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateAuthority>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task IssueAsync_ForASite_RefusesANameUsedByANoSiteCertificate()
+    {
+        var harness = new DnsHarness();
+        harness.SetManaged(Previous() with { NoSite = true });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider)));
+
+        Assert.Contains("no IIS site", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task IssueAsync_NoSite_AnExistingCertificateNeedsForce()
+    {
+        var harness = new DnsHarness();
+        harness.SetManaged(Previous() with { SiteName = "RDP", NoSite = true });
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "RDP", [], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider, CertificateNames: ["example.com"], NoSite: true)));
+
+        Assert.Contains("--force", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task IssueAsync_AnImportedCertificateIsReplaced_IsNeverRemoved()
+
+
     {
         var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "AABBCC", "My", true));
         harness.SetManaged(Previous() with { Source = CertificateSource.Imported });
@@ -872,7 +1078,37 @@ public sealed class AcmeServiceTests
         Assert.Contains("port 80", exception.Message, StringComparison.Ordinal);
     }
 
+    private sealed class FakeDirectoryReader : IAcmeDirectoryReader
+    {
+        public IReadOnlyDictionary<string, string>? Profiles { get; set; }
+
+        public Task<AcmeDirectoryInfo> ReadAsync(Uri directoryUri, CancellationToken cancellationToken) =>
+            Task.FromResult(new AcmeDirectoryInfo(false, [], true, null, Profiles));
+    }
+
+    private sealed class FakeDeploymentRunner : IDeploymentRunner
+
+    {
+        public List<(string Site, string? Replaced)> Calls { get; } = [];
+
+        public DeploymentAfterInstall Next { get; set; } = new(null, false);
+
+        public Exception? Fail { get; set; }
+
+        public Task<DeploymentAfterInstall> RunAfterInstallAsync(
+            string site,
+            string? replacedThumbprint,
+            IReadOnlyList<string> sitesLeftOut,
+            IProgress<ProgressEvent>? progress,
+            CancellationToken cancellationToken)
+        {
+            Calls.Add((site, replacedThumbprint));
+            return Fail is null ? Task.FromResult(Next) : Task.FromException<DeploymentAfterInstall>(Fail);
+        }
+    }
+
     private sealed class DnsHarness
+
     {
         public DnsHarness(params IisBinding[] bindings)
             : this(null, bindings)
@@ -910,8 +1146,14 @@ public sealed class AcmeServiceTests
                 artifacts.Object,
                 Store.Object,
                 Managed.Object,
-                dnsChallenges: Dns);
+                dnsChallenges: Dns,
+                deployment: Deployment,
+                directoryReader: Directory);
         }
+
+        public FakeDirectoryReader Directory { get; } = new();
+
+        public FakeDeploymentRunner Deployment { get; } = new();
 
         public List<string> Steps { get; } = [];
 

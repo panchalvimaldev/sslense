@@ -35,21 +35,42 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string newDnsScriptPath = string.Empty;
     [ObservableProperty] private string newDnsScriptTimeout = string.Empty;
 
+    [ObservableProperty] private string newAcmeDnsServer = string.Empty;
+    [ObservableProperty] private string newAcmeDnsAllowFrom = string.Empty;
+    [ObservableProperty] private bool newAcmeDnsImport;
+    [ObservableProperty] private string newAcmeDnsUsername = string.Empty;
+    [ObservableProperty] private string newAcmeDnsPassword = string.Empty;
+    [ObservableProperty] private string newAcmeDnsSubdomain = string.Empty;
+    [ObservableProperty] private string newAcmeDnsFullDomain = string.Empty;
+
     private const string CloudflareService = "Cloudflare";
     private const string ScriptService = "Script";
+    private const string AcmeDnsService = "acme-dns";
 
-    /// <summary>Cloudflare is built in; a script works with any DNS service that has an API.</summary>
-    public IReadOnlyList<string> DnsServices { get; } = [CloudflareService, ScriptService];
+    /// <summary>Cloudflare is built in; a script works with any DNS service that has an API; acme-dns works with any DNS host.</summary>
+    public IReadOnlyList<string> DnsServices { get; } = [CloudflareService, ScriptService, AcmeDnsService];
 
     public bool NewDnsIsScript => NewDnsService == ScriptService;
 
-    public bool NewDnsIsCloudflare => !NewDnsIsScript;
+    public bool NewDnsIsCloudflare => NewDnsService == CloudflareService;
+
+    public bool NewDnsIsAcmeDns => NewDnsService == AcmeDnsService;
+
+    /// <summary>Cloudflare and scripts are set up for a zone, with a token or secret; acme-dns for a domain, with an account.</summary>
+    public bool NewDnsUsesZone => !NewDnsIsAcmeDns;
+
+    public bool NewAcmeDnsShowsImport => NewDnsIsAcmeDns && NewAcmeDnsImport;
 
     partial void OnNewDnsServiceChanged(string value)
     {
         OnPropertyChanged(nameof(NewDnsIsScript));
         OnPropertyChanged(nameof(NewDnsIsCloudflare));
+        OnPropertyChanged(nameof(NewDnsIsAcmeDns));
+        OnPropertyChanged(nameof(NewDnsUsesZone));
+        OnPropertyChanged(nameof(NewAcmeDnsShowsImport));
     }
+
+    partial void OnNewAcmeDnsImportChanged(bool value) => OnPropertyChanged(nameof(NewAcmeDnsShowsImport));
 
     [ObservableProperty] private EmailPreset? selectedPreset;
     [ObservableProperty] private string emailHost = string.Empty;
@@ -276,6 +297,12 @@ public partial class SettingsViewModel : ObservableObject
 
     private Task AddDnsProviderAsync(CancellationToken token) => RunAsync(async ct =>
     {
+        if (NewDnsIsAcmeDns)
+        {
+            await AddAcmeDnsAsync(ct).ConfigureAwait(true);
+            return;
+        }
+
         var isScript = NewDnsIsScript;
         int? timeout = null;
         if (isScript && NewDnsScriptTimeout.Trim().Length > 0)
@@ -305,6 +332,31 @@ public partial class SettingsViewModel : ObservableObject
             ? $"DNS provider '{name}' added: SSLense copied the script, and its Check action succeeded. Use Test to confirm it can add and remove a record."
             : $"DNS provider '{name}' added. Use Test to confirm the token can change the zone.";
     }, token);
+
+    /// <summary>Registers an account, or imports one, and shows the CNAME to create; it also stays in the provider list.</summary>
+    private async Task AddAcmeDnsAsync(CancellationToken ct)
+    {
+        var import = NewAcmeDnsImport
+            ? new AcmeDnsAccount(NewAcmeDnsUsername, NewAcmeDnsPassword, NewAcmeDnsSubdomain, NewAcmeDnsFullDomain)
+            : null;
+        var added = await _dnsProviders.AddAcmeDnsAsync(
+                new AcmeDnsProviderRequest(
+                    NewDnsName,
+                    NewDnsZone,
+                    NewAcmeDnsServer,
+                    NewAcmeDnsAllowFrom.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                    import),
+                ct)
+            .ConfigureAwait(true);
+
+        // The password is cleared from memory as soon as it is saved.
+        NewAcmeDnsPassword = string.Empty; NewAcmeDnsUsername = string.Empty; NewAcmeDnsSubdomain = string.Empty;
+        NewAcmeDnsFullDomain = string.Empty; NewAcmeDnsAllowFrom = string.Empty; NewAcmeDnsImport = false;
+        NewDnsName = string.Empty; NewDnsZone = string.Empty;
+        await LoadDnsProvidersAsync(ct).ConfigureAwait(true);
+        ResultMessage = $"acme-dns account '{added.Name}' {(import is null ? "registered" : "imported")}. Create this record at your DNS host, " +
+                        $"then use Test selected: {added.AcmeDnsCname}";
+    }
 
     private Task UpdateDnsScriptAsync(CancellationToken token) => RunAsync(async ct =>
     {

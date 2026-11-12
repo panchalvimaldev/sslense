@@ -91,7 +91,16 @@ internal sealed class RenewalService : IRenewalService
                 value.ValidationMethod,
                 value.CertificateNames,
                 value.AdditionalTargets,
-                value.SitePendingSince));
+                value.SitePendingSince,
+                value.DeploymentSteps?.Count ?? 0,
+                value.Deployment,
+                value.HasPendingDeployment(),
+                value.NoSite,
+                value.ExportableKey,
+                value.KeyType,
+                value.PreferredChain,
+                value.Profile,
+                value.ReuseKey));
         }
 
         return statuses;
@@ -210,6 +219,12 @@ internal sealed class RenewalService : IRenewalService
                         certificate.Thumbprint,
                         certificate.ValidationMethod,
                         CertificateNames: certificate.CertificateNames,
+                        NoSite: certificate.NoSite,
+                        ExportableKey: certificate.ExportableKey,
+                        KeyType: certificate.KeyType,
+                        PreferredChain: certificate.PreferredChain,
+                        Profile: certificate.Profile,
+                        ReuseKey: certificate.ReuseKey,
 
                         // Confirmed when the certificate was first issued from this CA.
                         AcceptProductionRisk: true),
@@ -220,7 +235,13 @@ internal sealed class RenewalService : IRenewalService
                 ?? throw new InvalidOperationException("The renewed certificate has no thumbprint.");
 
             IReadOnlyList<LeftOutSite> leftOut = issued.LeftOutSites ?? [];
-            var cleanupMessage = await RemoveOldCertificateIfUnusedAsync(
+            var keyNotice = issued.KeyReused == false
+                ? "The private key could not be reused, so the certificate has a new key; update any pins or TLSA records."
+                : null;
+            // Kept while deployment steps are pending: services such as Remote Desktop may still use it.
+            var cleanupMessage = issued.PreviousCertificateKept
+                ? null
+                : await RemoveOldCertificateIfUnusedAsync(
                     certificate.Thumbprint,
                     newThumbprint,
                     leftOut.Select(site => site.SiteName).ToArray(),
@@ -232,7 +253,9 @@ internal sealed class RenewalService : IRenewalService
                         $"SSLense renewal succeeded: {certificate.SiteName}",
                         $"The {CertificateAuthorities.Label(certificate.AuthorityId)} certificate for {certificate.DescribeSites()} " +
                         $"was renewed successfully. New thumbprint: {newThumbprint}." +
-                        (cleanupMessage is null ? string.Empty : $" {cleanupMessage}")),
+                        (cleanupMessage is null ? string.Empty : $" {cleanupMessage}") +
+                        (issued.Deployment is { } steps ? $" {steps.Message}" : string.Empty) +
+                        (keyNotice is null ? string.Empty : $" {keyNotice}")),
                     progress,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -254,7 +277,7 @@ internal sealed class RenewalService : IRenewalService
                 certificate.SiteName,
                 true,
                 true,
-                string.Join(" ", new[] { cleanupMessage ?? "Renewed and rebound successfully.", leftOutMessage }.OfType<string>()),
+                string.Join(" ", new[] { cleanupMessage ?? "Renewed and rebound successfully.", leftOutMessage, issued.Deployment?.Message, keyNotice }.OfType<string>()),
                 certificate.Thumbprint,
                 newThumbprint);
         }

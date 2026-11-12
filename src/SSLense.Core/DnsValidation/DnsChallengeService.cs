@@ -1,4 +1,5 @@
 using SSLense.Core.Acme;
+using SSLense.Core.Certificates;
 using SSLense.Core.Config;
 using SSLense.Core.Validation;
 
@@ -37,8 +38,10 @@ internal sealed class DnsChallengeService(
     IDnsLookup lookup,
     IDnsChallengeJournal journal,
     DnsPropagationChecker propagation,
-    ICertificateAuthorityRegistry? authorities = null) : IDnsChallengeService
+    ICertificateAuthorityRegistry? authorities = null,
+    ICertificateOperationLock? operationLock = null) : IDnsChallengeService
 {
+    private readonly ICertificateOperationLock _operationLock = operationLock ?? new NoOpCertificateOperationLock();
     private readonly ICertificateAuthorityRegistry _authorities = authorities ?? CertificateAuthorityRegistry.BuiltInOnly;
 
     /// <summary>After this long a record that cannot be removed is reported once and no longer retried.</summary>
@@ -54,15 +57,34 @@ internal sealed class DnsChallengeService(
             ? await GetProfilesAsync(cancellationToken).ConfigureAwait(false)
             : [];
         var selected = new Dictionary<string, DnsProviderProfile>(StringComparer.OrdinalIgnoreCase);
+        var acmeDnsValues = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var name in certificateNames)
         {
-            var target = await lookup.ResolveCnameAsync(DnsNames.ChallengeRecord(name), cancellationToken).ConfigureAwait(false);
+            var record = DnsNames.ChallengeRecord(name);
+            var target = await lookup.ResolveCnameAsync(record, cancellationToken).ConfigureAwait(false);
+            if (method == ValidationMethod.Dns01Provider)
+            {
+                ThrowIfAcmeDnsCnameMissing(profiles, record, target);
+            }
+
             await EnsureHasNameServersAsync(target, cancellationToken).ConfigureAwait(false);
             if (method == ValidationMethod.Dns01Provider)
             {
                 var profile = SelectProfile(profiles, target);
                 selected[profile.Name] = profile;
+                if (profile.Provider == DnsProviderType.AcmeDns)
+                {
+                    acmeDnsValues[profile.Name] = acmeDnsValues.GetValueOrDefault(profile.Name) + 1;
+                }
             }
+        }
+
+        // An acme-dns account keeps only its two newest values, so a third would push out the first before validation.
+        foreach (var (account, count) in acmeDnsValues.Where(value => value.Value > 2))
+        {
+            throw new InvalidOperationException(
+                $"The acme-dns account '{account}' would need {count} values at once, and it keeps only two: enough for a name and its " +
+                "wildcard. Give each other name its own acme-dns account, with its own CNAME.");
         }
 
         foreach (var profile in selected.Values)
@@ -232,6 +254,26 @@ internal sealed class DnsChallengeService(
 
         // Before anything changes, so a record without a provider publishes nothing.
         var targets = records.Select(record => (Record: record, Profile: SelectProfile(profiles, record.Name))).ToArray();
+
+        // An acme-dns account keeps only its two newest values, so its use is exclusive until validation ends: another
+        // order or a 'dns test' through the same account would otherwise push out a value the CA is about to check.
+        var accounts = targets
+            .Where(target => target.Profile.Provider == DnsProviderType.AcmeDns)
+            .Select(target => AcmeDnsAccountLock.Key(target.Profile))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (accounts.Length > 0)
+        {
+            var held = _operationLock.TryAcquireAll(accounts);
+            if (held is null)
+            {
+                progress?.Report(new ProgressEvent("dns-publish", "Waiting for another validation through the same acme-dns account to finish."));
+                held = await _operationLock.AcquireAllAsync(accounts, cancellationToken).ConfigureAwait(false);
+            }
+
+            cleanup.Hold(held);
+        }
+
         var owner = JsonChallengeJournal.CurrentProcess;
         foreach (var (record, profile) in targets)
         {
@@ -257,6 +299,23 @@ internal sealed class DnsChallengeService(
     private async Task<IReadOnlyList<DnsProviderProfile>> GetProfilesAsync(CancellationToken cancellationToken) =>
         (await configStore.LoadAsync(cancellationToken).ConfigureAwait(false)).DnsProviders;
 
+    /// <summary>
+    /// A name set up for acme-dns whose CNAME is missing or wrong would reach some other provider, or none, and fail later
+    /// with a less useful message. Checked before each order and daily, so a deleted CNAME shows before a renewal fails.
+    /// </summary>
+    private static void ThrowIfAcmeDnsCnameMissing(IReadOnlyList<DnsProviderProfile> profiles, string record, string target)
+    {
+        var account = profiles.FirstOrDefault(profile =>
+            profile.Provider == DnsProviderType.AcmeDns &&
+            profile.AcmeDnsDomain is { } domain &&
+            DnsNames.ChallengeRecord(domain) == DnsNames.Normalize(record));
+        if (account is not null && DnsNames.Normalize(target) != DnsNames.Normalize(account.ZoneName))
+        {
+            throw new InvalidOperationException(
+                $"'{record}' does not point to the acme-dns account '{account.Name}'. Create this record at your DNS host: {account.AcmeDnsCname}");
+        }
+    }
+
     private static DnsProviderProfile SelectProfile(IReadOnlyList<DnsProviderProfile> profiles, string recordName) =>
         DnsNames.SelectProfile(profiles, recordName)
         ?? throw new InvalidOperationException(
@@ -276,6 +335,11 @@ internal sealed class DnsChallengeService(
         private int _disposed;
 
         public void Add(DnsChallengeEntry entry, DnsProviderProfile profile) => _entries.Add((entry, profile));
+
+        private IAsyncDisposable? _held;
+
+        /// <summary>Released after the records are removed, when validation is over.</summary>
+        public void Hold(IAsyncDisposable held) => _held = held;
 
         public async ValueTask DisposeAsync()
         {
@@ -302,6 +366,11 @@ internal sealed class DnsChallengeService(
                         $"Warning: the TXT record '{entry.RecordName}' could not be removed: {exception.Message} " +
                         "SSLense will try again when it next starts."));
                 }
+            }
+
+            if (_held is not null)
+            {
+                await _held.DisposeAsync().ConfigureAwait(false);
             }
         }
     }
