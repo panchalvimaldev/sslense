@@ -44,7 +44,7 @@ public partial class MainViewModel : ObservableObject
         ];
         selectedTab = Tabs[0];
         currentPage = certificates;
-        AddCertificateCommand = new RelayCommand(() => _ = ShowAddCertificateAsync(AddCertificateViewModel.AutomaticTab, null));
+        AddCertificateCommand = new RelayCommand(() => _ = ShowAddCertificateAsync(null, null));
         OpenActivityCommand = new RelayCommand(() => SelectedTab = Tabs[1]);
         navigation.NavigationRequested += OnNavigationRequested;
     }
@@ -81,24 +81,33 @@ public partial class MainViewModel : ObservableObject
         else if (ReferenceEquals(value.ViewModel, _settings)) _ = _settings.InitializeAsync();
     }
 
-    private Task ShowAddCertificateAsync(int tab, string? context)
+    private Task ShowAddCertificateAsync(string? source, string? context)
     {
         SelectedTab = null;
         CurrentPage = _add;
-        return _add.ShowAsync(tab, context);
+        return _add.ShowAsync(source, context);
     }
 
-    /// <summary>Other screens ask for a page by the name it had in the side menu; this maps each one to its new place.</summary>
+    /// <summary>Other screens ask for a page by name, some by the name it had in the side menu; this maps each one to its place.</summary>
     private void OnNavigationRequested(object? sender, NavigationRequest request)
     {
         var page = request.Page;
-        if (Is(page, "Issue") || Is(page, "Add certificate"))
+        if (Is(page, "Add certificate"))
         {
-            _ = ShowAddCertificateAsync(AddCertificateViewModel.AutomaticTab, request.Context);
+            _ = ShowAddCertificateAsync(null, null);
         }
-        else if (Is(page, "Other Providers"))
+        else if (Is(page, "Issue"))
         {
-            _ = ShowAddCertificateAsync(AddCertificateViewModel.OtherProvidersTab, request.Context);
+            _ = ShowAddCertificateAsync(AddCertificateViewModel.Automatic, request.Context);
+        }
+        else if (Is(page, "Certificate request") || Is(page, "Other Providers"))
+        {
+            // A request (CSR) for a certificate from a provider, filled in to replace the named one.
+            _ = ShowAddCertificateAsync(AddCertificateViewModel.Request, request.Context);
+        }
+        else if (Is(page, "Certificates") && request.Context is null)
+        {
+            SelectedTab = Tabs[0];
         }
         else if (Is(page, "Health") || Is(page, "Logs"))
         {

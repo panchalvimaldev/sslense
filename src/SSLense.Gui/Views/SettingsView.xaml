@@ -22,7 +22,7 @@
 
    <GroupBox Header="Certificate authorities" Margin="0,0,0,14"><StackPanel>
     <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,10"
-               Text="Let's Encrypt is built in. Add another ACME certificate authority to issue from it, then choose it in the Issue wizard. A certificate always renews with the CA that issued it. Most commercial CAs need External Account Binding (EAB): a key ID and an HMAC key from your account with them."/>
+               Text="Let's Encrypt is built in. Add another ACME certificate authority to issue from it, then choose it in Add certificate, Free and automatic. A certificate always renews with the CA that issued it. Most commercial CAs need External Account Binding (EAB): a key ID and an HMAC key from your account with them."/>
     <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="7" ClipToBounds="True" Margin="0,0,0,8">
      <DataGrid ItemsSource="{Binding CertificateAuthorityList}" SelectedItem="{Binding SelectedCertificateAuthority}" Height="130" AutomationProperties.Name="Certificate authorities">
       <DataGrid.Columns>
@@ -138,7 +138,7 @@
 
    <GroupBox Header="Reminders" Margin="0,0,0,14"><StackPanel>
     <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,14"
-               Text="One digest a day to every notification channel, only when a certificate needs attention: one from another provider that must be ordered again, a manual DNS certificate that must be renewed by hand, an automatic renewal that is failing or late, or an expired certificate. It repeats until the certificate is renewed. Turn reminders off or snooze them per certificate on Certificate Details."/>
+               Text="One digest a day to every notification channel, only when a certificate needs attention: one from another provider that must be ordered again, a manual DNS certificate that must be renewed by hand, an automatic renewal that is failing or late, or an expired certificate. It repeats until the certificate is renewed. Turn reminders off or snooze them per certificate, under Reminders on the certificate."/>
     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
      <StackPanel Margin="0,0,24,0"><TextBlock Text="START REMINDING (DAYS BEFORE EXPIRY)" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding ReminderStartDays}" Width="120" HorizontalAlignment="Left" AutomationProperties.Name="Start reminding, days before expiry"/></StackPanel>
      <StackPanel Grid.Column="1" Margin="0,0,24,0"><TextBlock Text="REPEAT EVERY (DAYS)" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding ReminderRepeatDays}" Width="120" HorizontalAlignment="Left" AutomationProperties.Name="Repeat every, days"/></StackPanel>

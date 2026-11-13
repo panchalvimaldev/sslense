@@ -79,9 +79,16 @@ public partial class CertificateDetailsViewModel : ObservableObject
         IReminderService reminderService,
         ICertificateSharingService sharingService,
         IIisService iisService,
-        IDeploymentService deploymentService)
+        IDeploymentService deploymentService,
+        InstallRenewalViewModel installRenewal)
     {
         _deploymentService = deploymentService;
+        InstallRenewal = installRenewal;
+        installRenewal.Installed += () =>
+        {
+            _ = _refreshCommand?.ExecuteAsync(null);
+            CertificatesChanged?.Invoke(null);
+        };
         _addDeploymentStepCommand = new AsyncRelayCommand(AddDeploymentStepAsync, () => CanOperate() && SelectedDeploymentKind is not null && !string.IsNullOrWhiteSpace(DeploymentValue));
         _removeDeploymentStepCommand = new AsyncRelayCommand<DeploymentStepRow>(RemoveDeploymentStepAsync, row => CanOperate() && row is not null);
         _runDeploymentCommand = new AsyncRelayCommand(RunDeploymentAsync, () => CanOperate() && DeploymentSteps.Count > 0);
@@ -96,7 +103,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
         _renewalService = renewalService;
         _logger = logger;
         _navigation = navigation;
-        OrderReplacementCommand = new RelayCommand(() => _navigation.Navigate("Other Providers", SelectedSite), () => !IsBusy && IsImported);
+        InstallRenewalCommand = new RelayCommand(() => { if (Summary is { } row) _ = InstallRenewal.OpenAsync(row); }, () => !IsBusy && IsImported);
         _refreshCommand = new AsyncRelayCommand(RefreshAsync, CanOperate);
         _renewCommand = new AsyncRelayCommand(RenewAsync, () => CanOperate() && !IsImported && !IsManualDns);
         _removeCommand = new AsyncRelayCommand(RemoveAsync, CanOperate);
@@ -195,8 +202,11 @@ public partial class CertificateDetailsViewModel : ObservableObject
     public IAsyncRelayCommand RenewCommand => _renewCommand;
     public IAsyncRelayCommand RemoveCommand => _removeCommand;
 
-    /// <summary>Imported certificates are replaced by ordering again from their provider; SSLense cannot renew them.</summary>
-    public IRelayCommand OrderReplacementCommand { get; }
+    /// <summary>A certificate bought from a provider is renewed by the provider; this installs the renewed one.</summary>
+    public IRelayCommand InstallRenewalCommand { get; }
+
+    /// <summary>The Install renewal dialog, shown over the window.</summary>
+    public InstallRenewalViewModel InstallRenewal { get; }
 
     public IAsyncRelayCommand ApplyReminderCommand => _applyReminderCommand;
 
@@ -518,7 +528,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
     {
         (RenewByHandCommand as RelayCommand)?.NotifyCanExecuteChanged();
         _refreshCommand?.NotifyCanExecuteChanged(); _renewCommand?.NotifyCanExecuteChanged(); _removeCommand?.NotifyCanExecuteChanged();
-        (OrderReplacementCommand as RelayCommand)?.NotifyCanExecuteChanged();
+        (InstallRenewalCommand as RelayCommand)?.NotifyCanExecuteChanged();
         _applyReminderCommand?.NotifyCanExecuteChanged();
         _addSiteCommand?.NotifyCanExecuteChanged();
         _stopManagingCommand?.NotifyCanExecuteChanged();

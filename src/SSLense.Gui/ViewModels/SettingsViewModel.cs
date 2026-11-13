@@ -260,7 +260,7 @@ public partial class SettingsViewModel : ObservableObject
         NewCaEabHmacKey = string.Empty; NewCaEabKeyId = string.Empty; NewCaName = string.Empty;
         NewCaDirectory = string.Empty; NewCaIsTest = false; NewCaCaaDomain = string.Empty;
         await LoadCertificateAuthoritiesAsync(ct).ConfigureAwait(true);
-        ResultMessage = $"Certificate authority '{added.Name}' added as '{added.Id}'. Choose it in the Issue wizard." +
+        ResultMessage = $"Certificate authority '{added.Name}' added as '{added.Id}'. Choose it in Add certificate, Free and automatic." +
                         (added.IsTest ? string.Empty : " Its certificates are trusted, so issuing asks for confirmation.");
     }, token);
 

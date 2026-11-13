@@ -159,5 +159,9 @@
             <views:CertificateDetailsView Grid.Row="1" DataContext="{Binding Details}"
                                           Visibility="{Binding HasCertificate, Converter={StaticResource BooleanToVisibilityConverter}}" />
         </Grid>
+
+        <!-- Install renewal, over the whole page while it is open. -->
+        <views:InstallRenewalView Grid.ColumnSpan="2" DataContext="{Binding Details.InstallRenewal}"
+                                  Visibility="{Binding IsOpen, Converter={StaticResource BooleanToVisibilityConverter}}" />
     </Grid>
 </UserControl>

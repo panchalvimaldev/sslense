@@ -17,6 +17,7 @@ public sealed class CertificateRowViewModel
             _ => $"{status.SiteName} +{others.Count} sites"
         };
         Hosts = string.Join(", ", status.Hosts.Concat(others.SelectMany(target => target.Hosts)));
+        HostList = status.Hosts;
         Title = status.Hosts.Count > 0 ? status.Hosts[0] : status.SiteName;
         IsNoSite = status.NoSite;
         IisSite = status.NoSite ? status.SiteName : ManagedCertificateNames.IisSiteOf(status.SiteName);
@@ -123,6 +124,9 @@ public sealed class CertificateRowViewModel
     public string GroupName { get; }
 
     public bool IsNoSite { get; }
+
+    /// <summary>The certificate's own host names on its site, not those of other sites sharing it.</summary>
+    public IReadOnlyList<string> HostList { get; }
 
     public string Hosts { get; }
 

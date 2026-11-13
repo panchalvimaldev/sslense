@@ -37,7 +37,10 @@ public sealed class GuiStartupTests
             [
                 (new DashboardView(), provider.GetRequiredService<DashboardViewModel>()),
                 (new IssueCertificateView(), provider.GetRequiredService<IssueCertificateViewModel>()),
-                (new OtherProvidersView(), provider.GetRequiredService<OtherProvidersViewModel>()),
+                (new ImportPfxView(), provider.GetRequiredService<OtherProvidersViewModel>()),
+                (new CertificateRequestView(), provider.GetRequiredService<OtherProvidersViewModel>()),
+                (new WatchCertificatesView(), provider.GetRequiredService<OtherProvidersViewModel>()),
+                (new InstallRenewalView(), provider.GetRequiredService<InstallRenewalViewModel>()),
                 (new CertificateDetailsView(), provider.GetRequiredService<CertificateDetailsViewModel>()),
                 (new SettingsView(), provider.GetRequiredService<SettingsViewModel>()),
                 (new HealthView(), provider.GetRequiredService<HealthViewModel>()),
@@ -80,6 +83,7 @@ public sealed class GuiStartupTests
         services.AddSingleton<LogsViewModel>();
         services.AddSingleton<AddCertificateViewModel>();
         services.AddSingleton<ActivityViewModel>();
+        services.AddSingleton<InstallRenewalViewModel>();
         services.AddSingleton<MainViewModel>();
 
         var coreServices = typeof(MainViewModel).Assembly.GetTypes()

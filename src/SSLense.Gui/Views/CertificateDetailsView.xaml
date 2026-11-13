@@ -37,7 +37,7 @@
         <!-- The certificate, and the one action that fits it. -->
         <DockPanel Margin="0,0,0,8">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
-                <Button Content="Install renewal" Command="{Binding OrderReplacementCommand}" Style="{StaticResource PrimaryButton}"
+                <Button Content="Install renewal" Command="{Binding InstallRenewalCommand}" Style="{StaticResource PrimaryButton}"
                         Visibility="{Binding Summary.IsImported, Converter={StaticResource BooleanToVisibilityConverter}}"
                         ToolTip="Install the renewed certificate from your provider. Only this certificate's bindings change." />
                 <Button Content="Renew by hand" Command="{Binding RenewByHandCommand}" Style="{StaticResource PrimaryButton}"

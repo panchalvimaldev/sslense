@@ -1,0 +1,90 @@
+<UserControl x:Class="SSLense.Gui.Views.InstallRenewalView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Install renewal: a dialog over the window, in three steps (docs/design/gui-redesign.md, step 2). -->
+    <Grid Background="#73172033">
+        <Border Background="White" CornerRadius="10" Width="600" VerticalAlignment="Top" Margin="16,70,16,16" Padding="26,22">
+            <Border.Effect><DropShadowEffect BlurRadius="30" ShadowDepth="6" Opacity="0.25" /></Border.Effect>
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding StepText}" Style="{StaticResource CaptionText}" Margin="0,3,0,16" />
+
+                <Border Margin="0,0,0,12">
+                    <Border.Style><Style TargetType="Border" BasedOn="{StaticResource ErrorBanner}">
+                        <Style.Triggers><DataTrigger Binding="{Binding ErrorMessage}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers>
+                    </Style></Border.Style>
+                    <TextBlock Text="{Binding ErrorMessage}" Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                </Border>
+
+                <!-- 1. The file from the provider. -->
+                <StackPanel Visibility="{Binding IsChooseStep, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="What did your provider give you?" Style="{StaticResource FieldLabel}" />
+                    <RadioButton Content="A PFX file, with its password" IsChecked="{Binding UsePfx}" Margin="0,4,0,6" GroupName="RenewalFile" />
+                    <RadioButton IsChecked="{Binding UseRequest, Mode=OneWay}" Checked="OnUseRequestChecked" GroupName="RenewalFile" Margin="0,0,0,12"
+                                 IsEnabled="{Binding HasPendingRequest}"
+                                 ToolTip="Available when SSLense created the request (CSR) for this certificate.">
+                        <TextBlock TextWrapping="Wrap" Text="A certificate file (.crt), for the request SSLense created" />
+                    </RadioButton>
+
+                    <StackPanel Visibility="{Binding UsePfx, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="PFX file" Style="{StaticResource FieldLabel}" />
+                        <DockPanel Margin="0,0,0,12">
+                            <Button DockPanel.Dock="Right" Content="Browse…" Click="OnBrowsePfxClick" Margin="8,0,0,0" />
+                            <TextBox Text="{Binding PfxPath, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="PFX file" />
+                        </DockPanel>
+                        <TextBlock Text="Password" Style="{StaticResource FieldLabel}" />
+                        <PasswordBox x:Name="PfxPasswordBox" PasswordChanged="OnPfxPasswordChanged" AutomationProperties.Name="PFX password" />
+                    </StackPanel>
+
+                    <StackPanel Visibility="{Binding UseRequest, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <TextBlock Text="{Binding PendingRequestText}" Style="{StaticResource CaptionText}" FontSize="13" TextWrapping="Wrap" Margin="0,0,0,12" />
+                        <TextBlock Text="Certificate (.crt, .cer or .pem)" Style="{StaticResource FieldLabel}" />
+                        <DockPanel Margin="0,0,0,12">
+                            <Button DockPanel.Dock="Right" Content="Browse…" Click="OnBrowseCertificateClick" Margin="8,0,0,0" />
+                            <TextBox Text="{Binding CertificatePath, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Certificate file" />
+                        </DockPanel>
+                        <TextBlock Text="Intermediate bundle (optional; often named ca-bundle)" Style="{StaticResource FieldLabel}" />
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Browse…" Click="OnBrowseChainClick" Margin="8,0,0,0" />
+                            <TextBox Text="{Binding ChainPath, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Intermediate bundle file" />
+                        </DockPanel>
+                    </StackPanel>
+
+                    <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,14,0,0">
+                        <Run Text="Does your provider ask for a request (CSR) first?" />
+                        <Hyperlink Command="{Binding CreateRequestCommand}">Create a request</Hyperlink>
+                    </TextBlock>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+                        <Button Content="Cancel" Command="{Binding CloseCommand}" Margin="0,0,8,0" />
+                        <Button Content="Next" Command="{Binding NextCommand}" Style="{StaticResource PrimaryButton}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- 2. What will happen. -->
+                <StackPanel Visibility="{Binding IsConfirmStep, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="{Binding ConfirmText}" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" LineHeight="20" />
+                    <TextBlock Text="Working… this takes a few seconds." Foreground="{StaticResource MutedTextBrush}" Margin="0,12,0,0"
+                               Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    <ItemsControl ItemsSource="{Binding ProgressLines}" Margin="0,6,0,0" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" /></DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+                        <Button Content="Back" Command="{Binding BackCommand}" Margin="0,0,8,0" />
+                        <Button Content="Replace certificate" Command="{Binding InstallCommand}" Style="{StaticResource PrimaryButton}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- 3. Done. -->
+                <StackPanel Visibility="{Binding IsDoneStep, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <Border Style="{StaticResource SuccessBanner}">
+                        <TextBlock Text="{Binding ResultText}" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                    </Border>
+                    <Button Content="Close" Command="{Binding CloseCommand}" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Right" Margin="0,20,0,0" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

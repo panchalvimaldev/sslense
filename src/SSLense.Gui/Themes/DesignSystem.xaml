@@ -1,5 +1,6 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:converters="clr-namespace:SSLense.Gui.Converters">
     <!-- Brand and semantic palette -->
     <Color x:Key="ColorBrand">#2563EB</Color>
     <Color x:Key="ColorBrandHover">#1D4ED8</Color>
@@ -36,6 +37,7 @@
     <SolidColorBrush x:Key="SidebarHoverBrush" Color="{StaticResource ColorSidebarHover}" />
 
     <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+    <converters:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter" />
 
     <!-- Typography -->
     <Style x:Key="PageTitle" TargetType="TextBlock">

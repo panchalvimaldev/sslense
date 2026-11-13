@@ -71,7 +71,19 @@ public partial class OtherProvidersViewModel : ObservableObject
         _cancelRequestCommand = new AsyncRelayCommand(CancelRequestAsync, () => !IsBusy && SelectedPending is not null);
         _importCommand = new AsyncRelayCommand(ImportAsync, () => !IsBusy && ImportSite is not null && PfxPath.Length > 0);
         _adoptCommand = new AsyncRelayCommand(AdoptAsync, () => !IsBusy && SelectedBinding?.CanAdopt == true);
+        _adoptCheckedCommand = new AsyncRelayCommand(AdoptCheckedAsync, () => !IsBusy && CheckedCount > 0);
     }
+
+    private readonly AsyncRelayCommand _adoptCheckedCommand;
+
+    /// <summary>Starts watching every ticked binding's certificate, without changing IIS.</summary>
+    public IAsyncRelayCommand AdoptCheckedCommand => _adoptCheckedCommand;
+
+    public int CheckedCount => Bindings.Count(row => row.IsChecked && row.CanAdopt);
+
+    public string AdoptCheckedLabel => CheckedCount == 1 ? "Watch 1 certificate" : $"Watch {CheckedCount} certificates";
+
+    public bool HasPendingRequests => PendingRequests.Count > 0;
 
     public ObservableCollection<IisSiteOption> Sites { get; } = [];
     public IReadOnlyList<KeyTypeOption> KeyTypes { get; }
@@ -169,9 +181,52 @@ public partial class OtherProvidersViewModel : ObservableObject
         Bindings.Clear();
         foreach (var binding in await _service.DiscoverAsync(cancellationToken).ConfigureAwait(true))
         {
-            Bindings.Add(new DiscoveredBindingRowViewModel(binding));
+            var row = new DiscoveredBindingRowViewModel(binding);
+            row.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName != nameof(DiscoveredBindingRowViewModel.IsChecked)) return;
+                OnPropertyChanged(nameof(CheckedCount));
+                OnPropertyChanged(nameof(AdoptCheckedLabel));
+                _adoptCheckedCommand.NotifyCanExecuteChanged();
+            };
+            Bindings.Add(row);
         }
+
+        OnPropertyChanged(nameof(CheckedCount));
+        OnPropertyChanged(nameof(AdoptCheckedLabel));
+        _adoptCheckedCommand.NotifyCanExecuteChanged();
     }
+
+    private Task AdoptCheckedAsync(CancellationToken cancellationToken) => RunAsync(async token =>
+    {
+        var watched = new List<string>();
+        var failed = new List<string>();
+        foreach (var binding in Bindings.Where(row => row.IsChecked && row.CanAdopt).Select(row => row.Binding).ToArray())
+        {
+            try
+            {
+                var record = await OffUiThread(() => _service.AdoptAsync(binding.SiteName, binding.Thumbprint, token)).ConfigureAwait(true);
+                watched.Add(record.Hosts.Count > 0 ? record.Hosts[0] : record.SiteName);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                _logger.LogWarning(exception, "Could not adopt the certificate bound to {Site} {Host}", binding.SiteName, binding.Host);
+                failed.Add($"{binding.SiteName} {binding.Host}: {exception.Message}");
+            }
+        }
+
+        if (watched.Count > 0)
+        {
+            ResultMessage = $"Now watching {string.Join(", ", watched)}. Nothing in IIS was changed.";
+        }
+
+        if (failed.Count > 0)
+        {
+            ErrorMessage = "Not watched: " + string.Join(" ", failed);
+        }
+
+        await LoadAsync(token).ConfigureAwait(true);
+    }, cancellationToken);
 
     private async Task LoadPendingAsync(string? selectSite, CancellationToken cancellationToken)
     {
@@ -183,6 +238,7 @@ public partial class OtherProvidersViewModel : ObservableObject
 
         SelectedPending = PendingRequests.FirstOrDefault(row => string.Equals(row.SiteName, selectSite, StringComparison.OrdinalIgnoreCase))
             ?? PendingRequests.FirstOrDefault();
+        OnPropertyChanged(nameof(HasPendingRequests));
     }
 
     private Task CreateRequestAsync(CancellationToken cancellationToken) => RunAsync(async token =>
@@ -303,5 +359,6 @@ public partial class OtherProvidersViewModel : ObservableObject
         _cancelRequestCommand.NotifyCanExecuteChanged();
         _importCommand.NotifyCanExecuteChanged();
         _adoptCommand.NotifyCanExecuteChanged();
+        _adoptCheckedCommand?.NotifyCanExecuteChanged();
     }
 }

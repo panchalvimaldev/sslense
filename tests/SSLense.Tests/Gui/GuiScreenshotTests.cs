@@ -13,6 +13,7 @@ using SSLense.Core.Certificates;
 using SSLense.Core.Config;
 using SSLense.Core.Deployment;
 using SSLense.Core.Diagnostics;
+using SSLense.Core.Iis;
 using SSLense.Core.Reminders;
 using SSLense.Core.Renewal;
 using SSLense.Gui;
@@ -80,6 +81,37 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
             Assert.True(main.IsAddingCertificate);
             Save(window, folder, "08-add-certificate");
 
+            var add = provider.GetRequiredService<AddCertificateViewModel>();
+            string[] sources = [AddCertificateViewModel.Automatic, AddCertificateViewModel.File, AddCertificateViewModel.Request, AddCertificateViewModel.Watch];
+            for (var index = 0; index < sources.Length; index++)
+            {
+                add.Sources[index].Choose.Execute(null);
+                Settle();
+                Assert.Equal(sources[index], add.Source);
+                Save(window, folder, $"{9 + index:00}-add-{sources[index]}");
+            }
+
+            Assert.Equal(2, add.OtherProviders.Bindings.Count(row => row.CanAdopt));
+            add.OtherProviders.Bindings.First(row => row.CanAdopt).IsChecked = true;
+            Assert.Equal("Watch 1 certificate", add.OtherProviders.AdoptCheckedLabel);
+
+            // Install renewal, from a bought certificate that is due.
+            main.SelectedTab = main.Tabs[0];
+            Settle();
+            certificates.SelectedCertificate = certificates.Certificates.Single(row => row.Title == "www.domain3.co.uk");
+            Settle();
+            certificates.Details.InstallRenewalCommand.Execute(null);
+            Settle();
+            var dialog = certificates.Details.InstallRenewal;
+            Assert.True(dialog.IsOpen);
+            Assert.True(dialog.UsePfx);
+            Save(window, folder, "13-install-renewal");
+            dialog.PfxPath = @"C:\Users\admin\Downloads\domain3-renewed.pfx";
+            dialog.NextCommand.Execute(null);
+            Settle();
+            Save(window, folder, "14-install-renewal-confirm");
+            dialog.CloseCommand.Execute(null);
+
             window.Close();
         });
         output.WriteLine($"Screens saved to {folder}");
@@ -138,6 +170,7 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
         services.AddSingleton<LogsViewModel>();
         services.AddSingleton<AddCertificateViewModel>();
         services.AddSingleton<ActivityViewModel>();
+        services.AddSingleton<InstallRenewalViewModel>();
         services.AddSingleton<MainViewModel>();
 
         var records = SampleRecords();
@@ -153,6 +186,30 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
         var deployment = new Mock<IDeploymentService> { DefaultValue = DefaultValue.Mock };
         deployment.Setup(value => value.ListAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string site, CancellationToken _) => new DeploymentOverview(site, "AB12", [], null, false));
+        var imported = new Mock<IImportedCertificateService> { DefaultValue = DefaultValue.Mock };
+        imported.Setup(value => value.DiscoverAsync(It.IsAny<CancellationToken>())).ReturnsAsync(
+        [
+            new DiscoveredBinding("Main", "www.domain1.co.uk", 443, "AA01", "Sectigo RSA Domain Validation Secure Server CA", Now.AddDays(40), true, "Main"),
+            new DiscoveredBinding("Main", "www.domain2.co.uk", 443, "AA02", "Sectigo RSA Domain Validation Secure Server CA", Now.AddDays(60), true, "Main/www.domain2.co.uk"),
+            new DiscoveredBinding("Main", "www.domain3.co.uk", 443, "AA03", "Sectigo RSA Domain Validation Secure Server CA", Now.AddDays(9), true, "Main/www.domain3.co.uk"),
+            new DiscoveredBinding("Intranet", "intranet.example.local", 443, "AA04", "Example Internal CA", Now.AddDays(110), false),
+            new DiscoveredBinding("Legacy", "legacy.example.com", 443, "AA05", "DigiCert Global G2 TLS RSA SHA256 2020 CA1", Now.AddDays(17), false),
+            new DiscoveredBinding("Legacy", "old.example.com", 443, null, null, null, false)
+        ]);
+        services.AddSingleton(imported.Object);
+        var pending = new Mock<IPendingRequestStore> { DefaultValue = DefaultValue.Mock };
+        pending.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(
+            [new PendingCertificateRequest("Main/www.domain4.co.uk", ["www.domain4.co.uk"], "key", "RSA2048",
+                "-----BEGIN CERTIFICATE REQUEST-----\nMIIC...sample...\n-----END CERTIFICATE REQUEST-----", Now.AddDays(-2))]);
+        pending.Setup(value => value.GetAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync((PendingCertificateRequest?)null);
+        services.AddSingleton(pending.Object);
+        var iis = new Mock<IIisService> { DefaultValue = DefaultValue.Mock };
+        iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(
+        [
+            new IisSite(1, "Main", "Started", @"C:\inetpub\main", [new IisBinding("https", "*", 443, "www.domain1.co.uk", "AA01", "My", true)]),
+            new IisSite(2, "Blog", "Started", @"C:\inetpub\blog", [new IisBinding("http", "*", 80, "blog.example.com", null, null, false)])
+        ]);
+        services.AddSingleton(iis.Object);
         var settings = new Mock<ISettingsService> { DefaultValue = DefaultValue.Mock };
         settings.Setup(value => value.GetAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new AppConfig());
         services.AddSingleton(settings.Object);
@@ -164,7 +221,7 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
         services.AddSingleton(deployment.Object);
         services.AddSingleton(health.Object);
 
-        var configured = new HashSet<Type> { typeof(IRenewalService), typeof(ICertificateManagementService), typeof(IReminderService), typeof(IDeploymentService), typeof(IHealthCheckService), typeof(ISettingsService) };
+        var configured = new HashSet<Type> { typeof(IRenewalService), typeof(ICertificateManagementService), typeof(IReminderService), typeof(IDeploymentService), typeof(IHealthCheckService), typeof(ISettingsService), typeof(IImportedCertificateService), typeof(IPendingRequestStore), typeof(IIisService) };
         var coreServices = typeof(MainViewModel).Assembly.GetTypes()
             .Where(type => type.Namespace == typeof(MainViewModel).Namespace && type.IsClass && !type.IsAbstract)
             .SelectMany(type => type.GetConstructors())

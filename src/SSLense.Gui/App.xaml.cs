@@ -45,6 +45,7 @@ public partial class App : Application
             builder.Services.AddSingleton<LogsViewModel>();
             builder.Services.AddSingleton<AddCertificateViewModel>();
             builder.Services.AddSingleton<ActivityViewModel>();
+            builder.Services.AddSingleton<InstallRenewalViewModel>();
             builder.Services.AddSingleton<MainViewModel>();
             builder.Services.AddSingleton<MainWindow>();
             _host = builder.Build();

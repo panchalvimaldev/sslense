@@ -4,10 +4,7 @@
  <UserControl.Resources><BooleanToVisibilityConverter x:Key="BoolToVisibility" /></UserControl.Resources>
  <Grid>
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-  <StackPanel Margin="0,0,0,18">
-   <TextBlock Text="Issue a certificate" Style="{StaticResource PageTitle}"/>
-   <TextBlock Text="Configure, validate, and install a certificate from Let's Encrypt or another ACME certificate authority." Style="{StaticResource PageSubtitle}"/>
-  </StackPanel>
+  <!-- Row 0 is empty: the page title is Add certificate's. -->
 
   <Grid Grid.Row="1" Margin="16,0,16,20">
    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -24,7 +21,7 @@
     <StackPanel Visibility="{Binding IsStepOne, Converter={StaticResource BoolToVisibility}}">
      <TextBlock Text="Choose an IIS site" Style="{StaticResource SectionTitle}"/>
      <TextBlock Text="Select the website and host names SSLense should secure." Style="{StaticResource PageSubtitle}" Margin="0,4,0,20"/>
-     <CheckBox Content="No IIS site: for Remote Desktop, SQL Server, Exchange, or another service" IsChecked="{Binding NoSite}" Margin="0,0,0,10" AutomationProperties.Name="Certificate with no IIS site" ToolTip="Nothing is bound in IIS. After issuing, add deployment steps in Certificate Details to hand the certificate to its service. Needs DNS validation."/>
+     <CheckBox Content="No IIS site: for Remote Desktop, SQL Server, Exchange, or another service" IsChecked="{Binding NoSite}" Margin="0,0,0,10" AutomationProperties.Name="Certificate with no IIS site" ToolTip="Nothing is bound in IIS. After issuing, add steps under After install on the certificate to hand the certificate to its service. Needs DNS validation."/>
      <StackPanel Visibility="{Binding NoSite, Converter={StaticResource BoolToVisibility}}" Margin="0,0,0,10">
       <TextBlock Text="NAME" Style="{StaticResource FieldLabel}"/>
       <TextBox Text="{Binding NoSiteName, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Certificate name"/>
@@ -37,12 +34,12 @@
        <TextBlock Text="This site already serves HTTPS" FontWeight="SemiBold"/>
        <TextBlock Text="{Binding SelectedSite.HttpsSummary}" TextWrapping="Wrap" Margin="0,3,0,0"/>
        <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0"
-                  Text="Issuing replaces that certificate for the host names you select, for example to move from a certificate you renew by hand to one SSLense renews automatically. To keep it and only get expiry reminders, adopt it on the Other Providers page instead."/>
+                  Text="Issuing replaces that certificate for the host names you select, for example to move from a certificate you renew by hand to one SSLense renews automatically. To keep it and only get expiry reminders, watch it instead: Add certificate, then It's already installed in IIS."/>
        <CheckBox Content="Replace the current certificate even if it is still valid" IsChecked="{Binding ReplaceExisting}" Margin="0,8,0,0" AutomationProperties.Name="Replace the current certificate even if it is still valid"/>
       </StackPanel>
      </Border>
      </StackPanel>
-     <CheckBox Content="Exportable private key, to export it to PFX or PEM files or the IIS Central Certificate Store" IsChecked="{Binding ExportableKey}" Margin="0,4,0,0" AutomationProperties.Name="Exportable private key" ToolTip="Off by default: a key that cannot be exported cannot be copied off this server. Turn it on only to add export steps in Certificate Details. Kept at every renewal."/>
+     <CheckBox Content="Exportable private key, to export it to PFX or PEM files or the IIS Central Certificate Store" IsChecked="{Binding ExportableKey}" Margin="0,4,0,0" AutomationProperties.Name="Exportable private key" ToolTip="Off by default: a key that cannot be exported cannot be copied off this server. Turn it on only to add export steps under After install on the certificate. Kept at every renewal."/>
      <Expander Header="Advanced: key type, chain, and profile" Margin="0,8,0,0" AutomationProperties.Name="Advanced options">
       <StackPanel Margin="0,8,0,0">
        <TextBlock Text="KEY TYPE" Style="{StaticResource FieldLabel}"/>

@@ -29,7 +29,7 @@ SSLense is a Windows application for IIS administrators. It gets free Let's Encr
 2. Open **SSLense** from the Start menu.
 3. Then either:
    - **Let's Encrypt:** **Add certificate** → **Free and automatic**, choose the site and host names, run the pre-flight checks, and issue. Use staging first; production needs an explicit confirmation. With HTTP validation, the site needs a public DNS record and a port 80 binding. For a wildcard, or without port 80, choose DNS validation; see [DNS validation and wildcard certificates](#dns-validation-and-wildcard-certificates).
-   - **A certificate you bought:** **Add certificate** → **Bought from a provider, or already in IIS** → select the site's HTTPS binding → **Adopt selected**.
+   - **A certificate you bought:** **Add certificate** → **It's already installed in IIS** → tick its HTTPS binding → **Watch**. When it is due, select it and choose **Install renewal**.
 4. Under **Settings**, add an email or chat channel and click **Send test**, then check **Settings → Reminders**.
 
 From then on the service renews Let's Encrypt certificates on its own, and the daily digest reminds you about anything that needs you. Everything in the app is also available from the command line; see [CLI usage](#cli-usage).
@@ -41,9 +41,9 @@ From then on the service renews Let's Encrypt certificates on its own, and the d
 
 ![Add certificate, free and automatic: choosing the IIS site and host names](docs/images/SSLense-IssueCertificate.png)
 
-**Add certificate, bought from a provider:** create a request for a certificate you buy elsewhere, complete it, import a PFX, or adopt one already in IIS.
+**Add certificate:** first, where the certificate comes from: free and automatic, bought with its file, bought and the provider needs a request (CSR), or already installed in IIS.
 
-![Add certificate, bought from a provider: requesting, completing, and importing certificates from other providers](docs/images/SSLense-OtherProviders.png)
+![Add certificate: where the certificate comes from](docs/images/SSLense-OtherProviders.png)
 
 **Settings → Reminders:** when the daily digest starts, how often it repeats, and when it is sent.
 
@@ -394,7 +394,7 @@ SSLense.Cli ca remove --ca zerossl             # refused while a certificate ren
 
 ### Certificates from other providers (bring your own)
 
-Some sites use a certificate bought from a provider such as 123-reg, Sectigo or DigiCert, without ACME. (If the provider offers ACME, add it as a certificate authority instead, and SSLense renews it automatically.) In the desktop app, use **Add certificate** → **Bought from a provider, or already in IIS**; when one is due, select it and choose **Install renewal**. SSLense installs and binds these certificates with the same safeguards (validation first, HTTPS verification, automatic rollback) and reminds you to order the next one. It never tries to renew them itself.
+Some sites use a certificate bought from a provider such as 123-reg, Sectigo or DigiCert, without ACME. (If the provider offers ACME, add it as a certificate authority instead, and SSLense renews it automatically.) In the desktop app, use **Add certificate** and choose a certificate you bought, or one already installed in IIS; when one is due, select it and choose **Install renewal**. SSLense installs and binds these certificates with the same safeguards (validation first, HTTPS verification, automatic rollback) and reminds you to order the next one. It never tries to renew them itself.
 
 Order a certificate with a request (CSR) created on this server. The private key is a non-exportable machine key that never leaves the server:
 
@@ -580,8 +580,8 @@ Windows displays an administrator elevation prompt because the application manif
 
 - Three tabs, **Certificates**, **Activity** and **Settings**, and two buttons for everything: **Renew all due** and **Add certificate**
 - **Certificates:** every certificate in a list grouped by IIS site, with its days left in green, amber or red, its kind (automatic, by hand, or bought), and a filter. With none selected, a summary and the certificates that need you, each with what to do
-- **A selected certificate:** what state it is in and what to do, in plain words; one main button that fits it (**Renew now**, **Renew by hand** for manual DNS, **Install renewal** for one you bought); and its sections: Status, Certificate, Sites (when it can be shared), Reminders, After install (deployment steps), and History. Removing it is in the **⋯** menu, named for what it does, with a confirmation
-- **Add certificate:** free and automatic, with the three-step wizard (IIS site, HTTP or DNS validation, certificate names for wildcards, a choice of certificate authority with a confirmation for trusted ones, pre-flight checks, the records to create for manual DNS validation, live progress, and cancellation); or bought from a provider, or already in IIS: create a request (CSR) to copy or save, complete it with the issued certificate and bundle, import a PFX, or adopt a certificate already bound in IIS
+- **A selected certificate:** what state it is in and what to do, in plain words; one main button that fits it (**Renew now**, **Renew by hand** for manual DNS, **Install renewal** for one you bought, a short dialog: choose the PFX or the provider's certificate file, confirm, done); and its sections: Status, Certificate, Sites (when it can be shared), Reminders, After install (deployment steps), and History. Removing it is in the **⋯** menu, named for what it does, with a confirmation
+- **Add certificate:** free and automatic, with the three-step wizard (IIS site, HTTP or DNS validation, certificate names for wildcards, a choice of certificate authority with a confirmation for trusted ones, pre-flight checks, the records to create for manual DNS validation, live progress, and cancellation); bought, with its PFX file; bought, with a request (CSR) to copy or save, completed with the certificate and bundle the provider sends; or already in IIS, ticking the bindings to watch without changing IIS. It starts by asking where the certificate comes from
 - **Activity:** the progress of renewals started in the app, the health checks with a diagnostic bundle, and a live log with level filtering
 - **Settings:** general, certificate authority, DNS provider (Cloudflare, acme-dns or your own script), notification, reminder, and Windows Service settings
 - The health check's result in the header, and cancellable operations with live progress
