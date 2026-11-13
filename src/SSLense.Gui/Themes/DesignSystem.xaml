@@ -267,4 +267,122 @@
         <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True" />
         <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling" />
     </Style>
+
+    <!-- The window's tabs (Certificates, Activity, Settings): a horizontal list with the selected one underlined. -->
+    <Style x:Key="WindowTabs" TargetType="ListBox">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+        <Setter Property="ItemsPanel">
+            <Setter.Value><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></Setter.Value>
+        </Setter>
+        <Setter Property="ItemContainerStyle">
+            <Setter.Value>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="Cursor" Value="Hand" />
+                    <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+                    <Setter Property="FontSize" Value="14" />
+                    <Setter Property="FontWeight" Value="SemiBold" />
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="ListBoxItem">
+                                <Border x:Name="Tab" Background="Transparent" BorderBrush="Transparent" BorderThickness="0,0,0,3" Padding="14,0" Margin="0,0,4,0" MinHeight="56">
+                                    <ContentPresenter VerticalAlignment="Center" />
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{StaticResource TextBrush}" /></Trigger>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter TargetName="Tab" Property="BorderBrush" Value="{StaticResource BrandBrush}" />
+                                        <Setter Property="Foreground" Value="{StaticResource BrandBrush}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Section tabs inside a page, such as a certificate's Status, Certificate and History. -->
+    <Style x:Key="SectionTabs" TargetType="TabControl">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0,18,0,0" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabControl">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                            <TabPanel IsItemsHost="True" />
+                        </Border>
+                        <ContentPresenter ContentSource="SelectedContent" Margin="{TemplateBinding Padding}" />
+                    </DockPanel>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style TargetType="TabItem">
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+        <Setter Property="FontSize" Value="13.5" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabItem">
+                    <Border x:Name="Tab" Background="Transparent" BorderBrush="Transparent" BorderThickness="0,0,0,2" Padding="12,0" Margin="0,0,4,-1" MinHeight="42">
+                        <ContentPresenter ContentSource="Header" VerticalAlignment="Center" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{StaticResource TextBrush}" /></Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Tab" Property="BorderBrush" Value="{StaticResource BrandBrush}" />
+                            <Setter Property="Foreground" Value="{StaticResource BrandBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A small coloured dot for a certificate's state, set by its StatusKey: Green, Amber or Red. -->
+    <Style x:Key="StatusDot" TargetType="Ellipse">
+        <Setter Property="Width" Value="10" />
+        <Setter Property="Height" Value="10" />
+        <Setter Property="Fill" Value="{StaticResource SuccessBrush}" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding StatusKey}" Value="Amber"><Setter Property="Fill" Value="#D97706" /></DataTrigger>
+            <DataTrigger Binding="{Binding StatusKey}" Value="Red"><Setter Property="Fill" Value="{StaticResource DangerBrush}" /></DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="StatusText" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding StatusKey}" Value="Amber"><Setter Property="Foreground" Value="{StaticResource WarningBrush}" /></DataTrigger>
+            <DataTrigger Binding="{Binding StatusKey}" Value="Red"><Setter Property="Foreground" Value="{StaticResource DangerBrush}" /></DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <!-- The status card at the top of a certificate's Status section. -->
+    <Style x:Key="StatusCard" TargetType="Border" BasedOn="{StaticResource Card}">
+        <Setter Property="Background" Value="{StaticResource SuccessSoftBrush}" />
+        <Setter Property="BorderBrush" Value="#BBF7D0" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding StatusKey}" Value="Amber"><Setter Property="Background" Value="{StaticResource WarningSoftBrush}" /><Setter Property="BorderBrush" Value="#FCD9A8" /></DataTrigger>
+            <DataTrigger Binding="{Binding StatusKey}" Value="Red"><Setter Property="Background" Value="{StaticResource DangerSoftBrush}" /><Setter Property="BorderBrush" Value="#FECDCA" /></DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="Tag" TargetType="Border">
+        <Setter Property="BorderBrush" Value="#CBD5E1" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="7,1" />
+        <Setter Property="VerticalAlignment" Value="Top" />
+    </Style>
+    <Style x:Key="DetailTitle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="22" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
 </ResourceDictionary>

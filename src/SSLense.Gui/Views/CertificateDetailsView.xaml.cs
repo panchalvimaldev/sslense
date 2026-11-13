@@ -23,15 +23,28 @@ public partial class CertificateDetailsView : UserControl
         if (DataContext is CertificateDetailsViewModel viewModel) viewModel.DeploymentPassword = DeploymentPasswordBox.Password;
     }
 
+    /// <summary>Opens the ⋯ menu under its button.</summary>
+    private void OnMoreClick(object sender, RoutedEventArgs e)
+    {
+        if (MoreButton.ContextMenu is not { } menu) return;
+        menu.DataContext = DataContext;
+        menu.PlacementTarget = MoreButton;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        menu.IsOpen = true;
+    }
+
     private async void OnRemoveClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is not CertificateDetailsViewModel viewModel || viewModel.SelectedSite is null) return;
         var sites = string.Join(", ", viewModel.SharedSites.Select(row => $"'{row.SiteName}'"));
+        var name = viewModel.Summary?.Title ?? viewModel.SelectedSite;
         var answer = MessageBox.Show(
-            viewModel.SharedSites.Count > 1
-                ? $"Remove the managed certificate and its HTTPS bindings on every site using it: {sites}?"
-                : $"Remove the managed certificate and matching HTTPS bindings for '{viewModel.SelectedSite}'?",
-            "Confirm certificate removal",
+            viewModel.Summary?.IsNoSite == true
+                ? $"Stop managing {name}? It has no IIS site, so no binding changes, and the certificate stays in the Windows certificate store for the services that use it."
+            : viewModel.SharedSites.Count > 1
+                ? $"Remove the certificate for {name} and its HTTPS bindings on every site using it: {sites}?\n\nVisitors get a certificate error on those addresses until another certificate is bound."
+                : $"Remove the certificate for {name} and its HTTPS bindings in IIS?\n\nVisitors get a certificate error on these addresses until another certificate is bound.",
+            "Remove certificate and HTTPS bindings",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning);
         if (answer == MessageBoxResult.Yes) await viewModel.RemoveCommand.ExecuteAsync(null);

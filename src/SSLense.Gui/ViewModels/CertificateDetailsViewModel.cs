@@ -36,6 +36,12 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private bool _isNoSite;
 
     [ObservableProperty] private string? selectedSite;
+
+    /// <summary>The certificate's row in the list: its title, state and what to do, in plain words.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCertificate))]
+    private CertificateRowViewModel? summary;
+
     [ObservableProperty] private bool isBusy;
     [ObservableProperty] private string? errorMessage;
     [ObservableProperty] private string hosts = string.Empty;
@@ -96,8 +102,53 @@ public partial class CertificateDetailsViewModel : ObservableObject
         _removeCommand = new AsyncRelayCommand(RemoveAsync, CanOperate);
         RenewByHandCommand = new RelayCommand(() => _navigation.Navigate("Issue", SelectedSite), () => !IsBusy && IsManualDns);
 
+        SharedSites.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowSites));
+        DeploymentSteps.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasDeploymentSteps));
+        RecentLogLines.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasHistory));
+
         // Last: setting it notifies the commands, so they must all exist by now.
         SelectedDeploymentKind = DeploymentKinds[0];
+    }
+
+    /// <summary>
+    /// Raised when the certificate changed in a way the list shows, with a message to show there when the
+    /// certificate is no longer selected, such as after it was removed.
+    /// </summary>
+    public event Action<string?>? CertificatesChanged;
+
+    public bool HasCertificate => Summary is not null;
+
+    /// <summary>The Sites section: only for a certificate that can be shared, or already is.</summary>
+    public bool ShowSites => CanShare || SharedSites.Count > 1 || HasSitesLeftBehind;
+
+    public bool HasDeploymentSteps => DeploymentSteps.Count > 0;
+
+    public bool HasHistory => RecentLogLines.Count > 0;
+
+    /// <summary>Shows a certificate from the list.</summary>
+    public async Task ShowAsync(CertificateRowViewModel row)
+    {
+        Summary = row;
+        ErrorMessage = null;
+        ResultMessage = string.Empty;
+        _suppressSelectionRefresh = true;
+        SelectedSite = row.SiteName;
+        _suppressSelectionRefresh = false;
+        await RefreshAsync(CancellationToken.None).ConfigureAwait(true);
+    }
+
+    /// <summary>Shows no certificate.</summary>
+    public void Clear()
+    {
+        _suppressSelectionRefresh = true;
+        SelectedSite = null;
+        _suppressSelectionRefresh = false;
+        Summary = null;
+        ErrorMessage = null;
+        ResultMessage = string.Empty;
+        SharedSites.Clear();
+        DeploymentSteps.Clear();
+        RecentLogLines.Clear();
     }
 
     /// <summary>Each manual DNS renewal needs new records, so it goes through the wizard, which shows them.</summary>
@@ -251,6 +302,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
             var bound = await _sharingService.AddSiteAsync(SelectedSite, site, hosts, ReplaceExistingCertificate, null, token).ConfigureAwait(true);
             ResultMessage = $"'{site}' now shares this certificate ({string.Join(", ", bound)}). They renew together.";
             await InitializeAsync(SelectedSite).ConfigureAwait(true);
+            CertificatesChanged?.Invoke(null);
         }, cancellationToken);
     }
 
@@ -266,6 +318,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
         {
             ResultMessage = await _sharingService.RemoveSiteAsync(row.SiteName, token).ConfigureAwait(true);
             await InitializeAsync(remaining).ConfigureAwait(true);
+            CertificatesChanged?.Invoke(null);
         }, cancellationToken);
     }
 
@@ -279,6 +332,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
                 ? "No site could move yet. Fix the site in IIS, then try again."
                 : $"Moved to the current certificate: {string.Join(", ", moved)}.";
             await RefreshAsync(token).ConfigureAwait(true);
+            CertificatesChanged?.Invoke(null);
         }, cancellationToken);
     }
 
@@ -404,7 +458,8 @@ public partial class CertificateDetailsViewModel : ObservableObject
         {
             await _reminderService.SetCertificateRemindersAsync(SelectedSite, choice.Mode, choice.SnoozeDays, token).ConfigureAwait(true);
             await LoadReminderAsync(token).ConfigureAwait(true);
-            ResultMessage = $"Reminders for '{SelectedSite}': {ReminderState}.";
+            ResultMessage = $"Reminders: {ReminderState}.";
+            CertificatesChanged?.Invoke(null);
         }, cancellationToken);
     }
 
@@ -416,6 +471,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
             var result = AssertSingle(await _renewalService.RenewAsync(
                 new RenewalRequest(SiteName: SelectedSite, Force: true), null, token).ConfigureAwait(true));
             ResultMessage = result.Message;
+            CertificatesChanged?.Invoke(null);
             if (!result.Succeeded) throw new InvalidOperationException(result.Message);
             await RefreshAsync(token).ConfigureAwait(true);
         }, cancellationToken);
@@ -428,12 +484,13 @@ public partial class CertificateDetailsViewModel : ObservableObject
         await RunAsync(async token =>
         {
             await _managementService.RemoveAsync(removedSite, token).ConfigureAwait(true);
-            ResultMessage = _isNoSite
+            var message = _isNoSite
                 ? $"Stopped managing '{removedSite}'. The certificate stays in LocalMachine\\My for the services that may use it; delete it in certlm when they no longer do."
                 : SharedSites.Count > 1
                 ? $"Removed the managed certificate and its IIS HTTPS bindings on {string.Join(", ", SharedSites.Select(row => $"'{row.SiteName}'"))}."
                 : $"Removed the managed certificate and its matching IIS HTTPS bindings for '{removedSite}'.";
-            await InitializeAsync().ConfigureAwait(true);
+            Clear();
+            CertificatesChanged?.Invoke(message);
         }, cancellationToken);
     }
 
@@ -452,9 +509,9 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private bool CanOperate() => !IsBusy && SelectedSite is not null;
     partial void OnIsImportedChanged(bool value) => NotifyCommands();
     partial void OnIsManualDnsChanged(bool value) => NotifyCommands();
-    partial void OnCanShareChanged(bool value) => NotifyCommands();
+    partial void OnCanShareChanged(bool value) { NotifyCommands(); OnPropertyChanged(nameof(ShowSites)); }
     partial void OnSiteToAddChanged(string? value) => NotifyCommands();
-    partial void OnHasSitesLeftBehindChanged(bool value) => NotifyCommands();
+    partial void OnHasSitesLeftBehindChanged(bool value) { NotifyCommands(); OnPropertyChanged(nameof(ShowSites)); }
     partial void OnSelectedDeploymentKindChanged(DeploymentKindChoice? value) => NotifyCommands();
     partial void OnDeploymentValueChanged(string value) => NotifyCommands();
     private void NotifyCommands()

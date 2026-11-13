@@ -1,111 +1,294 @@
 <UserControl x:Class="SSLense.Gui.Views.CertificateDetailsView"
- xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
- xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
- <Grid>
-  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-  <DockPanel Margin="0,0,0,20">
-   <StackPanel><TextBlock Text="Certificate details" Style="{StaticResource PageTitle}"/><TextBlock Text="Review installation, bindings, and recent certificate activity." Style="{StaticResource PageSubtitle}"/></StackPanel>
-   <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-    <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="0,0,8,0"/>
-    <Button Content="Remove" Click="OnRemoveClick" Style="{StaticResource DangerButton}" Margin="0,0,8,0"/>
-    <Button Content="Order replacement" Command="{Binding OrderReplacementCommand}" Margin="0,0,8,0" ToolTip="Certificates from other providers are renewed by ordering again from the provider: create a request, then complete it."/>
-    <Button Content="Renew by hand" Command="{Binding RenewByHandCommand}" Margin="0,0,8,0" ToolTip="This certificate uses manual DNS validation. Opens Issue Certificate, filled in for this site, and shows the new DNS records to create."/>
-    <Button Content="Renew now" Command="{Binding RenewCommand}" Style="{StaticResource PrimaryButton}" ToolTip="Replace the certificate now, from the certificate authority that issued it."/>
-   </StackPanel>
-  </DockPanel>
-  <Border Grid.Row="1" Style="{StaticResource Card}" Padding="16" Margin="0,0,0,14">
-   <DockPanel><TextBlock DockPanel.Dock="Left" Text="MANAGED IIS SITE" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,16,0"/><ComboBox ItemsSource="{Binding Sites}" SelectedItem="{Binding SelectedSite}" Width="320" HorizontalAlignment="Left"/><StackPanel Margin="18,0,0,0" VerticalAlignment="Center"><TextBlock Text="{Binding ErrorMessage}" Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock Text="{Binding ResultMessage}" Foreground="{StaticResource SuccessBrush}" FontWeight="SemiBold" TextWrapping="Wrap"/></StackPanel></DockPanel>
-  </Border>
-  <Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="1.15*"/></Grid.ColumnDefinitions>
-   <Border Style="{StaticResource Card}" Margin="0,0,14,0">
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="115"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-     <TextBlock Grid.ColumnSpan="2" Text="Certificate information" Style="{StaticResource SectionTitle}" Margin="0,0,0,16"/>
-     <TextBlock Grid.Row="1" Text="Host names" Style="{StaticResource CaptionText}"/><TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Hosts}" TextWrapping="Wrap" FontWeight="SemiBold"/>
-     <TextBlock Grid.Row="2" Text="Source" Style="{StaticResource CaptionText}" Margin="0,14,0,0"/><TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Environment}" TextWrapping="Wrap" Margin="0,14,0,0" FontWeight="SemiBold"/>
-     <TextBlock Grid.Row="3" Text="Issuer" Style="{StaticResource CaptionText}" Margin="0,14,0,0"/><TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Issuer}" TextWrapping="Wrap" Margin="0,14,0,0"/>
-     <TextBlock Grid.Row="4" Text="Thumbprint" Style="{StaticResource CaptionText}" Margin="0,14,0,0"/><TextBox Grid.Row="4" Grid.Column="1" Text="{Binding Thumbprint}" IsReadOnly="True" BorderThickness="0" Background="Transparent" Padding="0" MinHeight="0" Margin="0,11,0,0" FontFamily="Consolas"/>
-     <TextBlock Grid.Row="5" Text="Issued" Style="{StaticResource CaptionText}" Margin="0,14,0,0"/><TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding IssueDate}" Margin="0,14,0,0"/>
-     <TextBlock Grid.Row="6" Text="Expires" Style="{StaticResource CaptionText}" Margin="0,14,0,0"/><TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding ExpiryDate}" Margin="0,14,0,0" FontWeight="SemiBold"/>
-     <TextBlock Grid.Row="7" Text="Bound sites" Style="{StaticResource CaptionText}" Margin="0,14,0,0"/><TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding BoundSites}" Margin="0,14,0,0"/>
-     <TextBlock Grid.Row="8" Text="Reminders" Style="{StaticResource CaptionText}" Margin="0,14,0,0"/>
-     <StackPanel Grid.Row="8" Grid.Column="1" Margin="0,14,0,0">
-      <TextBlock Text="{Binding ReminderState}" TextWrapping="Wrap" FontWeight="SemiBold"/>
-      <DockPanel Margin="0,8,0,0">
-       <Button DockPanel.Dock="Right" Content="Apply" Command="{Binding ApplyReminderCommand}" Margin="8,0,0,0"/>
-       <ComboBox ItemsSource="{Binding ReminderChoices}" SelectedItem="{Binding SelectedReminderChoice}" AutomationProperties.Name="Reminders for this certificate"/>
-      </DockPanel>
-     </StackPanel>
-     <TextBlock Grid.Row="9" Text="Last reminded" Style="{StaticResource CaptionText}" Margin="0,14,0,0"/><TextBlock Grid.Row="9" Grid.Column="1" Text="{Binding LastReminded}" Margin="0,14,0,0"/>
-     <TextBlock Grid.Row="10" Text="Certificate names" Style="{StaticResource CaptionText}" Margin="0,14,0,0"/><TextBlock Grid.Row="10" Grid.Column="1" Text="{Binding CertificateNames}" TextWrapping="Wrap" Margin="0,14,0,0"/>
-     <TextBlock Grid.Row="11" Text="Validation" Style="{StaticResource CaptionText}" Margin="0,14,0,0"/><TextBlock Grid.Row="11" Grid.Column="1" Text="{Binding Validation}" TextWrapping="Wrap" Margin="0,14,0,0"/>
-     <StackPanel Grid.Row="12" Grid.ColumnSpan="2" Margin="0,22,0,0">
-      <DockPanel Margin="0,0,0,8">
-       <Button DockPanel.Dock="Right" Content="Try moving now" Command="{Binding CatchUpCommand}" Visibility="{Binding HasSitesLeftBehind, Converter={StaticResource BooleanToVisibilityConverter}}" ToolTip="Move sites left behind to the current certificate. Does not order a new certificate."/>
-       <TextBlock Text="Sites using this certificate" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
-      </DockPanel>
-      <ItemsControl ItemsSource="{Binding SharedSites}" Focusable="False" AutomationProperties.Name="Sites using this certificate">
-       <ItemsControl.ItemTemplate>
-        <DataTemplate>
-         <DockPanel Margin="0,0,0,10">
-          <Button x:Name="StopManaging" DockPanel.Dock="Right" Content="Stop managing" Click="OnStopManagingClick" Style="{StaticResource LinkButton}" VerticalAlignment="Top" ToolTip="SSLense stops renewing this site. Its binding stays as it is, so it keeps working until the certificate expires."/>
-          <StackPanel Margin="0,0,8,0">
-           <TextBlock Text="{Binding SiteName}" FontWeight="SemiBold" TextWrapping="Wrap"/>
-           <TextBlock Text="{Binding Hosts}" Style="{StaticResource CaptionText}" TextWrapping="Wrap"/>
-           <TextBlock x:Name="SiteState" Text="{Binding State}" Style="{StaticResource CaptionText}" TextWrapping="Wrap"/>
-          </StackPanel>
-         </DockPanel>
-         <DataTemplate.Triggers>
-          <DataTrigger Binding="{Binding CanStopManaging}" Value="False"><Setter TargetName="StopManaging" Property="Visibility" Value="Collapsed"/></DataTrigger>
-          <DataTrigger Binding="{Binding IsLeftBehind}" Value="True"><Setter TargetName="SiteState" Property="Foreground" Value="{StaticResource WarningBrush}"/><Setter TargetName="SiteState" Property="FontWeight" Value="SemiBold"/></DataTrigger>
-         </DataTemplate.Triggers>
-        </DataTemplate>
-       </ItemsControl.ItemTemplate>
-      </ItemsControl>
-      <TextBlock Text="{Binding SharingNote}" Style="{StaticResource CaptionText}" TextWrapping="Wrap"/>
-      <StackPanel Visibility="{Binding CanShare, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,4,0,0">
-       <TextBlock Text="ADD A SITE" Style="{StaticResource FieldLabel}"/>
-       <ComboBox ItemsSource="{Binding SitesToAdd}" SelectedItem="{Binding SiteToAdd}" Margin="0,0,0,8" AutomationProperties.Name="IIS site to add"/>
-       <TextBlock Text="HOST NAMES (OPTIONAL)" Style="{StaticResource FieldLabel}"/>
-       <TextBox Text="{Binding HostsToAdd, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" AutomationProperties.Name="Host names to bind on the added site" ToolTip="Comma-separated. Leave empty to use every named binding on the site that this certificate covers."/>
-       <CheckBox Content="Replace the site's own certificate" IsChecked="{Binding ReplaceExistingCertificate}" Margin="0,0,0,8" ToolTip="Needed when SSLense already manages another certificate for this site. That certificate stops being managed."/>
-       <Button Content="Add site" Command="{Binding AddSiteCommand}" HorizontalAlignment="Left" ToolTip="Bind the site to this certificate and confirm it over HTTPS. Nothing is ordered from the certificate authority."/>
-      </StackPanel>
-     </StackPanel>
-     <StackPanel Grid.Row="13" Grid.ColumnSpan="2" Margin="0,22,0,0">
-      <DockPanel Margin="0,0,0,8">
-       <Button DockPanel.Dock="Right" Content="Run now" Command="{Binding RunDeploymentCommand}" ToolTip="Run every step now, for the certificate in use."/>
-       <TextBlock Text="Deployment steps" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
-      </DockPanel>
-      <TextBlock x:Name="DeploymentStateText" Text="{Binding DeploymentState}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
-      <ItemsControl ItemsSource="{Binding DeploymentSteps}" Focusable="False" AutomationProperties.Name="Deployment steps">
-       <ItemsControl.ItemTemplate>
-        <DataTemplate>
-         <DockPanel Margin="0,0,0,6">
-          <Button DockPanel.Dock="Right" Content="Remove" Command="{Binding DataContext.RemoveDeploymentStepCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" Style="{StaticResource LinkButton}" VerticalAlignment="Top" ToolTip="Remove this step. What it already did is not undone."/>
-          <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Margin="0,0,8,0"/>
-         </DockPanel>
-        </DataTemplate>
-       </ItemsControl.ItemTemplate>
-      </ItemsControl>
-      <TextBlock Text="ADD A STEP" Style="{StaticResource FieldLabel}" Margin="0,6,0,0"/>
-      <ComboBox ItemsSource="{Binding DeploymentKinds}" SelectedItem="{Binding SelectedDeploymentKind}" Margin="0,0,0,8" AutomationProperties.Name="Kind of deployment step"/>
-      <TextBlock Text="{Binding SelectedDeploymentKind.ValueLabel}" Style="{StaticResource FieldLabel}"/>
-      <DockPanel Margin="0,0,0,4">
-       <Button DockPanel.Dock="Right" Content="Browse…" Click="OnBrowseScriptClick" Margin="8,0,0,0" Visibility="{Binding SelectedDeploymentKind.IsScript, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-       <TextBox Text="{Binding DeploymentValue, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Account, service name, or script path"/>
-      </DockPanel>
-      <StackPanel Visibility="{Binding SelectedDeploymentKind.NeedsPassword, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,0,8">
-       <TextBlock Text="PASSWORD" Style="{StaticResource FieldLabel}"/>
-       <PasswordBox x:Name="DeploymentPasswordBox" PasswordChanged="OnDeploymentPasswordChanged" AutomationProperties.Name="Password for the exported files"/>
-      </StackPanel>
-      <TextBlock Text="{Binding SelectedDeploymentKind.Hint}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,8"/>
-      <Button Content="Add step" Command="{Binding AddDeploymentStepCommand}" HorizontalAlignment="Left" ToolTip="Add the step at the end. It runs after the next renewal, or now with Run now."/>
-     </StackPanel>
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <!-- Shown only when its text is not empty. -->
+        <Style x:Key="MessageBanner" TargetType="Border" BasedOn="{StaticResource SuccessBanner}">
+            <Setter Property="Margin" Value="0,0,0,12" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding ResultMessage}" Value=""><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                <DataTrigger Binding="{Binding ResultMessage}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="ErrorMessageBanner" TargetType="Border" BasedOn="{StaticResource ErrorBanner}">
+            <Setter Property="Margin" Value="0,0,0,12" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding ErrorMessage}" Value=""><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+                <DataTrigger Binding="{Binding ErrorMessage}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="Fact" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,3,16,14" />
+        </Style>
+        <Style x:Key="FactLabel" TargetType="TextBlock" BasedOn="{StaticResource CaptionText}">
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="28,22,28,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- The certificate, and the one action that fits it. -->
+        <DockPanel Margin="0,0,0,8">
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                <Button Content="Install renewal" Command="{Binding OrderReplacementCommand}" Style="{StaticResource PrimaryButton}"
+                        Visibility="{Binding Summary.IsImported, Converter={StaticResource BooleanToVisibilityConverter}}"
+                        ToolTip="Install the renewed certificate from your provider. Only this certificate's bindings change." />
+                <Button Content="Renew by hand" Command="{Binding RenewByHandCommand}" Style="{StaticResource PrimaryButton}"
+                        Visibility="{Binding Summary.IsManualDns, Converter={StaticResource BooleanToVisibilityConverter}}"
+                        ToolTip="Opens Add certificate, filled in for this certificate, and shows the new DNS records to create." />
+                <Button Content="Renew now" Command="{Binding RenewCommand}" Style="{StaticResource PrimaryButton}"
+                        Visibility="{Binding Summary.IsAutomatic, Converter={StaticResource BooleanToVisibilityConverter}}"
+                        ToolTip="Replace the certificate now, from the certificate authority that issued it." />
+                <Button x:Name="MoreButton" Content="&#xE712;" FontFamily="Segoe MDL2 Assets" Margin="8,0,0,0" Padding="12,7" Click="OnMoreClick"
+                        ToolTip="More actions" AutomationProperties.Name="More actions">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Refresh" Command="{Binding RefreshCommand}" />
+                            <Separator />
+                            <MenuItem Header="Remove certificate and HTTPS bindings…" Click="OnRemoveClick" Foreground="{StaticResource DangerBrush}" />
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+            </StackPanel>
+            <StackPanel Margin="0,0,16,0">
+                <TextBlock Text="{Binding Summary.Title}" Style="{StaticResource DetailTitle}" />
+                <TextBlock Text="{Binding Summary.Subtitle}" Style="{StaticResource PageSubtitle}" TextWrapping="Wrap" />
+            </StackPanel>
+        </DockPanel>
+
+        <StackPanel Grid.Row="1">
+            <TextBlock Text="Working…" Foreground="{StaticResource MutedTextBrush}" Margin="0,0,0,10"
+                       Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}" />
+            <Border Style="{StaticResource ErrorMessageBanner}">
+                <TextBlock Text="{Binding ErrorMessage}" Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold" TextWrapping="Wrap" />
+            </Border>
+            <Border Style="{StaticResource MessageBanner}">
+                <TextBlock Text="{Binding ResultMessage}" Foreground="{StaticResource SuccessBrush}" FontWeight="SemiBold" TextWrapping="Wrap" />
+            </Border>
+        </StackPanel>
+
+        <TabControl Grid.Row="2" Style="{StaticResource SectionTabs}" AutomationProperties.Name="Certificate sections">
+            <TabItem Header="Status">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <Border Style="{StaticResource StatusCard}" DataContext="{Binding Summary}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding StatusHead}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" Margin="0,6,0,0" LineHeight="20" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource Card}" Margin="0,14,0,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="Expires" Style="{StaticResource FactLabel}" />
+                                    <TextBlock Style="{StaticResource Fact}">
+                                        <Run Text="{Binding Summary.Expiry, StringFormat={}{0:dd MMM yyyy}, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Summary.DaysText, Mode=OneWay}" />
+                                    </TextBlock>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="Domains" Style="{StaticResource FactLabel}" />
+                                    <TextBlock Text="{Binding Hosts}" Style="{StaticResource Fact}" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="1">
+                                    <TextBlock Text="IIS sites" Style="{StaticResource FactLabel}" />
+                                    <TextBlock Text="{Binding BoundSites}" Style="{StaticResource Fact}" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="1" Grid.Column="1">
+                                    <TextBlock Text="Renewal" Style="{StaticResource FactLabel}" />
+                                    <TextBlock Text="{Binding Summary.RenewalText}" Style="{StaticResource Fact}" />
+                                </StackPanel>
+                                <StackPanel Grid.Row="2" Grid.ColumnSpan="2">
+                                    <TextBlock Text="Reminders" Style="{StaticResource FactLabel}" />
+                                    <TextBlock Text="{Binding ReminderState}" Style="{StaticResource Fact}" Margin="0,3,16,0" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Certificate">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Border Style="{StaticResource Card}" VerticalAlignment="Top">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <StackPanel Grid.ColumnSpan="2">
+                                <TextBlock Text="Domains in the certificate" Style="{StaticResource FactLabel}" />
+                                <TextBlock Text="{Binding CertificateNames}" Style="{StaticResource Fact}" FontWeight="SemiBold" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="1">
+                                <TextBlock Text="Issued by" Style="{StaticResource FactLabel}" />
+                                <TextBlock Text="{Binding Issuer}" Style="{StaticResource Fact}" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Grid.Column="1">
+                                <TextBlock Text="Comes from" Style="{StaticResource FactLabel}" />
+                                <TextBlock Text="{Binding Environment}" Style="{StaticResource Fact}" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="2">
+                                <TextBlock Text="Valid from" Style="{StaticResource FactLabel}" />
+                                <TextBlock Text="{Binding IssueDate}" Style="{StaticResource Fact}" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="2" Grid.Column="1">
+                                <TextBlock Text="Valid until" Style="{StaticResource FactLabel}" />
+                                <TextBlock Text="{Binding ExpiryDate}" Style="{StaticResource Fact}" />
+                            </StackPanel>
+                            <StackPanel Grid.Row="3" Grid.ColumnSpan="2">
+                                <TextBlock Text="How domains are proven" Style="{StaticResource FactLabel}" />
+                                <TextBlock Text="{Binding Validation}" Style="{StaticResource Fact}" />
+                                <Expander Header="Technical details" Margin="0,4,0,0" Foreground="{StaticResource BrandBrush}">
+                                    <Grid Margin="0,10,0,0">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="150" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                        <TextBlock Text="Thumbprint" Style="{StaticResource FactLabel}" />
+                                        <TextBox Grid.Column="1" Text="{Binding Thumbprint, Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent" Padding="0" MinHeight="0" FontFamily="Consolas" AutomationProperties.Name="Thumbprint" />
+                                        <TextBlock Grid.Row="1" Text="Name in SSLense" Style="{StaticResource FactLabel}" Margin="0,10,0,0" />
+                                        <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding SelectedSite, Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent" Padding="0" MinHeight="0" Margin="0,10,0,0" FontFamily="Consolas"
+                                                 ToolTip="Use this name with the command-line tool." AutomationProperties.Name="Name in SSLense" />
+                                    </Grid>
+                                </Expander>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Sites" Visibility="{Binding ShowSites, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Border Style="{StaticResource Card}" VerticalAlignment="Top">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,10">
+                                <Button DockPanel.Dock="Right" Content="Try moving now" Command="{Binding CatchUpCommand}" Visibility="{Binding HasSitesLeftBehind, Converter={StaticResource BooleanToVisibilityConverter}}" ToolTip="Move sites left behind to the current certificate. Does not order a new certificate." />
+                                <TextBlock Text="Sites using this certificate" Style="{StaticResource SectionTitle}" FontSize="15" VerticalAlignment="Center" />
+                            </DockPanel>
+                            <ItemsControl ItemsSource="{Binding SharedSites}" Focusable="False" AutomationProperties.Name="Sites using this certificate">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,10">
+                                            <DockPanel>
+                                                <Button x:Name="StopManaging" DockPanel.Dock="Right" Content="Stop managing" Click="OnStopManagingClick" Style="{StaticResource LinkButton}" VerticalAlignment="Top" ToolTip="SSLense stops renewing this site. Its binding stays as it is, so it keeps working until the certificate expires." />
+                                                <StackPanel Margin="0,0,8,0">
+                                                    <TextBlock Text="{Binding SiteName}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding Hosts}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" />
+                                                    <TextBlock x:Name="SiteState" Text="{Binding State}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </DockPanel>
+                                        </Border>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding CanStopManaging}" Value="False"><Setter TargetName="StopManaging" Property="Visibility" Value="Collapsed" /></DataTrigger>
+                                            <DataTrigger Binding="{Binding IsLeftBehind}" Value="True"><Setter TargetName="SiteState" Property="Foreground" Value="{StaticResource WarningBrush}" /><Setter TargetName="SiteState" Property="FontWeight" Value="SemiBold" /></DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="{Binding SharingNote}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" />
+                            <Expander Header="Add a site" Margin="0,10,0,0" Foreground="{StaticResource BrandBrush}"
+                                      Visibility="{Binding CanShare, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <StackPanel Margin="0,10,0,0" MaxWidth="460" HorizontalAlignment="Left" TextElement.Foreground="{StaticResource TextBrush}">
+                                    <TextBlock Text="IIS site" Style="{StaticResource FieldLabel}" />
+                                    <ComboBox ItemsSource="{Binding SitesToAdd}" SelectedItem="{Binding SiteToAdd}" Margin="0,0,0,10" AutomationProperties.Name="IIS site to add" />
+                                    <TextBlock Text="Host names (optional)" Style="{StaticResource FieldLabel}" />
+                                    <TextBox Text="{Binding HostsToAdd, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,8" AutomationProperties.Name="Host names to bind on the added site" ToolTip="Comma-separated. Leave empty to use every named binding on the site that this certificate covers." />
+                                    <CheckBox Content="Replace the site's own certificate" IsChecked="{Binding ReplaceExistingCertificate}" Margin="0,0,0,10" ToolTip="Needed when SSLense already manages another certificate for this site. That certificate stops being managed." />
+                                    <Button Content="Add site" Command="{Binding AddSiteCommand}" HorizontalAlignment="Left" ToolTip="Bind the site to this certificate and confirm it over HTTPS. Nothing is ordered from the certificate authority." />
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </Border>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Reminders">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Border Style="{StaticResource Card}" VerticalAlignment="Top">
+                        <StackPanel>
+                            <TextBlock Text="Reminders by email" Style="{StaticResource SectionTitle}" FontSize="15" />
+                            <TextBlock Text="{Binding ReminderState}" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                            <TextBlock Style="{StaticResource CaptionText}" Margin="0,4,0,14">
+                                <Run Text="Last reminder: " /><Run Text="{Binding LastReminded, Mode=OneWay}" />
+                            </TextBlock>
+                            <TextBlock Text="Change" Style="{StaticResource FieldLabel}" />
+                            <StackPanel Orientation="Horizontal">
+                                <ComboBox ItemsSource="{Binding ReminderChoices}" SelectedItem="{Binding SelectedReminderChoice}" Width="320" AutomationProperties.Name="Reminders for this certificate" />
+                                <Button Content="Apply" Command="{Binding ApplyReminderCommand}" Margin="8,0,0,0" />
+                            </StackPanel>
+                            <TextBlock Text="Where reminders go and when they are sent is in Settings." Style="{StaticResource CaptionText}" Margin="0,14,0,0" />
+                        </StackPanel>
+                    </Border>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="After install">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Border Style="{StaticResource Card}" VerticalAlignment="Top">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,6">
+                                <Button DockPanel.Dock="Right" Content="Run now" Command="{Binding RunDeploymentCommand}" ToolTip="Run every step now, for the certificate in use."
+                                        Visibility="{Binding HasDeploymentSteps, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                <TextBlock Text="Steps after each install and renewal" Style="{StaticResource SectionTitle}" FontSize="15" VerticalAlignment="Center" />
+                            </DockPanel>
+                            <TextBlock Text="{Binding DeploymentState}" Style="{StaticResource CaptionText}" FontSize="13" TextWrapping="Wrap" Margin="0,0,0,10" />
+                            <ItemsControl ItemsSource="{Binding DeploymentSteps}" Focusable="False" AutomationProperties.Name="Deployment steps">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12,8" Margin="0,0,0,6">
+                                            <DockPanel>
+                                                <Button DockPanel.Dock="Right" Content="Remove" Command="{Binding DataContext.RemoveDeploymentStepCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}" Style="{StaticResource LinkButton}" VerticalAlignment="Center" ToolTip="Remove this step. What it already did is not undone." />
+                                                <TextBlock Text="{Binding Description}" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                            </DockPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Expander Header="Add a step" Margin="0,8,0,0" Foreground="{StaticResource BrandBrush}">
+                                <StackPanel Margin="0,10,0,0" MaxWidth="560" HorizontalAlignment="Left" TextElement.Foreground="{StaticResource TextBrush}">
+                                    <TextBlock Text="What to do" Style="{StaticResource FieldLabel}" />
+                                    <ComboBox ItemsSource="{Binding DeploymentKinds}" SelectedItem="{Binding SelectedDeploymentKind}" Margin="0,0,0,10" AutomationProperties.Name="Kind of deployment step" />
+                                    <TextBlock Text="{Binding SelectedDeploymentKind.ValueLabel}" Style="{StaticResource FieldLabel}" />
+                                    <DockPanel Margin="0,0,0,4">
+                                        <Button DockPanel.Dock="Right" Content="Browse…" Click="OnBrowseScriptClick" Margin="8,0,0,0" Visibility="{Binding SelectedDeploymentKind.IsScript, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                        <TextBox Text="{Binding DeploymentValue, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Account, service name, or script path" />
+                                    </DockPanel>
+                                    <StackPanel Visibility="{Binding SelectedDeploymentKind.NeedsPassword, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,6,0,4">
+                                        <TextBlock Text="Password for the exported files" Style="{StaticResource FieldLabel}" />
+                                        <PasswordBox x:Name="DeploymentPasswordBox" PasswordChanged="OnDeploymentPasswordChanged" AutomationProperties.Name="Password for the exported files" />
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding SelectedDeploymentKind.Hint}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,10" />
+                                    <Button Content="Add step" Command="{Binding AddDeploymentStepCommand}" HorizontalAlignment="Left" ToolTip="Add the step at the end. It runs after the next renewal, or now with Run now." />
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </Border>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="History">
+                <Border Style="{StaticResource Card}" Padding="0" ClipToBounds="True">
+                    <Grid>
+                        <ListBox ItemsSource="{Binding RecentLogLines}" BorderThickness="0" Background="Transparent" Padding="14,10"
+                                 FontFamily="Cascadia Mono, Consolas" FontSize="12" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 AutomationProperties.Name="Recent activity for this certificate">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" Foreground="{StaticResource TextBrush}" Margin="0,2" /></DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <TextBlock Text="Nothing recorded for this certificate yet." Margin="16" Foreground="{StaticResource MutedTextBrush}">
+                            <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers><DataTrigger Binding="{Binding HasHistory}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                            </Style></TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                </Border>
+            </TabItem>
+        </TabControl>
     </Grid>
-    </ScrollViewer>
-   </Border>
-   <Border Grid.Column="1" Style="{StaticResource Card}" Padding="0" ClipToBounds="True"><Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><TextBlock Text="Recent activity" Style="{StaticResource SectionTitle}" Margin="18,15"/><ListBox Grid.Row="1" ItemsSource="{Binding RecentLogLines}" Style="{StaticResource ConsoleList}"/></Grid></Border>
-  </Grid>
- </Grid>
 </UserControl>

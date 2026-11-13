@@ -43,6 +43,8 @@ public partial class App : Application
             builder.Services.AddSingleton<SettingsViewModel>();
             builder.Services.AddSingleton<HealthViewModel>();
             builder.Services.AddSingleton<LogsViewModel>();
+            builder.Services.AddSingleton<AddCertificateViewModel>();
+            builder.Services.AddSingleton<ActivityViewModel>();
             builder.Services.AddSingleton<MainViewModel>();
             builder.Services.AddSingleton<MainWindow>();
             _host = builder.Build();

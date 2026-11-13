@@ -8,7 +8,7 @@
 
 SSLense is a Windows application for IIS administrators. It gets free Let's Encrypt certificates onto your IIS sites and keeps them renewed. It also keeps track of the certificates you buy from providers such as 123-reg, Sectigo or DigiCert, and tells you in time to order the next one. It comes with a desktop app, a command line, and a background service. Website: [sslense.com](https://sslense.com).
 
-![The SSLense dashboard: managed certificates with their source, expiry, reminder setting and health](docs/images/SSLense-Dashboard.png)
+![The SSLense window: certificates grouped by IIS site, each with its days left, and the selected certificate with what to do](docs/images/SSLense-Dashboard.png)
 
 ## Why SSLense
 
@@ -28,8 +28,8 @@ SSLense is a Windows application for IIS administrators. It gets free Let's Encr
 1. Download the latest `SSLense-<version>-x64.msi` from [Releases](https://github.com/panchalvimaldev/sslense/releases) and run it on the IIS server. It installs the desktop app, the command line, and the renewal service. No separate .NET installation is needed. Releases are not code-signed yet, so Windows SmartScreen may warn; each release lists a SHA-256 checksum to verify the download.
 2. Open **SSLense** from the Start menu.
 3. Then either:
-   - **Let's Encrypt:** **Issue Certificate**, choose the site and host names, run the pre-flight checks, and issue. Use staging first; production needs an explicit confirmation. With HTTP validation, the site needs a public DNS record and a port 80 binding. For a wildcard, or without port 80, choose DNS validation; see [DNS validation and wildcard certificates](#dns-validation-and-wildcard-certificates).
-   - **A certificate you bought:** **Other Providers** → select the site's HTTPS binding → **Adopt selected**.
+   - **Let's Encrypt:** **Add certificate** → **Free and automatic**, choose the site and host names, run the pre-flight checks, and issue. Use staging first; production needs an explicit confirmation. With HTTP validation, the site needs a public DNS record and a port 80 binding. For a wildcard, or without port 80, choose DNS validation; see [DNS validation and wildcard certificates](#dns-validation-and-wildcard-certificates).
+   - **A certificate you bought:** **Add certificate** → **Bought from a provider, or already in IIS** → select the site's HTTPS binding → **Adopt selected**.
 4. Under **Settings**, add an email or chat channel and click **Send test**, then check **Settings → Reminders**.
 
 From then on the service renews Let's Encrypt certificates on its own, and the daily digest reminds you about anything that needs you. Everything in the app is also available from the command line; see [CLI usage](#cli-usage).
@@ -37,13 +37,13 @@ From then on the service renews Let's Encrypt certificates on its own, and the d
 <details>
 <summary><b>More screenshots</b></summary>
 
-**Issue a certificate:** pick the site and host names. A site that already serves HTTPS shows which certificate it uses.
+**Add certificate, free and automatic:** pick the site and host names. A site that already serves HTTPS shows which certificate it uses.
 
-![Issue Certificate: choosing the IIS site and host names](docs/images/SSLense-IssueCertificate.png)
+![Add certificate, free and automatic: choosing the IIS site and host names](docs/images/SSLense-IssueCertificate.png)
 
-**Other providers:** create a request for a certificate you buy elsewhere, complete it, import a PFX, or adopt one already in IIS.
+**Add certificate, bought from a provider:** create a request for a certificate you buy elsewhere, complete it, import a PFX, or adopt one already in IIS.
 
-![Other Providers: requesting, completing, and importing certificates from other providers](docs/images/SSLense-OtherProviders.png)
+![Add certificate, bought from a provider: requesting, completing, and importing certificates from other providers](docs/images/SSLense-OtherProviders.png)
 
 **Settings → Reminders:** when the daily digest starts, how often it repeats, and when it is sent.
 
@@ -239,7 +239,7 @@ SSLense.Cli dns test --name "Shop acme-dns"   # checks the CNAME, updates the ac
 _acme-challenge.example.com  CNAME  example-com.acme.example.net
 ```
 
-**Create the records yourself** with `--validation dns-manual`. SSLense shows each record, waits for you to confirm, and checks they are visible. **A manual certificate cannot renew automatically.** The daily digest reminds you, with the command to run; in the app, use **Certificate Details → Renew by hand**. With shorter certificate lifetimes this becomes frequent work, so CNAME delegation is usually better.
+**Create the records yourself** with `--validation dns-manual`. SSLense shows each record, waits for you to confirm, and checks they are visible. **A manual certificate cannot renew automatically.** The daily digest reminds you, with the command to run; in the app, select the certificate and choose **Renew by hand**. With shorter certificate lifetimes this becomes frequent work, so CNAME delegation is usually better.
 
 **Good to know:**
 
@@ -263,7 +263,7 @@ SSLense.Cli deploy run --site "Shop"          # run them now, for the certificat
 SSLense.Cli deploy remove --site "Shop" --step 2
 ```
 
-In the app, they are under **Deployment steps** in **Certificate Details**.
+In the app, they are under **After install** on the certificate.
 
 Ready-made scripts are in `C:\Program Files\SSLense\deploy-scripts\`, with the steps to add at the top of each:
 
@@ -289,7 +289,7 @@ SSLense.Cli deploy add --site "Remote Desktop" --script "C:\Program Files\SSLens
 SSLense.Cli deploy run --site "Remote Desktop"
 ```
 
-- Every command that takes `--site` takes the name too. In the app, tick **No IIS site** in **Issue Certificate**.
+- Every command that takes `--site` takes the name too. In the app, tick **No IIS site** in **Add certificate**.
 - It needs DNS validation, because HTTP validation needs a site to serve the file. The name must not be an IIS site's.
 - Removing it stops managing it and **keeps the certificate in the store**, because services outside IIS may still use it. Delete it in certlm when they no longer do.
 
@@ -305,14 +305,14 @@ SSLense.Cli deploy add --site "Shop" --export-pem D:\Certs\shop               # 
 SSLense.Cli deploy add --site "Shop" --central-store \\fileserver\ccs         # one PFX per name; the store's password
 ```
 
-- **The exportable key is a choice per certificate,** made when it is issued and kept at every renewal. To make an existing certificate's key exportable, issue it again with `--exportable-key --force`. In the app, tick **Exportable private key** in **Issue Certificate**, and add the steps in **Certificate Details**.
+- **The exportable key is a choice per certificate,** made when it is issued and kept at every renewal. To make an existing certificate's key exportable, issue it again with `--exportable-key --force`. In the app, tick **Exportable private key** in **Add certificate**, and add the steps under **After install** on the certificate.
 - **The Central Certificate Store** gets `example.com.pfx` for each name, and `_.example.com.pfx` for `*.example.com`, as IIS expects. Use the private key password set for the store in IIS.
 - **`key.pem` is not protected by a password,** so SSLense writes it for Administrators, SYSTEM, and the account that wrote it only. Give another account access with Windows' own tools if a service needs it.
 - Passwords are encrypted with DPAPI, never logged, and hidden in diagnostic bundles. Files are replaced in one step, so a reader never sees half a file. The service writes as SYSTEM, which reaches a share as the computer's account.
 
 ### Key type, chain, and profile
 
-Certificates get an ECDSA P-256 key, the CA's default chain, and the CA's default kind of certificate unless you choose otherwise. Each choice is kept at every renewal. In the app, they are under **Advanced** in **Issue Certificate**.
+Certificates get an ECDSA P-256 key, the CA's default chain, and the CA's default kind of certificate unless you choose otherwise. Each choice is kept at every renewal. In the app, they are under **Advanced** in **Add certificate**.
 
 ```powershell
 SSLense.Cli issue --site "Shop" --email ops@example.com --key rsa-3072                     # ecdsa-p256, ecdsa-p384, rsa-2048, rsa-3072, rsa-4096
@@ -339,7 +339,7 @@ SSLense.Cli share add --from "Shop" --to "Blog" --hosts "blog.example.com"
 SSLense.Cli share remove --site "Blog"
 ```
 
-In the app, use **Sites using this certificate** on Certificate Details.
+In the app, use the certificate's **Sites** section.
 
 - **`share add`:** without `--hosts`, it uses every named binding on the site that the certificate covers. If SSLense already manages another certificate for that site, add `--replace-existing`, which stops managing that certificate. A certificate from another provider stays in the store.
 - **`share remove`:** SSLense stops managing the site and leaves its binding as it is, so the site keeps working until the certificate expires. If you remove the first site, the next one takes its place. A certificate with one site left is removed with `remove`, and `remove` on a shared certificate removes the bindings on every site.
@@ -394,7 +394,7 @@ SSLense.Cli ca remove --ca zerossl             # refused while a certificate ren
 
 ### Certificates from other providers (bring your own)
 
-Some sites use a certificate bought from a provider such as 123-reg, Sectigo or DigiCert, without ACME. (If the provider offers ACME, add it as a certificate authority instead, and SSLense renews it automatically.) In the desktop app, use the **Other Providers** page. SSLense installs and binds these certificates with the same safeguards (validation first, HTTPS verification, automatic rollback) and reminds you to order the next one. It never tries to renew them itself.
+Some sites use a certificate bought from a provider such as 123-reg, Sectigo or DigiCert, without ACME. (If the provider offers ACME, add it as a certificate authority instead, and SSLense renews it automatically.) In the desktop app, use **Add certificate** → **Bought from a provider, or already in IIS**; when one is due, select it and choose **Install renewal**. SSLense installs and binds these certificates with the same safeguards (validation first, HTTPS verification, automatic rollback) and reminds you to order the next one. It never tries to renew them itself.
 
 Order a certificate with a request (CSR) created on this server. The private key is a non-exportable machine key that never leaves the server:
 
@@ -487,7 +487,7 @@ Two daily checks find problems before they cause an outage. They only report, an
 
 Certificates with reminders off or snoozed are not checked, and neither are stopped sites (served certificate) or sites with an operation in progress. Turn the checks off under **Settings → Reminders** or with `SSLense.Cli reminders set --checks off`. **Health** shows the served-certificate result on demand, and `reminders preview` shows current problems straight away.
 
-In the app, the settings are under **Settings → Reminders** (with **Send sample digest**), the Dashboard has a **Reminders** column, and **Certificate Details** turns reminders on, snoozes them for 7 or 30 days, or turns them off until the certificate is replaced or permanently. From the CLI:
+In the app, the settings are under **Settings → Reminders** (with **Send sample digest**), and a certificate's **Reminders** section turns reminders on, snoozes them for 7 or 30 days, or turns them off until the certificate is replaced or permanently. From the CLI:
 
 ```powershell
 SSLense.Cli reminders show                                     # settings, each certificate's state, and what happens next
@@ -570,7 +570,7 @@ dotnet run --project .\src\SSLense.Cli -- uninstall-service
 
 ## Desktop GUI
 
-Start the WPF dashboard from PowerShell or Visual Studio:
+Start the WPF app from PowerShell or Visual Studio:
 
 ```powershell
 dotnet run --project .\src\SSLense.Gui
@@ -578,20 +578,15 @@ dotnet run --project .\src\SSLense.Gui
 
 Windows displays an administrator elevation prompt because the application manifest requests `requireAdministrator`. The GUI provides:
 
-- A professional application shell with consistent navigation, typography, controls, and operation feedback
-- Dashboard summary cards for total, healthy, expiring, and failed certificates
-- A certificate table with readable health badges that do not rely on full-row coloring
-- Immediate renewal of the selected certificate
-- Renewal checks for all due certificates
-- Cancellable operations with live progress
-- A live log viewer with level filtering and access to the log folder
-- Sites using this certificate on Certificate Details: add a site, stop managing one, or move a site left behind. The Dashboard shows one row per certificate, such as `Shop +2 sites`
-- A visual three-step issuance wizard with IIS selection, HTTP or DNS validation, certificate names for wildcards, a choice of certificate authority with a confirmation for trusted ones, pre-flight checks, the records to create for manual DNS validation, live progress, and cancellation
-- Certificate details, renewal, confirmed removal, bindings, issuer, validity, and recent logs
-- An **Other Providers** page for certificates bought elsewhere: create a request (CSR) to copy or save, complete it with the issued certificate and bundle, import a PFX, or adopt a certificate already bound in IIS. Imported certificates show as "Imported" on the Dashboard, with "Order renewal" when 30 days or fewer remain
-- General, certificate authority, DNS provider (Cloudflare or your own script), notification, reminder, and Windows Service settings; per-certificate reminders on Certificate Details
+- Three tabs, **Certificates**, **Activity** and **Settings**, and two buttons for everything: **Renew all due** and **Add certificate**
+- **Certificates:** every certificate in a list grouped by IIS site, with its days left in green, amber or red, its kind (automatic, by hand, or bought), and a filter. With none selected, a summary and the certificates that need you, each with what to do
+- **A selected certificate:** what state it is in and what to do, in plain words; one main button that fits it (**Renew now**, **Renew by hand** for manual DNS, **Install renewal** for one you bought); and its sections: Status, Certificate, Sites (when it can be shared), Reminders, After install (deployment steps), and History. Removing it is in the **⋯** menu, named for what it does, with a confirmation
+- **Add certificate:** free and automatic, with the three-step wizard (IIS site, HTTP or DNS validation, certificate names for wildcards, a choice of certificate authority with a confirmation for trusted ones, pre-flight checks, the records to create for manual DNS validation, live progress, and cancellation); or bought from a provider, or already in IIS: create a request (CSR) to copy or save, complete it with the issued certificate and bundle, import a PFX, or adopt a certificate already bound in IIS
+- **Activity:** the progress of renewals started in the app, the health checks with a diagnostic bundle, and a live log with level filtering
+- **Settings:** general, certificate authority, DNS provider (Cloudflare, acme-dns or your own script), notification, reminder, and Windows Service settings
+- The health check's result in the header, and cancellable operations with live progress
 
-Staging remains the wizard default. Production requires a separate selection and acknowledgement before the Issue button is enabled. Use **Issue certificate** on the Dashboard to open the wizard. Removing a certificate requires confirmation and removes only matching HTTPS bindings; a certificate still used by another IIS site is retained in the Windows certificate store.
+Staging remains the wizard default. Production requires a separate selection and acknowledgement before the Issue button is enabled. Removing a certificate requires confirmation and removes only matching HTTPS bindings; a certificate still used by another IIS site is retained in the Windows certificate store.
 
 The same operations from the command line:
 
@@ -724,7 +719,7 @@ The command prints a `PASS` or `FAIL` line for each check. Fix the first failing
 - **The DNS records did not appear in time:** SSLense waits up to 5 minutes and doesn't ask Let's Encrypt to validate. Check the records at your DNS service, then try again. For manual records, check for a typo and that every value exists.
 - **CAA records block Let's Encrypt:** the message names the record to add. For a wildcard, an `issuewild` record takes priority over `issue`.
 - **A wildcard is refused because it is managed for another site:** add the site to that certificate with `share add` instead of requesting the wildcard again.
-- **A site is left behind on its previous certificate:** the notification and Certificate Details name it. Fix the site in IIS, then use **Try moving now** or `renew --site`, or stop managing it with `share remove`.
+- **A site is left behind on its previous certificate:** the notification and the certificate's **Sites** section name it. Fix the site in IIS, then use **Try moving now** or `renew --site`, or stop managing it with `share remove`.
 - **A certificate authority is refused when it is added:** if it says External Account Binding is required, get the key ID and HMAC key from your account with the CA and add it again with `--eab`. If the directory cannot be reached, check the URL, outbound HTTPS, and any proxy.
 - **The CA refuses the account:** the EAB key ID or HMAC key is wrong, or was already used for another account; some CAs accept each EAB key only once. Create new EAB credentials, then remove the CA and add it again.
 - **Issuing asks for `--accept-production-risk`:** the CA issues trusted certificates. Try the site with Let's Encrypt staging or a test CA first.

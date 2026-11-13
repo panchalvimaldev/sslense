@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:SSLense.Gui.ViewModels"
         xmlns:views="clr-namespace:SSLense.Gui.Views"
-        Title="SSLense — IIS Certificate Manager" Height="780" Width="1240"
+        Title="SSLense" Height="800" Width="1280"
         Icon="Assets/sslense.ico"
         MinHeight="640" MinWidth="1020"
         WindowStartupLocation="CenterScreen"
@@ -13,141 +13,89 @@
         <DataTemplate DataType="{x:Type vm:DashboardViewModel}">
             <views:DashboardView />
         </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:LogsViewModel}">
-            <views:LogsView />
+        <DataTemplate DataType="{x:Type vm:AddCertificateViewModel}">
+            <views:AddCertificateView />
         </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:IssueCertificateViewModel}">
-            <views:IssueCertificateView />
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:OtherProvidersViewModel}">
-            <views:OtherProvidersView />
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:CertificateDetailsViewModel}">
-            <views:CertificateDetailsView />
+        <DataTemplate DataType="{x:Type vm:ActivityViewModel}">
+            <views:ActivityView />
         </DataTemplate>
         <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
-            <views:SettingsView />
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:HealthViewModel}">
-            <views:HealthView />
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <views:SettingsView Margin="28,24,28,28" />
+            </ScrollViewer>
         </DataTemplate>
     </Window.Resources>
-    <Grid Background="{StaticResource CanvasBrush}">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="244" />
-            <ColumnDefinition Width="*" />
-        </Grid.ColumnDefinitions>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
 
-        <Border Background="{StaticResource SidebarBrush}">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-                <StackPanel Margin="24,26,20,24">
-                    <StackPanel Orientation="Horizontal">
-                        <Image Source="Assets/sslense-icon.png" Width="40" Height="40"
-                               RenderOptions.BitmapScalingMode="HighQuality"
-                               AutomationProperties.Name="SSLense logo" />
-                        <StackPanel Margin="11,0,0,0" VerticalAlignment="Center">
-                            <TextBlock Text="SSLense" Foreground="White" FontSize="20" FontWeight="SemiBold" />
-                            <TextBlock Text="Certificate manager" Foreground="#94A3B8" FontSize="11" />
-                        </StackPanel>
-                    </StackPanel>
+        <!-- Header: name, the tabs, the health status, and the two actions that apply to everything. -->
+        <Border Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="20,0">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,28,0">
+                    <Image Source="Assets/sslense-icon.png" Width="28" Height="28"
+                           RenderOptions.BitmapScalingMode="HighQuality"
+                           AutomationProperties.Name="SSLense logo" />
+                    <TextBlock Text="SSLense" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="10,0,12,0" VerticalAlignment="Center" />
+                    <Border Background="{StaticResource WarningSoftBrush}" BorderBrush="#FCD9A8" BorderThickness="1" CornerRadius="10" Padding="8,2" VerticalAlignment="Center"
+                            ToolTip="New certificates come from Let's Encrypt staging, which browsers do not trust, unless you choose another certificate authority. Production needs your confirmation.">
+                        <TextBlock Text="Staging by default" Foreground="#7A3B00" FontSize="11.5" FontWeight="SemiBold" />
+                    </Border>
                 </StackPanel>
-                <Border Grid.Row="1" Margin="16,0,16,18" Padding="11,8" CornerRadius="7"
-                        Background="#18243A" BorderBrush="#334155" BorderThickness="1">
-                    <DockPanel>
-                        <Ellipse DockPanel.Dock="Left" Width="7" Height="7" Fill="#FBBF24" Margin="0,0,8,0" />
-                        <TextBlock Text="STAGING BY DEFAULT · PRODUCTION GUARDED" Foreground="#FDE68A" FontSize="10" FontWeight="SemiBold" TextWrapping="Wrap" />
-                    </DockPanel>
-                </Border>
-                <ListBox Grid.Row="2" ItemsSource="{Binding Pages}"
-                         SelectedItem="{Binding SelectedPage}"
-                         Background="Transparent" BorderThickness="0"
-                         Foreground="#CBD5E1" Padding="12,0">
-                    <ListBox.ItemContainerStyle>
-                        <Style TargetType="ListBoxItem">
-                            <Setter Property="Padding" Value="12,10" />
-                            <Setter Property="Margin" Value="0,2" />
-                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                            <Setter Property="Cursor" Value="Hand" />
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="ListBoxItem">
-                                        <Border x:Name="ItemBorder" Background="Transparent" CornerRadius="7" Padding="{TemplateBinding Padding}">
-                                            <ContentPresenter />
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource SidebarHoverBrush}" />
-                                            </Trigger>
-                                            <Trigger Property="IsSelected" Value="True">
-                                                <Setter TargetName="ItemBorder" Property="Background" Value="#263A5B" />
-                                                <Setter Property="Foreground" Value="White" />
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                        </Style>
-                    </ListBox.ItemContainerStyle>
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="{Binding Icon}" FontFamily="Segoe MDL2 Assets" FontSize="16" Width="28"
-                                           Foreground="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=Foreground}" />
-                                <TextBlock Text="{Binding Title}" FontSize="13.5" FontWeight="SemiBold"
-                                           Foreground="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=Foreground}" />
-                            </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
-                <Border Grid.Row="3" BorderBrush="#263246" BorderThickness="0,1,0,0" Padding="20,16">
-                    <StackPanel>
-                        <TextBlock Text="Protected by SSLense" Foreground="#94A3B8" FontSize="11" />
-                        <TextBlock Text="Administrator mode" Foreground="#64748B" FontSize="10" Margin="0,3,0,0" />
-                    </StackPanel>
-                </Border>
-            </Grid>
-        </Border>
-
-        <Grid Grid.Column="1">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
-            <Border Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="28,12">
-                <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                     <!-- The quick local health check (data folder, configuration, service, heartbeat, notifications). -->
-                    <Button DockPanel.Dock="Right" Command="{Binding OpenHealthCommand}" Style="{StaticResource LinkButton}" MinHeight="0" Padding="4,2"
-                            ToolTip="Result of the quick health check, refreshed with the Dashboard. Click for the full check.">
+                    <Button Command="{Binding OpenHealthCommand}" Style="{StaticResource LinkButton}" Margin="0,0,12,0"
+                            ToolTip="Result of the quick health check. Click for the full check in Activity.">
                         <StackPanel Orientation="Horizontal">
-                            <Ellipse x:Name="HealthDot" Width="8" Height="8" Margin="0,0,8,0">
+                            <Ellipse Width="8" Height="8" Margin="0,0,7,0" VerticalAlignment="Center">
                                 <Ellipse.Style><Style TargetType="Ellipse"><Setter Property="Fill" Value="#94A3B8" />
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Dashboard.HealthState}" Value="Ok"><Setter Property="Fill" Value="#22C55E" /></DataTrigger>
-                                        <DataTrigger Binding="{Binding Dashboard.HealthState}" Value="Warning"><Setter Property="Fill" Value="#F59E0B" /></DataTrigger>
-                                        <DataTrigger Binding="{Binding Dashboard.HealthState}" Value="Fail"><Setter Property="Fill" Value="#DC2626" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Certificates.HealthState}" Value="Ok"><Setter Property="Fill" Value="#22C55E" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Certificates.HealthState}" Value="Warning"><Setter Property="Fill" Value="#F59E0B" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Certificates.HealthState}" Value="Fail"><Setter Property="Fill" Value="#DC2626" /></DataTrigger>
                                     </Style.Triggers></Style></Ellipse.Style>
                             </Ellipse>
-                            <TextBlock VerticalAlignment="Center" Foreground="{StaticResource MutedTextBrush}">
+                            <TextBlock VerticalAlignment="Center" FontWeight="Normal" Foreground="{StaticResource MutedTextBrush}">
                                 <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value="Checking health…" />
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Dashboard.HealthState}" Value="Ok"><Setter Property="Text" Value="Health check passed" /></DataTrigger>
-                                        <DataTrigger Binding="{Binding Dashboard.HealthState}" Value="Warning"><Setter Property="Text" Value="{Binding Dashboard.HealthAlertTitle}" /></DataTrigger>
-                                        <DataTrigger Binding="{Binding Dashboard.HealthState}" Value="Fail"><Setter Property="Text" Value="{Binding Dashboard.HealthAlertTitle}" /></DataTrigger>
-                                        <DataTrigger Binding="{Binding Dashboard.HealthState}" Value="Unknown"><Setter Property="Text" Value="Health unknown: open Health" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Certificates.HealthState}" Value="Ok"><Setter Property="Text" Value="Health check passed" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Certificates.HealthState}" Value="Warning"><Setter Property="Text" Value="{Binding Certificates.HealthAlertTitle}" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Certificates.HealthState}" Value="Fail"><Setter Property="Text" Value="{Binding Certificates.HealthAlertTitle}" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Certificates.HealthState}" Value="Unknown"><Setter Property="Text" Value="Health unknown" /></DataTrigger>
                                     </Style.Triggers></Style></TextBlock.Style>
                             </TextBlock>
                         </StackPanel>
                     </Button>
-                    <TextBlock Text="IIS certificate operations" Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Center" />
-                </DockPanel>
-            </Border>
-            <ContentControl Grid.Row="1" Content="{Binding SelectedPage.ViewModel}" Margin="28,24,28,28" />
-        </Grid>
+                    <Button Content="Renew all due" Command="{Binding RenewAllCommand}" Margin="0,0,8,0"
+                            ToolTip="Renew every automatic certificate that is due. Certificates you bought are installed by you, from the certificate's own screen." />
+                    <Button Content="＋  Add certificate" Command="{Binding AddCertificateCommand}" Style="{StaticResource PrimaryButton}" />
+                </StackPanel>
+                <ListBox ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}" Style="{StaticResource WindowTabs}"
+                         AutomationProperties.Name="Main tabs">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate><TextBlock Text="{Binding Title}" /></DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <!-- Only while an operation started here runs, or after one fails. -->
+        <Border Grid.Row="1" Background="{StaticResource BrandSoftBrush}" BorderBrush="#BFDBFE" BorderThickness="0,0,0,1" Padding="20,8"
+                Visibility="{Binding Certificates.ShowActivity, Converter={StaticResource BooleanToVisibilityConverter}}"
+                AutomationProperties.Name="Running operation">
+            <DockPanel>
+                <Button DockPanel.Dock="Right" Content="Cancel" Command="{Binding Certificates.CancelCommand}" Style="{StaticResource LinkButton}" />
+                <Button DockPanel.Dock="Right" Content="Show progress" Command="{Binding OpenActivityCommand}" Style="{StaticResource LinkButton}" />
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Certificates.Activity}" Foreground="{StaticResource TextBrush}" />
+                    <TextBlock Text="{Binding Certificates.ErrorMessage}" Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <ContentControl Grid.Row="2" Content="{Binding CurrentPage}" Focusable="False" />
     </Grid>
 </Window>

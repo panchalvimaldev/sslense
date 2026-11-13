@@ -1,94 +1,121 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 
 namespace SSLense.Gui.ViewModels;
 
+/// <summary>The window: three tabs (Certificates, Activity, Settings) and the Add certificate page.</summary>
 public partial class MainViewModel : ObservableObject
 {
-    private readonly DashboardViewModel _dashboard;
-    private readonly LogsViewModel _logs;
+    private readonly DashboardViewModel _certificates;
     private readonly IssueCertificateViewModel _issue;
-    private readonly OtherProvidersViewModel _otherProviders;
-    private readonly CertificateDetailsViewModel _details;
+    private readonly AddCertificateViewModel _add;
+    private readonly ActivityViewModel _activity;
     private readonly SettingsViewModel _settings;
-    private readonly INavigationService _navigation;
-    private string? _pendingNavigationContext;
+    private readonly LogsViewModel _logs;
 
+    /// <summary>The selected tab, or null while Add certificate is open.</summary>
     [ObservableProperty]
-    private NavigationItem selectedPage;
+    private NavigationItem? selectedTab;
+
+    /// <summary>The view model of the page shown below the tabs.</summary>
+    [ObservableProperty]
+    private object currentPage;
 
     public MainViewModel(
-        DashboardViewModel dashboard,
+        DashboardViewModel certificates,
         IssueCertificateViewModel issue,
-        OtherProvidersViewModel otherProviders,
-        CertificateDetailsViewModel details,
+        AddCertificateViewModel add,
+        ActivityViewModel activity,
         SettingsViewModel settings,
-        HealthViewModel health,
         LogsViewModel logs,
         INavigationService navigation)
     {
-        _dashboard = dashboard;
-        _logs = logs;
+        _certificates = certificates;
         _issue = issue;
-        _otherProviders = otherProviders;
-        _details = details;
+        _add = add;
+        _activity = activity;
         _settings = settings;
-        _navigation = navigation;
-        Pages =
+        _logs = logs;
+        Tabs =
         [
-            new NavigationItem("Dashboard", "\uE80F", dashboard),
-            new NavigationItem("Issue Certificate", "\uE710", issue),
-            new NavigationItem("Other Providers", "\uE8D4", otherProviders),
-            new NavigationItem("Certificate Details", "\uE8D7", details),
-            new NavigationItem("Settings", "\uE713", settings),
-            new NavigationItem("Health", "\uE95E", health),
-            new NavigationItem("Logs", "\uE9D5", logs)
+            new NavigationItem("Certificates", "", certificates),
+            new NavigationItem("Activity", "", activity),
+            new NavigationItem("Settings", "", settings)
         ];
-        selectedPage = Pages[0];
-        _navigation.NavigationRequested += OnNavigationRequested;
+        selectedTab = Tabs[0];
+        currentPage = certificates;
+        AddCertificateCommand = new RelayCommand(() => _ = ShowAddCertificateAsync(AddCertificateViewModel.AutomaticTab, null));
+        OpenActivityCommand = new RelayCommand(() => SelectedTab = Tabs[1]);
+        navigation.NavigationRequested += OnNavigationRequested;
     }
 
-    public IReadOnlyList<NavigationItem> Pages { get; }
+    public IReadOnlyList<NavigationItem> Tabs { get; }
 
-    /// <summary>Source of the header status, which shows the quick health result the Dashboard keeps current.</summary>
-    public DashboardViewModel Dashboard => _dashboard;
+    /// <summary>The Certificates tab, which also keeps the header's health status and the running operation.</summary>
+    public DashboardViewModel Certificates => _certificates;
 
-    public CommunityToolkit.Mvvm.Input.IRelayCommand OpenHealthCommand => _dashboard.OpenHealthCommand;
+    public IRelayCommand AddCertificateCommand { get; }
+
+    public IRelayCommand OpenActivityCommand { get; }
+
+    public IAsyncRelayCommand RenewAllCommand => _certificates.RenewAllCommand;
+
+    public IRelayCommand OpenHealthCommand => _certificates.OpenHealthCommand;
+
+    public bool IsAddingCertificate => ReferenceEquals(CurrentPage, _add);
 
     public async Task InitializeAsync()
     {
-        await _dashboard.InitializeAsync();
+        await _certificates.InitializeAsync();
         await _issue.InitializeAsync();
         _logs.StartLiveUpdates();
     }
 
-    partial void OnSelectedPageChanged(NavigationItem value)
+    partial void OnCurrentPageChanged(object value) => OnPropertyChanged(nameof(IsAddingCertificate));
+
+    partial void OnSelectedTabChanged(NavigationItem? value)
     {
-        var context = _pendingNavigationContext;
-        _pendingNavigationContext = null;
-        _ = InitializePageAsync(value, context);
+        if (value is null) return;
+        CurrentPage = value.ViewModel;
+        if (ReferenceEquals(value.ViewModel, _certificates)) _ = _certificates.InitializeAsync();
+        else if (ReferenceEquals(value.ViewModel, _settings)) _ = _settings.InitializeAsync();
     }
 
+    private Task ShowAddCertificateAsync(int tab, string? context)
+    {
+        SelectedTab = null;
+        CurrentPage = _add;
+        return _add.ShowAsync(tab, context);
+    }
+
+    /// <summary>Other screens ask for a page by the name it had in the side menu; this maps each one to its new place.</summary>
     private void OnNavigationRequested(object? sender, NavigationRequest request)
     {
-        var page = Pages.FirstOrDefault(value => value.Title.StartsWith(request.Page, StringComparison.OrdinalIgnoreCase));
-        if (page is null) return;
-        if (ReferenceEquals(SelectedPage, page))
+        var page = request.Page;
+        if (Is(page, "Issue") || Is(page, "Add certificate"))
         {
-            _ = InitializePageAsync(page, request.Context);
+            _ = ShowAddCertificateAsync(AddCertificateViewModel.AutomaticTab, request.Context);
+        }
+        else if (Is(page, "Other Providers"))
+        {
+            _ = ShowAddCertificateAsync(AddCertificateViewModel.OtherProvidersTab, request.Context);
+        }
+        else if (Is(page, "Health") || Is(page, "Logs"))
+        {
+            _activity.SelectedTab = Is(page, "Logs") ? ActivityViewModel.LogTab : ActivityViewModel.HealthTab;
+            SelectedTab = Tabs[1];
+        }
+        else if (Is(page, "Settings"))
+        {
+            SelectedTab = Tabs[2];
         }
         else
         {
-            _pendingNavigationContext = request.Context;
-            SelectedPage = page;
+            // Dashboard, Certificates, Certificate Details: the list, with the named certificate selected.
+            SelectedTab = Tabs[0];
+            _ = _certificates.SelectAsync(request.Context);
         }
     }
 
-    private async Task InitializePageAsync(NavigationItem page, string? context)
-    {
-        if (ReferenceEquals(page.ViewModel, _dashboard)) await _dashboard.InitializeAsync();
-        else if (ReferenceEquals(page.ViewModel, _issue)) await _issue.InitializeAsync(context);
-        else if (ReferenceEquals(page.ViewModel, _otherProviders)) await _otherProviders.InitializeAsync(context);
-        else if (ReferenceEquals(page.ViewModel, _details)) await _details.InitializeAsync(context);
-        else if (ReferenceEquals(page.ViewModel, _settings)) await _settings.InitializeAsync();
-    }
+    private static bool Is(string page, string name) => page.StartsWith(name, StringComparison.OrdinalIgnoreCase);
 }

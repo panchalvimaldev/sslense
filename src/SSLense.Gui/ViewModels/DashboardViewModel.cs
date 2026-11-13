@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Windows.Data;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
@@ -8,6 +10,7 @@ using SSLense.Core.Renewal;
 
 namespace SSLense.Gui.ViewModels;
 
+/// <summary>The Certificates tab: the list of managed certificates, grouped by IIS site, and the selected one.</summary>
 public partial class DashboardViewModel : ObservableObject
 {
     private readonly IRenewalService _renewalService;
@@ -15,12 +18,17 @@ public partial class DashboardViewModel : ObservableObject
     private readonly ILogger<DashboardViewModel> _logger;
     private readonly INavigationService _navigation;
     private readonly AsyncRelayCommand _refreshCommand;
-    private readonly AsyncRelayCommand _renewSelectedCommand;
     private readonly AsyncRelayCommand _renewAllCommand;
     private readonly RelayCommand _cancelCommand;
+    private bool _reloading;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSelection), nameof(ShowOverview))]
     private CertificateRowViewModel? selectedCertificate;
+
+    /// <summary>Text typed in the list's filter box, matched against host names and certificate names.</summary>
+    [ObservableProperty]
+    private string filter = string.Empty;
 
     [ObservableProperty]
     private bool isBusy;
@@ -46,54 +54,98 @@ public partial class DashboardViewModel : ObservableObject
         IRenewalService renewalService,
         IHealthCheckService healthCheckService,
         ILogger<DashboardViewModel> logger,
-        INavigationService navigation)
+        INavigationService navigation,
+        CertificateDetailsViewModel details)
     {
+        Details = details;
         _renewalService = renewalService;
         _healthCheckService = healthCheckService;
         _logger = logger;
         _navigation = navigation;
         _refreshCommand = new AsyncRelayCommand(RefreshAsync, CanRun);
-        _renewSelectedCommand = new AsyncRelayCommand(RenewSelectedAsync, CanRenewSelected);
         _renewAllCommand = new AsyncRelayCommand(RenewAllAsync, CanRenewAll);
         _cancelCommand = new RelayCommand(Cancel, CanCancel);
-        IssueNewCommand = new RelayCommand(() => _navigation.Navigate("Issue"), () => !IsBusy);
+        AddCertificateCommand = new RelayCommand(() => _navigation.Navigate("Add certificate"));
         OpenHealthCommand = new RelayCommand(() => _navigation.Navigate("Health"));
-        ViewDetailsCommand = new RelayCommand(
-            () => _navigation.Navigate("Certificate Details", SelectedCertificate?.SiteName),
-            () => !IsBusy && SelectedCertificate is not null);
-        OrderReplacementCommand = new RelayCommand(
-            () => _navigation.Navigate("Other Providers", SelectedCertificate?.SiteName),
-            () => !IsBusy && SelectedCertificate?.IsImported == true);
+        ClearSelectionCommand = new RelayCommand(() => SelectedCertificate = null);
+        SelectCommand = new RelayCommand<CertificateRowViewModel>(row => SelectedCertificate = row);
         ProgressLines.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasProgress));
+
+        CertificatesView = new ListCollectionView(Certificates);
+        CertificatesView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(CertificateRowViewModel.GroupName)));
+        CertificatesView.SortDescriptions.Add(new SortDescription(nameof(CertificateRowViewModel.IsNoSite), ListSortDirection.Ascending));
+        CertificatesView.SortDescriptions.Add(new SortDescription(nameof(CertificateRowViewModel.IisSite), ListSortDirection.Ascending));
+        CertificatesView.SortDescriptions.Add(new SortDescription(nameof(CertificateRowViewModel.Title), ListSortDirection.Ascending));
+        CertificatesView.Filter = item => item is CertificateRowViewModel row && Matches(row);
+
+        // Renewing, removing or changing a certificate on its own screen changes the list too.
+        details.CertificatesChanged += message =>
+        {
+            if (message is not null) Notice = message;
+            _ = _refreshCommand.ExecuteAsync(null);
+        };
+        DismissNoticeCommand = new RelayCommand(() => Notice = null);
     }
 
+    /// <summary>A result to show above the list, such as after a certificate was removed.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasNotice))]
+    private string? notice;
+
+    public bool HasNotice => Notice is not null;
+
+    public IRelayCommand DismissNoticeCommand { get; }
+
+    /// <summary>The selected certificate, shown beside the list.</summary>
+    public CertificateDetailsViewModel Details { get; }
+
     public ObservableCollection<CertificateRowViewModel> Certificates { get; } = [];
+
+    /// <summary>The list as shown: grouped by IIS site, sorted and filtered.</summary>
+    public ListCollectionView CertificatesView { get; }
+
+    /// <summary>Certificates that need the administrator, for the summary shown when none is selected.</summary>
+    public ObservableCollection<CertificateRowViewModel> NeedsAttention { get; } = [];
 
     public ObservableCollection<string> ProgressLines { get; } = [];
 
     public int TotalCount => Certificates.Count;
 
-    public int HealthyCount => Certificates.Count(value => value.StatusKey == "Green");
+    public int AttentionCount => NeedsAttention.Count;
 
-    public int AttentionCount => Certificates.Count(value => value.StatusKey == "Amber");
+    public int AutomaticCount => Certificates.Count(value => value.IsAutomatic);
 
-    public int FailedCount => Certificates.Count(value => value.StatusKey == "Red");
+    public int ByHandCount => Certificates.Count(value => !value.IsAutomatic);
+
+    public bool HasCertificates => Certificates.Count > 0;
+
+    public bool HasNoCertificates => Certificates.Count == 0;
+
+    public bool HasAttention => NeedsAttention.Count > 0;
+
+    public bool AllFine => Certificates.Count > 0 && NeedsAttention.Count == 0;
+
+    public bool HasSelection => SelectedCertificate is not null;
+
+    public bool ShowOverview => SelectedCertificate is null;
 
     public IAsyncRelayCommand RefreshCommand => _refreshCommand;
 
-    public IAsyncRelayCommand RenewSelectedCommand => _renewSelectedCommand;
-
+    /// <summary>Renews every automatic certificate that is due. Bought ones are installed by the administrator.</summary>
     public IAsyncRelayCommand RenewAllCommand => _renewAllCommand;
 
     public IRelayCommand CancelCommand => _cancelCommand;
-    public IRelayCommand IssueNewCommand { get; }
+
+    public IRelayCommand AddCertificateCommand { get; }
+
     public IRelayCommand OpenHealthCommand { get; }
 
-    public bool HasHealthAlert => HealthAlertTitle is not null;
-    public IRelayCommand ViewDetailsCommand { get; }
+    public IRelayCommand ClearSelectionCommand { get; }
 
-    /// <summary>An imported certificate is replaced by ordering a new one from its provider, not renewed here.</summary>
-    public IRelayCommand OrderReplacementCommand { get; }
+    /// <summary>Selects a certificate from the summary's "Needs your attention" list.</summary>
+    public IRelayCommand<CertificateRowViewModel> SelectCommand { get; }
+
+    public bool HasHealthAlert => HealthAlertTitle is not null;
 
     public IRelayCommand ClearProgressCommand => new RelayCommand(ProgressLines.Clear);
 
@@ -101,56 +153,50 @@ public partial class DashboardViewModel : ObservableObject
 
     public bool ShowActivity => IsBusy || !string.IsNullOrEmpty(ErrorMessage);
 
-    public bool SelectedIsImported => SelectedCertificate?.IsImported == true;
-
     public Task InitializeAsync() => _refreshCommand.ExecuteAsync(null);
 
-    partial void OnSelectedCertificateChanged(CertificateRowViewModel? value) =>
-        NotifySelectionCommands();
+    /// <summary>Selects a certificate by its name, as when another screen asks for it.</summary>
+    public async Task SelectAsync(string? siteName)
+    {
+        if (Certificates.Count == 0) await InitializeAsync().ConfigureAwait(true);
+        SelectedCertificate = siteName is null
+            ? null
+            : Certificates.FirstOrDefault(value => string.Equals(value.SiteName, siteName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    partial void OnSelectedCertificateChanged(CertificateRowViewModel? value)
+    {
+        if (_reloading) return;
+        if (value is null) Details.Clear();
+        else _ = Details.ShowAsync(value);
+    }
+
+    partial void OnFilterChanged(string value) => CertificatesView.Refresh();
 
     partial void OnErrorMessageChanged(string? value) => OnPropertyChanged(nameof(ShowActivity));
 
     partial void OnIsBusyChanged(bool value)
     {
         OnPropertyChanged(nameof(ShowActivity));
-        (OrderReplacementCommand as RelayCommand)?.NotifyCanExecuteChanged();
         _refreshCommand.NotifyCanExecuteChanged();
-        _renewSelectedCommand.NotifyCanExecuteChanged();
         _renewAllCommand.NotifyCanExecuteChanged();
         _cancelCommand.NotifyCanExecuteChanged();
-        (IssueNewCommand as RelayCommand)?.NotifyCanExecuteChanged();
-        (ViewDetailsCommand as RelayCommand)?.NotifyCanExecuteChanged();
+    }
+
+    private bool Matches(CertificateRowViewModel row)
+    {
+        var text = Filter.Trim();
+        return text.Length == 0
+               || row.Hosts.Contains(text, StringComparison.OrdinalIgnoreCase)
+               || row.SiteName.Contains(text, StringComparison.OrdinalIgnoreCase);
     }
 
     private Task RefreshAsync(CancellationToken cancellationToken) =>
         RunOperationAsync("Refreshing managed certificates...", LoadCertificatesAsync, cancellationToken);
 
-    private Task RenewSelectedAsync(CancellationToken cancellationToken)
-    {
-        var selected = SelectedCertificate;
-        if (selected is null)
-        {
-            return Task.CompletedTask;
-        }
-
-        return RunOperationAsync(
-            $"Renewing {selected.SiteName}...",
-            async token =>
-            {
-                var results = await _renewalService.RenewAsync(
-                        new RenewalRequest(SiteName: selected.SiteName, Force: true),
-                        CreateProgress(),
-                        token)
-                    .ConfigureAwait(true);
-                AddResults(results);
-                await LoadCertificatesAsync(token).ConfigureAwait(true);
-            },
-            cancellationToken);
-    }
-
     private Task RenewAllAsync(CancellationToken cancellationToken) =>
         RunOperationAsync(
-            "Checking all managed certificates for renewal...",
+            "Renewing the certificates that are due...",
             async token =>
             {
                 var results = await _renewalService.RenewAsync(
@@ -183,7 +229,7 @@ public partial class DashboardViewModel : ObservableObject
         }
         catch (Exception exception)
         {
-            _logger.LogError(exception, "Dashboard operation failed");
+            _logger.LogError(exception, "Certificates operation failed");
             ErrorMessage = exception.Message;
             Activity = "Operation failed.";
         }
@@ -196,19 +242,41 @@ public partial class DashboardViewModel : ObservableObject
     private async Task LoadCertificatesAsync(CancellationToken cancellationToken)
     {
         var statuses = await _renewalService.GetStatusAsync(cancellationToken).ConfigureAwait(true);
-        Certificates.Clear();
-        foreach (var status in statuses)
+        // The details' name wins: stopping the first site of a shared certificate renames it.
+        var kept = SelectedCertificate is null ? null : Details.SelectedSite ?? SelectedCertificate.SiteName;
+        _reloading = true;
+        try
         {
-            Certificates.Add(new CertificateRowViewModel(status));
+            Certificates.Clear();
+            NeedsAttention.Clear();
+            foreach (var status in statuses)
+            {
+                var row = new CertificateRowViewModel(status);
+                Certificates.Add(row);
+                if (row.NeedsAttention) NeedsAttention.Add(row);
+            }
+
+            // Keep the same certificate selected, now with its new state.
+            SelectedCertificate = kept is null
+                ? null
+                : Certificates.FirstOrDefault(value => string.Equals(value.SiteName, kept, StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            _reloading = false;
         }
 
-        Activity = statuses.Count == 0
-            ? "No managed certificates yet. Issue a certificate, or adopt existing certificates on the Other Providers page."
-            : $"Loaded {statuses.Count} managed certificate(s).";
+        if (SelectedCertificate is { } selected) Details.Summary = selected;
+        else if (kept is not null) Details.Clear();
+
         OnPropertyChanged(nameof(TotalCount));
-        OnPropertyChanged(nameof(HealthyCount));
         OnPropertyChanged(nameof(AttentionCount));
-        OnPropertyChanged(nameof(FailedCount));
+        OnPropertyChanged(nameof(AutomaticCount));
+        OnPropertyChanged(nameof(ByHandCount));
+        OnPropertyChanged(nameof(HasCertificates));
+        OnPropertyChanged(nameof(HasNoCertificates));
+        OnPropertyChanged(nameof(HasAttention));
+        OnPropertyChanged(nameof(AllFine));
         _renewAllCommand.NotifyCanExecuteChanged();
         await UpdateHealthAlertAsync(cancellationToken).ConfigureAwait(true);
     }
@@ -234,7 +302,7 @@ public partial class DashboardViewModel : ObservableObject
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            // The banner is advisory; the certificate list above has already loaded.
+            // The header status is advisory; the certificate list has already loaded.
             _logger.LogWarning(exception, "Quick health check failed");
             HealthState = "Unknown";
         }
@@ -262,8 +330,6 @@ public partial class DashboardViewModel : ObservableObject
 
     private bool CanRun() => !IsBusy;
 
-    private bool CanRenewSelected() => !IsBusy && SelectedCertificate is { IsImported: false, IsManualDns: false };
-
     private bool CanRenewAll() => !IsBusy && Certificates.Count > 0;
 
     private bool CanCancel() => IsBusy;
@@ -271,15 +337,6 @@ public partial class DashboardViewModel : ObservableObject
     private void Cancel()
     {
         _refreshCommand.Cancel();
-        _renewSelectedCommand.Cancel();
         _renewAllCommand.Cancel();
-    }
-
-    private void NotifySelectionCommands()
-    {
-        _renewSelectedCommand.NotifyCanExecuteChanged();
-        (ViewDetailsCommand as RelayCommand)?.NotifyCanExecuteChanged();
-        (OrderReplacementCommand as RelayCommand)?.NotifyCanExecuteChanged();
-        OnPropertyChanged(nameof(SelectedIsImported));
     }
 }

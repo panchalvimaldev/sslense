@@ -65,13 +65,14 @@ References:
 
 In priority order. Feedback from real users can change the order.
 
-1. **Several ACME certificates on one IIS site.** Phase 2 of [the design](docs/design/multiple-certificates-per-site.md): issue and renew a second ACME certificate on a site, including HTTP validation and sharing.
-2. **Built-in DNS providers.** The script method (0.15) covers any service with an API; built-in providers save writing one. One at a time, starting with Amazon Route 53, Azure DNS, Google Cloud DNS, DigitalOcean, and Hetzner, then whichever users ask for most. Each stays labelled untested until it has run on a real account. Providers are compiled in, not loaded as plugins, because the service runs as SYSTEM.
-3. **HTTP validation without a port 80 binding.** A short-lived listener of SSLense's own answers the challenge, for sites that have only HTTPS bindings or whose port 80 is used by something else.
-4. **Certificates on other machines.** Add host names that are not on this server, such as load balancers and appliances, to the daily served-certificate check, so one place reminds about every certificate.
-5. **HTTP-to-HTTPS redirect helper** using an IIS URL Rewrite rule, with a check that it does not block validation.
-6. **Bulk operations.** Adopt every unmanaged certificate at once, and issue for many sites from a CSV file.
-7. **New version notice.** Tell the administrator when a newer release is available, with a setting to turn the check off. Never install anything automatically.
+1. **A simpler app window** (in progress). Three tabs, the certificates grouped by IIS site with the selected one beside them, Add certificate starting from where the certificate comes from, and plain words ([design](docs/design/gui-redesign.md)). Step 1, the window and the Certificates tab, is built.
+2. **Several ACME certificates on one IIS site.** Phase 2 of [the design](docs/design/multiple-certificates-per-site.md): issue and renew a second ACME certificate on a site, including HTTP validation and sharing.
+3. **Built-in DNS providers.** The script method (0.15) covers any service with an API; built-in providers save writing one. One at a time, starting with Amazon Route 53, Azure DNS, Google Cloud DNS, DigitalOcean, and Hetzner, then whichever users ask for most. Each stays labelled untested until it has run on a real account. Providers are compiled in, not loaded as plugins, because the service runs as SYSTEM.
+4. **HTTP validation without a port 80 binding.** A short-lived listener of SSLense's own answers the challenge, for sites that have only HTTPS bindings or whose port 80 is used by something else.
+5. **Certificates on other machines.** Add host names that are not on this server, such as load balancers and appliances, to the daily served-certificate check, so one place reminds about every certificate.
+6. **HTTP-to-HTTPS redirect helper** using an IIS URL Rewrite rule, with a check that it does not block validation.
+7. **Bulk operations.** Adopt every unmanaged certificate at once, and issue for many sites from a CSV file.
+8. **New version notice.** Tell the administrator when a newer release is available, with a setting to turn the check off. Never install anything automatically.
 
 Later, by demand: export to Azure Key Vault (it needs a new dependency), certificates for IP addresses, TLS-ALPN-01 validation, IIS FTP sites, and managing several servers from one place.
 
