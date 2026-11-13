@@ -79,7 +79,6 @@ public partial class CertificateDetailsViewModel : ObservableObject
         _addDeploymentStepCommand = new AsyncRelayCommand(AddDeploymentStepAsync, () => CanOperate() && SelectedDeploymentKind is not null && !string.IsNullOrWhiteSpace(DeploymentValue));
         _removeDeploymentStepCommand = new AsyncRelayCommand<DeploymentStepRow>(RemoveDeploymentStepAsync, row => CanOperate() && row is not null);
         _runDeploymentCommand = new AsyncRelayCommand(RunDeploymentAsync, () => CanOperate() && DeploymentSteps.Count > 0);
-        SelectedDeploymentKind = DeploymentKinds[0];
         _reminderService = reminderService;
         _sharingService = sharingService;
         _iisService = iisService;
@@ -96,6 +95,9 @@ public partial class CertificateDetailsViewModel : ObservableObject
         _renewCommand = new AsyncRelayCommand(RenewAsync, () => CanOperate() && !IsImported && !IsManualDns);
         _removeCommand = new AsyncRelayCommand(RemoveAsync, CanOperate);
         RenewByHandCommand = new RelayCommand(() => _navigation.Navigate("Issue", SelectedSite), () => !IsBusy && IsManualDns);
+
+        // Last: setting it notifies the commands, so they must all exist by now.
+        SelectedDeploymentKind = DeploymentKinds[0];
     }
 
     /// <summary>Each manual DNS renewal needs new records, so it goes through the wizard, which shows them.</summary>
@@ -458,7 +460,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private void NotifyCommands()
     {
         (RenewByHandCommand as RelayCommand)?.NotifyCanExecuteChanged();
-        _refreshCommand.NotifyCanExecuteChanged(); _renewCommand.NotifyCanExecuteChanged(); _removeCommand.NotifyCanExecuteChanged();
+        _refreshCommand?.NotifyCanExecuteChanged(); _renewCommand?.NotifyCanExecuteChanged(); _removeCommand?.NotifyCanExecuteChanged();
         (OrderReplacementCommand as RelayCommand)?.NotifyCanExecuteChanged();
         _applyReminderCommand?.NotifyCanExecuteChanged();
         _addSiteCommand?.NotifyCanExecuteChanged();
