@@ -92,7 +92,8 @@ public partial class CertificateDetailsViewModel : ObservableObject
         _addDeploymentStepCommand = new AsyncRelayCommand(AddDeploymentStepAsync, () => CanOperate() && SelectedDeploymentKind is not null && !string.IsNullOrWhiteSpace(DeploymentValue));
         _removeDeploymentStepCommand = new AsyncRelayCommand<DeploymentStepRow>(RemoveDeploymentStepAsync, row => CanOperate() && row is not null);
         _runDeploymentCommand = new AsyncRelayCommand(RunDeploymentAsync, () => CanOperate() && DeploymentSteps.Count > 0);
-        CheckCommand = new AsyncRelayCommand(CheckAsync, () => !IsBusy && SelectedSite is not null);
+        // Not held back while the certificate loads: Check reads the site, not what is loading.
+        CheckCommand = new AsyncRelayCommand(CheckAsync, () => SelectedSite is not null);
         RemindersOffCommand = new RelayCommand(() => SelectedReminderChoice = ReminderChoices[3], () => !IsBusy && SelectedSite is not null);
         OpenReminderSettingsCommand = new RelayCommand(() => navigation.Navigate("Settings", "Reminders"));
         _reminderService = reminderService;
@@ -593,8 +594,12 @@ public partial class CertificateDetailsViewModel : ObservableObject
         }, cancellationToken);
     }
 
+    /// <summary>Operations running now. Loading a certificate and a choice made meanwhile, such as a reminder, can overlap.</summary>
+    private int _running;
+
     private async Task RunAsync(Func<CancellationToken, Task> action, CancellationToken cancellationToken)
     {
+        _running++;
         IsBusy = true; ErrorMessage = null;
         try { await action(cancellationToken).ConfigureAwait(true); }
         catch (Exception exception)
@@ -602,7 +607,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
             _logger.LogError(exception, "Certificate details operation failed");
             ErrorMessage = exception.Message;
         }
-        finally { IsBusy = false; }
+        finally { IsBusy = --_running > 0; }
     }
 
     private bool CanOperate() => !IsBusy && SelectedSite is not null;
@@ -631,7 +636,8 @@ public partial class CertificateDetailsViewModel : ObservableObject
     partial void OnSelectedReminderChoiceChanged(ReminderChoice? value)
     {
         _applyReminderCommand?.NotifyCanExecuteChanged();
-        if (!_loadingReminder && value is not null && SelectedSite is not null && !IsBusy) _ = _applyReminderCommand?.ExecuteAsync(null);
+        // Applied even while the certificate is still loading, so a click is never dropped.
+        if (!_loadingReminder && value is not null && SelectedSite is not null) _ = _applyReminderCommand?.ExecuteAsync(null);
     }
     private static RenewalResult AssertSingle(IReadOnlyList<RenewalResult> results) => results.Single();
 }
