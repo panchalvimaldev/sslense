@@ -33,6 +33,21 @@ public partial class CertificateDetailsView : UserControl
         menu.IsOpen = true;
     }
 
+    /// <summary>Opens https://host for the certificate's first host name; a wildcard opens the domain it covers.</summary>
+    private void OnOpenSiteClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not CertificateDetailsViewModel { Summary: { HostList.Count: > 0 } row }) return;
+        var host = row.HostList[0].StartsWith("*.", StringComparison.Ordinal) ? row.HostList[0][2..] : row.HostList[0];
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo($"https://{host}/") { UseShellExecute = true });
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(exception.Message, "Could not open the browser", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
     private async void OnRemoveClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is not CertificateDetailsViewModel viewModel || viewModel.SelectedSite is null) return;

@@ -45,7 +45,8 @@ The app is a thin wrapper over SSLense.Core, as before: this work changes screen
 |---|---|
 | 1 | The window and its tabs; the Certificates list grouped by site, the summary, and the certificate with its sections; Activity with health and log as tabs. Add certificate holds the current Issue and Other Providers screens until step 2. A test lays out every screen and saves an image of it for review. **Built** November 13, 2026 |
 | 2 | Add certificate with the four sources; **Install renewal** as a dialog from the certificate. **Built** November 13, 2026: the four sources replace the Issue and Other Providers tabs, with ticks to watch several bindings at once; Install renewal takes a PFX, or the provider's certificate for the request SSLense created, then confirms; 6 tests for the dialog, and images of every new screen |
-| 3 | Settings with tabs; a combined Activity page; **Stop managing**, which keeps IIS as it is (needs a Core operation, as `remove` deletes the HTTPS bindings); a wording pass. |
+| 3 | Settings with tabs; a combined Activity page; **Check** on a certificate; restyled dropdowns and ⋯ menu; Reminders as choices applied at once; labels in normal capitalisation. **Built** November 13, 2026, after the owner compared steps 1 and 2 with the prototype. Check is a Core operation, `CheckServedAsync`, also `check --site`: it connects to each domain on every site using the certificate, and changes nothing |
+| 4 | **Stop managing**, which keeps IIS as it is (needs a Core operation, as `remove` deletes the HTTPS bindings); the rest of the wording pass. |
 
 ## 4. Decisions
 

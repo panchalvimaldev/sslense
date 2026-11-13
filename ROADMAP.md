@@ -65,7 +65,7 @@ References:
 
 In priority order. Feedback from real users can change the order.
 
-1. **A simpler app window** (in progress). Three tabs, the certificates grouped by IIS site with the selected one beside them, Add certificate starting from where the certificate comes from, and plain words ([design](docs/design/gui-redesign.md)). Steps 1 and 2 are built: the window, the Certificates tab, Add certificate, and Install renewal.
+1. **A simpler app window** (in progress). Three tabs, the certificates grouped by IIS site with the selected one beside them, Add certificate starting from where the certificate comes from, and plain words ([design](docs/design/gui-redesign.md)). Steps 1 to 3 are built: the window, the Certificates tab, Add certificate, Install renewal, Check, Activity, and Settings with tabs.
 2. **Several ACME certificates on one IIS site.** Phase 2 of [the design](docs/design/multiple-certificates-per-site.md): issue and renew a second ACME certificate on a site, including HTTP validation and sharing.
 3. **Built-in DNS providers.** The script method (0.15) covers any service with an API; built-in providers save writing one. One at a time, starting with Amazon Route 53, Azure DNS, Google Cloud DNS, DigitalOcean, and Hetzner, then whichever users ask for most. Each stays labelled untested until it has run on a real account. Providers are compiled in, not loaded as plugins, because the service runs as SYSTEM.
 4. **HTTP validation without a port 80 binding.** A short-lived listener of SSLense's own answers the challenge, for sites that have only HTTPS bindings or whose port 80 is used by something else.

@@ -582,8 +582,8 @@ Windows displays an administrator elevation prompt because the application manif
 - **Certificates:** every certificate in a list grouped by IIS site, with its days left in green, amber or red, its kind (automatic, by hand, or bought), and a filter. With none selected, a summary and the certificates that need you, each with what to do
 - **A selected certificate:** what state it is in and what to do, in plain words; one main button that fits it (**Renew now**, **Renew by hand** for manual DNS, **Install renewal** for one you bought, a short dialog: choose the PFX or the provider's certificate file, confirm, done); and its sections: Status, Certificate, Sites (when it can be shared), Reminders, After install (deployment steps), and History. Removing it is in the **⋯** menu, named for what it does, with a confirmation
 - **Add certificate:** free and automatic, with the three-step wizard (IIS site, HTTP or DNS validation, certificate names for wildcards, a choice of certificate authority with a confirmation for trusted ones, pre-flight checks, the records to create for manual DNS validation, live progress, and cancellation); bought, with its PFX file; bought, with a request (CSR) to copy or save, completed with the certificate and bundle the provider sends; or already in IIS, ticking the bindings to watch without changing IIS. It starts by asking where the certificate comes from
-- **Activity:** the progress of renewals started in the app, the health checks with a diagnostic bundle, and a live log with level filtering
-- **Settings:** general, certificate authority, DNS provider (Cloudflare, acme-dns or your own script), notification, reminder, and Windows Service settings
+- **Activity:** one page with what is running now, the health checks (each with what to do) and a diagnostic bundle, and a live log with search and level filtering
+- **Settings:** tabs for General, Notifications, Reminders, Certificate authorities, DNS providers (Cloudflare, acme-dns or your own script), and the Windows Service
 - The health check's result in the header, and cancellable operations with live progress
 
 Staging remains the wizard default. Production requires a separate selection and acknowledgement before the Issue button is enabled. Removing a certificate requires confirmation and removes only matching HTTPS bindings; a certificate still used by another IIS site is retained in the Windows certificate store.
@@ -593,6 +593,7 @@ The same operations from the command line:
 ```powershell
 dotnet run --project .\src\SSLense.Cli -- preflight --site "My IIS Site" --hosts example.com
 dotnet run --project .\src\SSLense.Cli -- details --site "My IIS Site"
+dotnet run --project .\src\SSLense.Cli -- check --site "My IIS Site"
 dotnet run --project .\src\SSLense.Cli -- configure --email admin@example.com --renewal-days 30
 dotnet run --project .\src\SSLense.Cli -- service-status
 dotnet run --project .\src\SSLense.Cli -- start-service

@@ -23,12 +23,12 @@
      <TextBlock Text="Select the website and host names SSLense should secure." Style="{StaticResource PageSubtitle}" Margin="0,4,0,20"/>
      <CheckBox Content="No IIS site: for Remote Desktop, SQL Server, Exchange, or another service" IsChecked="{Binding NoSite}" Margin="0,0,0,10" AutomationProperties.Name="Certificate with no IIS site" ToolTip="Nothing is bound in IIS. After issuing, add steps under After install on the certificate to hand the certificate to its service. Needs DNS validation."/>
      <StackPanel Visibility="{Binding NoSite, Converter={StaticResource BoolToVisibility}}" Margin="0,0,0,10">
-      <TextBlock Text="NAME" Style="{StaticResource FieldLabel}"/>
+      <TextBlock Text="Name" Style="{StaticResource FieldLabel}"/>
       <TextBox Text="{Binding NoSiteName, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Certificate name"/>
       <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0" Text="How SSLense lists this certificate, such as Remote Desktop. It must not be the name of an IIS site. Enter the names it covers under Certificate names, and choose a DNS validation method."/>
      </StackPanel>
      <StackPanel Visibility="{Binding ShowSitePicker, Converter={StaticResource BoolToVisibility}}">
-     <TextBlock Text="IIS SITE" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding Sites}" SelectedItem="{Binding SelectedSite}" DisplayMemberPath="DisplayName" Margin="0,0,0,10" AutomationProperties.Name="IIS site"/>
+     <TextBlock Text="IIS site" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding Sites}" SelectedItem="{Binding SelectedSite}" DisplayMemberPath="DisplayName" Margin="0,0,0,10" AutomationProperties.Name="IIS site"/>
      <Border Style="{StaticResource InfoBanner}" Margin="0,0,0,10" Visibility="{Binding SelectedSite.HasHttps, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}">
       <StackPanel>
        <TextBlock Text="This site already serves HTTPS" FontWeight="SemiBold"/>
@@ -42,18 +42,18 @@
      <CheckBox Content="Exportable private key, to export it to PFX or PEM files or the IIS Central Certificate Store" IsChecked="{Binding ExportableKey}" Margin="0,4,0,0" AutomationProperties.Name="Exportable private key" ToolTip="Off by default: a key that cannot be exported cannot be copied off this server. Turn it on only to add export steps under After install on the certificate. Kept at every renewal."/>
      <Expander Header="Advanced: key type, chain, and profile" Margin="0,8,0,0" AutomationProperties.Name="Advanced options">
       <StackPanel Margin="0,8,0,0">
-       <TextBlock Text="KEY TYPE" Style="{StaticResource FieldLabel}"/>
+       <TextBlock Text="Key type" Style="{StaticResource FieldLabel}"/>
        <ComboBox ItemsSource="{Binding KeyTypes}" SelectedItem="{Binding SelectedKeyType}" Margin="0,0,0,8" MaxWidth="320" HorizontalAlignment="Left" MinWidth="240" AutomationProperties.Name="Key type"/>
-       <TextBlock Text="PREFERRED CHAIN (OPTIONAL)" Style="{StaticResource FieldLabel}"/>
+       <TextBlock Text="Preferred chain (optional)" Style="{StaticResource FieldLabel}"/>
        <TextBox Text="{Binding PreferredChain, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,4" AutomationProperties.Name="Preferred chain"/>
        <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,8" Text="The root the chain should end at, as the CA names it, such as ISRG Root X1. The default chain is used when the CA offers none to it."/>
-       <TextBlock Text="PROFILE (OPTIONAL)" Style="{StaticResource FieldLabel}"/>
+       <TextBlock Text="Profile (optional)" Style="{StaticResource FieldLabel}"/>
        <TextBox Text="{Binding Profile, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,4" AutomationProperties.Name="ACME profile"/>
        <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Text="A profile the CA offers, such as shortlived at Let's Encrypt for certificates valid about six days. 'SSLense.Cli ca test' lists them. All three are kept at every renewal."/>
        <CheckBox Content="Reuse the private key at renewal" IsChecked="{Binding ReuseKey}" Margin="0,8,0,0" AutomationProperties.Name="Reuse the private key at renewal" ToolTip="For key pinning or DANE. The first certificate gets a new key, and every renewal keeps it. If it cannot be reused, a new key is used and you are told."/>
       </StackPanel>
      </Expander>
-     <TextBlock Text="VALIDATION" Style="{StaticResource FieldLabel}" Margin="0,10,0,6"/>
+     <TextBlock Text="Validation" Style="{StaticResource FieldLabel}" Margin="0,10,0,6"/>
      <WrapPanel>
       <RadioButton GroupName="Validation" Content="HTTP (port 80)" IsChecked="{Binding UseHttpValidation}" Margin="0,0,20,0" AutomationProperties.Name="HTTP validation"/>
       <RadioButton GroupName="Validation" Content="DNS provider (wildcards, automatic renewal)" IsChecked="{Binding UseDnsProvider}" Margin="0,0,20,0" AutomationProperties.Name="DNS provider validation"/>
@@ -67,13 +67,13 @@
       </StackPanel>
      </Border>
      <StackPanel Margin="0,10,0,0" Visibility="{Binding UsesDns, Converter={StaticResource BoolToVisibility}}">
-      <TextBlock Text="CERTIFICATE NAMES (OPTIONAL)" Style="{StaticResource FieldLabel}"/>
+      <TextBlock Text="Certificate names (optional)" Style="{StaticResource FieldLabel}"/>
       <TextBox Text="{Binding CertificateNames, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Certificate names"/>
       <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0" Text="For a wildcard, enter for example *.example.com, example.com. A wildcard covers one level and does not include example.com itself. Leave this empty to cover only the host names below."/>
      </StackPanel>
      <StackPanel Visibility="{Binding ShowSitePicker, Converter={StaticResource BoolToVisibility}}">
      <Border Height="10"/>
-     <TextBlock Text="HOST NAMES" Style="{StaticResource FieldLabel}"/>
+     <TextBlock Text="Host names" Style="{StaticResource FieldLabel}"/>
      <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="7" Padding="12,7">
      <ItemsControl ItemsSource="{Binding Hosts}"><ItemsControl.ItemTemplate><DataTemplate>
       <Grid Margin="4,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="220"/></Grid.ColumnDefinitions>
@@ -88,8 +88,8 @@
      <TextBlock Text="Verify issuance readiness" Style="{StaticResource SectionTitle}"/>
      <TextBlock Text="{Binding PreflightSubtitle}" Style="{StaticResource PageSubtitle}" Margin="0,4,0,20"/>
      <Border Style="{StaticResource InfoBanner}" Margin="0,0,0,14" Visibility="{Binding IsRenewingByHand, Converter={StaticResource BoolToVisibility}}"><TextBlock Text="{Binding RenewalNotice}" FontWeight="SemiBold" TextWrapping="Wrap"/></Border>
-     <TextBlock Text="ACME ACCOUNT EMAIL" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,16" AutomationProperties.Name="ACME account email"/>
-     <TextBlock Text="CERTIFICATE AUTHORITY" Style="{StaticResource FieldLabel}"/>
+     <TextBlock Text="ACME account email" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,16" AutomationProperties.Name="ACME account email"/>
+     <TextBlock Text="Certificate authority" Style="{StaticResource FieldLabel}"/>
      <ComboBox ItemsSource="{Binding Authorities}" SelectedItem="{Binding SelectedAuthority}" Margin="0,0,0,4" MaxWidth="460" HorizontalAlignment="Left" MinWidth="320"
                AutomationProperties.Name="Certificate authority" IsEnabled="{Binding CanChooseAuthority}">
       <ComboBox.ItemTemplate>
@@ -121,9 +121,9 @@
         <ItemsControl.ItemTemplate>
          <DataTemplate>
           <StackPanel Margin="0,0,0,10">
-           <TextBlock Text="NAME" Style="{StaticResource FieldLabel}"/>
+           <TextBlock Text="Name" Style="{StaticResource FieldLabel}"/>
            <TextBox Text="{Binding Name, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" AutomationProperties.Name="Record name"/>
-           <TextBlock Text="VALUE" Style="{StaticResource FieldLabel}" Margin="0,6,0,6"/>
+           <TextBlock Text="Value" Style="{StaticResource FieldLabel}" Margin="0,6,0,6"/>
            <TextBox Text="{Binding Value, Mode=OneWay}" IsReadOnly="True" FontFamily="Consolas" AutomationProperties.Name="Record value"/>
           </StackPanel>
          </DataTemplate>

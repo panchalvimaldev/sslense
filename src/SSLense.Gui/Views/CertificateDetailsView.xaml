@@ -37,6 +37,8 @@
         <!-- The certificate, and the one action that fits it. -->
         <DockPanel Margin="0,0,0,8">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                <Button Content="Check" Command="{Binding CheckCommand}" Margin="0,0,8,0"
+                        ToolTip="Connect to the site now and check that it serves this certificate. Changes nothing." />
                 <Button Content="Install renewal" Command="{Binding InstallRenewalCommand}" Style="{StaticResource PrimaryButton}"
                         Visibility="{Binding Summary.IsImported, Converter={StaticResource BooleanToVisibilityConverter}}"
                         ToolTip="Install the renewed certificate from your provider. Only this certificate's bindings change." />
@@ -50,6 +52,8 @@
                         ToolTip="More actions" AutomationProperties.Name="More actions">
                     <Button.ContextMenu>
                         <ContextMenu>
+                            <MenuItem Header="Open the site in a browser" Click="OnOpenSiteClick" />
+                            <MenuItem Header="Turn reminders off until it is replaced" Command="{Binding RemindersOffCommand}" />
                             <MenuItem Header="Refresh" Command="{Binding RefreshCommand}" />
                             <Separator />
                             <MenuItem Header="Remove certificate and HTTPS bindings…" Click="OnRemoveClick" Foreground="{StaticResource DangerBrush}" />
@@ -83,6 +87,27 @@
                                 <TextBlock Text="{Binding StatusHead}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding StatusText}" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" Margin="0,6,0,0" LineHeight="20" />
                             </StackPanel>
+                        </Border>
+                        <!-- Is the site serving it? Filled in by Check. -->
+                        <Border Style="{StaticResource Card}" Margin="0,14,0,0" Padding="20,14">
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Content="Check now" Command="{Binding CheckCommand}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                                <TextBlock x:Name="CheckIcon" DockPanel.Dock="Left" FontFamily="Segoe MDL2 Assets" FontSize="16" VerticalAlignment="Top" Margin="0,1,12,0">
+                                    <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value="&#xE9CE;" /><Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding LastCheckPassed}" Value="True"><Setter Property="Text" Value="&#xE73E;" /><Setter Property="Foreground" Value="{StaticResource SuccessBrush}" /></DataTrigger>
+                                            <DataTrigger Binding="{Binding LastCheckPassed}" Value="False"><Setter Property="Text" Value="&#xE711;" /><Setter Property="Foreground" Value="{StaticResource DangerBrush}" /></DataTrigger>
+                                        </Style.Triggers></Style></TextBlock.Style>
+                                </TextBlock>
+                                <StackPanel>
+                                    <TextBlock Text="Is the site serving it?" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
+                                    <TextBlock TextWrapping="Wrap" Margin="0,3,0,0">
+                                        <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource CaptionText}"><Setter Property="FontSize" Value="13" /><Setter Property="Text" Value="{Binding LastCheckText}" />
+                                            <Style.Triggers><DataTrigger Binding="{Binding HasCheck}" Value="False"><Setter Property="Text" Value="Not checked yet. Check connects to each of its domains and compares the certificate served with this one. The daily checks do the same." /></DataTrigger></Style.Triggers>
+                                        </Style></TextBlock.Style>
+                                    </TextBlock>
+                                </StackPanel>
+                            </DockPanel>
                         </Border>
                         <Border Style="{StaticResource Card}" Margin="0,14,0,0">
                             <Grid>
@@ -211,17 +236,58 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <Border Style="{StaticResource Card}" VerticalAlignment="Top">
                         <StackPanel>
-                            <TextBlock Text="Reminders by email" Style="{StaticResource SectionTitle}" FontSize="15" />
-                            <TextBlock Text="{Binding ReminderState}" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" Margin="0,6,0,0" />
-                            <TextBlock Style="{StaticResource CaptionText}" Margin="0,4,0,14">
-                                <Run Text="Last reminder: " /><Run Text="{Binding LastReminded, Mode=OneWay}" />
+                            <TextBlock Text="Reminders" Style="{StaticResource SectionTitle}" FontSize="15" />
+                            <TextBlock Text="{Binding ReminderState}" Style="{StaticResource CaptionText}" FontSize="13" TextWrapping="Wrap" Margin="0,4,0,12" />
+
+                            <!-- One choice, applied as soon as it is picked. -->
+                            <ListBox ItemsSource="{Binding ReminderChoices}" SelectedItem="{Binding SelectedReminderChoice}" BorderThickness="0" Background="Transparent"
+                                     AutomationProperties.Name="Reminders for this certificate" KeyboardNavigation.DirectionalNavigation="Cycle">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="Cursor" Value="Hand" />
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="ListBoxItem">
+                                                    <Border x:Name="Row" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,0,0,6" Background="White">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <Grid Width="16" Height="16" Margin="0,0,10,0" VerticalAlignment="Center">
+                                                                <Ellipse x:Name="Ring" Stroke="#94A3B8" StrokeThickness="1.5" />
+                                                                <Ellipse x:Name="Dot" Width="8" Height="8" Fill="{StaticResource BrandBrush}" Visibility="Collapsed" />
+                                                            </Grid>
+                                                            <ContentPresenter VerticalAlignment="Center" />
+                                                        </StackPanel>
+                                                    </Border>
+                                                    <ControlTemplate.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="Background" Value="#F8FAFC" /></Trigger>
+                                                        <Trigger Property="IsSelected" Value="True">
+                                                            <Setter TargetName="Row" Property="BorderBrush" Value="{StaticResource BrandBrush}" />
+                                                            <Setter TargetName="Row" Property="Background" Value="{StaticResource BrandSoftBrush}" />
+                                                            <Setter TargetName="Ring" Property="Stroke" Value="{StaticResource BrandBrush}" />
+                                                            <Setter TargetName="Dot" Property="Visibility" Value="Visible" />
+                                                        </Trigger>
+                                                    </ControlTemplate.Triggers>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate><TextBlock Text="{Binding Label}" Foreground="{StaticResource TextBrush}" /></DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+
+                            <Grid Margin="0,10,0,0">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="140" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                <TextBlock Text="When" Style="{StaticResource FactLabel}" Margin="0,0,0,8" />
+                                <TextBlock Grid.Column="1" Text="{Binding ReminderSchedule}" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                                <TextBlock Grid.Row="1" Text="Last reminder" Style="{StaticResource FactLabel}" />
+                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding LastReminded}" Foreground="{StaticResource TextBrush}" />
+                            </Grid>
+                            <TextBlock Style="{StaticResource CaptionText}" FontSize="13" TextWrapping="Wrap" Margin="0,14,0,0">
+                                <Run Text="When reminders start, how often they repeat, and where they are sent apply to every certificate:" />
+                                <Hyperlink Command="{Binding OpenReminderSettingsCommand}">Settings › Reminders</Hyperlink>
                             </TextBlock>
-                            <TextBlock Text="Change" Style="{StaticResource FieldLabel}" />
-                            <StackPanel Orientation="Horizontal">
-                                <ComboBox ItemsSource="{Binding ReminderChoices}" SelectedItem="{Binding SelectedReminderChoice}" Width="320" AutomationProperties.Name="Reminders for this certificate" />
-                                <Button Content="Apply" Command="{Binding ApplyReminderCommand}" Margin="8,0,0,0" />
-                            </StackPanel>
-                            <TextBlock Text="Where reminders go and when they are sent is in Settings." Style="{StaticResource CaptionText}" Margin="0,14,0,0" />
                         </StackPanel>
                     </Border>
                 </ScrollViewer>

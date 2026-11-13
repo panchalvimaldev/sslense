@@ -7,4 +7,14 @@ public interface ICertificateManagementService
         CancellationToken cancellationToken = default);
 
     Task RemoveAsync(string siteName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Connects to each of the certificate's host names now, through IIS, and compares the certificate served with the
+    /// one SSLense expects, on every site using it. Read-only.
+    /// </summary>
+    Task<CertificateCheckResult> CheckServedAsync(string name, CancellationToken cancellationToken = default);
 }
+
+/// <param name="Passed">True when every host name serves the expected certificate, or there is nothing to check.</param>
+/// <param name="Message">What was found, in a sentence or two.</param>
+public sealed record CertificateCheckResult(bool Passed, string Message);

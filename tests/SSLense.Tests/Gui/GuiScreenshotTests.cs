@@ -66,7 +66,22 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
             Save(window, folder, "04-certificate-section");
             SelectSection(window, "After install");
             Save(window, folder, "05-after-install-section");
+            SelectSection(window, "Reminders");
+            Save(window, folder, "05b-reminders-section");
             SelectSection(window, "Status");
+
+            // Check, and the ⋯ menu, which must open with its actions.
+            certificates.Details.CheckCommand.Execute(null);
+            WaitFor(() => certificates.Details.LastCheckPassed is not null);
+            Assert.True(certificates.Details.LastCheckPassed);
+            Save(window, folder, "05c-checked");
+            var more = Find<Button>(window).Single(button => button.IsVisible && System.Windows.Automation.AutomationProperties.GetName(button) == "More actions");
+            more.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+            Settle();
+            Assert.True(more.ContextMenu!.IsOpen);
+            Assert.Equal(4, more.ContextMenu.Items.OfType<MenuItem>().Count());
+            more.ContextMenu.IsOpen = false;
+            Settle();
 
             main.SelectedTab = main.Tabs[1];
             Settle();
@@ -75,6 +90,9 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
             main.SelectedTab = main.Tabs[2];
             Settle();
             Save(window, folder, "07-settings");
+            provider.GetRequiredService<SettingsViewModel>().ShowSection("Notifications");
+            Settle();
+            Save(window, folder, "07b-settings-notifications");
 
             main.AddCertificateCommand.Execute(null);
             Settle();
@@ -134,6 +152,19 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>Runs the UI thread until the condition holds, for work that finishes on another thread first.</summary>
+    private static void WaitFor(Func<bool> condition)
+    {
+        var until = DateTime.UtcNow.AddSeconds(10);
+        while (!condition() && DateTime.UtcNow < until)
+        {
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+            Thread.Sleep(20);
+        }
+
+        Settle();
+    }
+
     /// <summary>Lets bindings, layout and the view models' completed tasks run.</summary>
     private static void Settle()
     {
@@ -180,6 +211,8 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
         var management = new Mock<ICertificateManagementService> { DefaultValue = DefaultValue.Mock };
         management.Setup(value => value.GetDetailsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string name, CancellationToken _) => Details(records.Single(record => record.SiteName == name)));
+        management.Setup(value => value.CheckServedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string name, CancellationToken _) => new CertificateCheckResult(true, $"https://{records.Single(record => record.SiteName == name).Hosts[0]} serves the expected certificate."));
         var reminders = new Mock<IReminderService> { DefaultValue = DefaultValue.Mock };
         reminders.Setup(value => value.GetOverviewAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ReminderOverview(new ReminderConfig(), records, null));

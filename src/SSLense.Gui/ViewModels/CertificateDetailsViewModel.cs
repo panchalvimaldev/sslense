@@ -92,6 +92,9 @@ public partial class CertificateDetailsViewModel : ObservableObject
         _addDeploymentStepCommand = new AsyncRelayCommand(AddDeploymentStepAsync, () => CanOperate() && SelectedDeploymentKind is not null && !string.IsNullOrWhiteSpace(DeploymentValue));
         _removeDeploymentStepCommand = new AsyncRelayCommand<DeploymentStepRow>(RemoveDeploymentStepAsync, row => CanOperate() && row is not null);
         _runDeploymentCommand = new AsyncRelayCommand(RunDeploymentAsync, () => CanOperate() && DeploymentSteps.Count > 0);
+        CheckCommand = new AsyncRelayCommand(CheckAsync, () => !IsBusy && SelectedSite is not null);
+        RemindersOffCommand = new RelayCommand(() => SelectedReminderChoice = ReminderChoices[3], () => !IsBusy && SelectedSite is not null);
+        OpenReminderSettingsCommand = new RelayCommand(() => navigation.Navigate("Settings", "Reminders"));
         _reminderService = reminderService;
         _sharingService = sharingService;
         _iisService = iisService;
@@ -136,6 +139,8 @@ public partial class CertificateDetailsViewModel : ObservableObject
     public async Task ShowAsync(CertificateRowViewModel row)
     {
         Summary = row;
+        LastCheckPassed = null;
+        LastCheckText = string.Empty;
         ErrorMessage = null;
         ResultMessage = string.Empty;
         _suppressSelectionRefresh = true;
@@ -147,6 +152,8 @@ public partial class CertificateDetailsViewModel : ObservableObject
     /// <summary>Shows no certificate.</summary>
     public void Clear()
     {
+        LastCheckPassed = null;
+        LastCheckText = string.Empty;
         _suppressSelectionRefresh = true;
         SelectedSite = null;
         _suppressSelectionRefresh = false;
@@ -212,12 +219,21 @@ public partial class CertificateDetailsViewModel : ObservableObject
 
     public IReadOnlyList<ReminderChoice> ReminderChoices { get; } =
     [
-        new("On", ReminderMode.On, null),
+        new("On: email me before it expires", ReminderMode.On, null),
         new("Snooze for 7 days", ReminderMode.Snoozed, 7),
         new("Snooze for 30 days", ReminderMode.Snoozed, 30),
         new("Off until this certificate is replaced", ReminderMode.OffUntilReplaced, null),
-        new("Off permanently", ReminderMode.Off, null)
+        new("Off permanently (renewal failures are still reported)", ReminderMode.Off, null)
     ];
+
+    /// <summary>Checks now that IIS serves this certificate on each of its host names.</summary>
+    public IAsyncRelayCommand CheckCommand { get; private set; } = null!;
+
+    /// <summary>Turns reminders off until the certificate is replaced, from the ⋯ menu.</summary>
+    public IRelayCommand RemindersOffCommand { get; private set; } = null!;
+
+    /// <summary>Settings, at its Reminders tab.</summary>
+    public IRelayCommand OpenReminderSettingsCommand { get; private set; } = null!;
 
     public async Task InitializeAsync(string? requestedSite = null)
     {
@@ -453,12 +469,57 @@ public partial class CertificateDetailsViewModel : ObservableObject
             _ => $"On: from {overview.Settings.StartDays} days before expiry, in the daily digest at {overview.Settings.SendAtHour:00}:00"
         };
         LastReminded = record.LastRemindedAt is { } at ? at.ToLocalTime().ToString("dd MMM yyyy HH:mm") : "Not yet";
-        SelectedReminderChoice = record.Reminders switch
+        var settings = overview.Settings;
+        ReminderSchedule = $"From {settings.StartDays} days before it expires, in the daily digest at {settings.SendAtHour:00}:00" +
+                           (settings.RepeatDays <= 1 ? ", every day until it is renewed." : $", every {settings.RepeatDays} days until it is renewed.");
+
+        // Shown as chosen; choosing another one applies it at once. A snooze shows none, with its end date above.
+        _loadingReminder = true;
+        try
         {
-            ReminderMode.OffUntilReplaced => ReminderChoices[3],
-            ReminderMode.Off => ReminderChoices[4],
-            _ => ReminderChoices[0]
-        };
+            SelectedReminderChoice = record.Reminders switch
+            {
+                ReminderMode.Snoozed when record.SnoozedUntil is { } snoozed && snoozed > DateTimeOffset.UtcNow => null,
+                ReminderMode.OffUntilReplaced => ReminderChoices[3],
+                ReminderMode.Off => ReminderChoices[4],
+                _ => ReminderChoices[0]
+            };
+        }
+        finally
+        {
+            _loadingReminder = false;
+        }
+    }
+
+    private bool _loadingReminder;
+
+    /// <summary>When reminders are sent, from Settings › Reminders.</summary>
+    [ObservableProperty] private string reminderSchedule = string.Empty;
+
+    /// <summary>The result of the last Check: whether the expected certificate was served, and what was found.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCheck), nameof(CheckFailed))]
+    private bool? lastCheckPassed;
+
+    [ObservableProperty] private string lastCheckText = string.Empty;
+
+    public bool HasCheck => LastCheckPassed is not null;
+
+    public bool CheckFailed => LastCheckPassed == false;
+
+    private async Task CheckAsync(CancellationToken cancellationToken)
+    {
+        if (SelectedSite is null) return;
+        ResultMessage = string.Empty;
+        await RunAsync(async token =>
+        {
+            var name = SelectedSite;
+            var check = await Task.Run(() => _managementService.CheckServedAsync(name, token), token).ConfigureAwait(true);
+            LastCheckPassed = check.Passed;
+            LastCheckText = $"{DateTime.Now:HH:mm} · {check.Message}";
+            if (check.Passed) ResultMessage = check.Message;
+            else ErrorMessage = check.Message;
+        }, cancellationToken);
     }
 
     private async Task ApplyReminderAsync(CancellationToken cancellationToken)
@@ -529,6 +590,8 @@ public partial class CertificateDetailsViewModel : ObservableObject
         (RenewByHandCommand as RelayCommand)?.NotifyCanExecuteChanged();
         _refreshCommand?.NotifyCanExecuteChanged(); _renewCommand?.NotifyCanExecuteChanged(); _removeCommand?.NotifyCanExecuteChanged();
         (InstallRenewalCommand as RelayCommand)?.NotifyCanExecuteChanged();
+        (CheckCommand as AsyncRelayCommand)?.NotifyCanExecuteChanged();
+        (RemindersOffCommand as RelayCommand)?.NotifyCanExecuteChanged();
         _applyReminderCommand?.NotifyCanExecuteChanged();
         _addSiteCommand?.NotifyCanExecuteChanged();
         _stopManagingCommand?.NotifyCanExecuteChanged();
@@ -537,7 +600,11 @@ public partial class CertificateDetailsViewModel : ObservableObject
         _removeDeploymentStepCommand?.NotifyCanExecuteChanged();
         _runDeploymentCommand?.NotifyCanExecuteChanged();
     }
-    partial void OnSelectedReminderChoiceChanged(ReminderChoice? value) => _applyReminderCommand?.NotifyCanExecuteChanged();
+    partial void OnSelectedReminderChoiceChanged(ReminderChoice? value)
+    {
+        _applyReminderCommand?.NotifyCanExecuteChanged();
+        if (!_loadingReminder && value is not null && SelectedSite is not null && !IsBusy) _ = _applyReminderCommand?.ExecuteAsync(null);
+    }
     private static RenewalResult AssertSingle(IReadOnlyList<RenewalResult> results) => results.Single();
 }
 

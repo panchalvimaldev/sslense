@@ -20,9 +20,7 @@
             <views:ActivityView />
         </DataTemplate>
         <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <views:SettingsView Margin="28,24,28,28" />
-            </ScrollViewer>
+            <views:SettingsView Margin="28,20,28,24" />
         </DataTemplate>
     </Window.Resources>
     <Grid>

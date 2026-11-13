@@ -106,6 +106,18 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string? errorMessage;
     [ObservableProperty] private string resultMessage = string.Empty;
 
+    /// <summary>The Settings tab shown: General, Notifications, Reminders, Certificate authorities, DNS providers, Service.</summary>
+    [ObservableProperty] private int selectedSection;
+
+    public static IReadOnlyList<string> Sections { get; } = ["General", "Notifications", "Reminders", "Certificate authorities", "DNS providers", "Service"];
+
+    /// <summary>Shows a tab by its name, as when another screen links to it.</summary>
+    public void ShowSection(string name)
+    {
+        var index = Sections.ToList().FindIndex(section => string.Equals(section, name, StringComparison.OrdinalIgnoreCase));
+        if (index >= 0) SelectedSection = index;
+    }
+
     public SettingsViewModel(
         ISettingsService settingsService,
         INotificationSettingsService notificationSettingsService,

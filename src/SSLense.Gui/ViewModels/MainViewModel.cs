@@ -9,7 +9,6 @@ public partial class MainViewModel : ObservableObject
     private readonly DashboardViewModel _certificates;
     private readonly IssueCertificateViewModel _issue;
     private readonly AddCertificateViewModel _add;
-    private readonly ActivityViewModel _activity;
     private readonly SettingsViewModel _settings;
     private readonly LogsViewModel _logs;
 
@@ -33,7 +32,6 @@ public partial class MainViewModel : ObservableObject
         _certificates = certificates;
         _issue = issue;
         _add = add;
-        _activity = activity;
         _settings = settings;
         _logs = logs;
         Tabs =
@@ -111,12 +109,12 @@ public partial class MainViewModel : ObservableObject
         }
         else if (Is(page, "Health") || Is(page, "Logs"))
         {
-            _activity.SelectedTab = Is(page, "Logs") ? ActivityViewModel.LogTab : ActivityViewModel.HealthTab;
             SelectedTab = Tabs[1];
         }
         else if (Is(page, "Settings"))
         {
             SelectedTab = Tabs[2];
+            if (request.Context is { } section) _settings.ShowSection(section);
         }
         else
         {

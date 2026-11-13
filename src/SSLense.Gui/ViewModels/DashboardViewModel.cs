@@ -69,7 +69,7 @@ public partial class DashboardViewModel : ObservableObject
         OpenHealthCommand = new RelayCommand(() => _navigation.Navigate("Health"));
         ClearSelectionCommand = new RelayCommand(() => SelectedCertificate = null);
         SelectCommand = new RelayCommand<CertificateRowViewModel>(row => SelectedCertificate = row);
-        ProgressLines.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasProgress));
+        ProgressLines.CollectionChanged += (_, _) => { OnPropertyChanged(nameof(HasProgress)); OnPropertyChanged(nameof(IsIdle)); };
 
         CertificatesView = new ListCollectionView(Certificates);
         CertificatesView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(CertificateRowViewModel.GroupName)));
@@ -151,6 +151,9 @@ public partial class DashboardViewModel : ObservableObject
 
     public bool HasProgress => ProgressLines.Count > 0;
 
+    /// <summary>Nothing running, and no progress to show.</summary>
+    public bool IsIdle => !IsBusy && ProgressLines.Count == 0;
+
     public bool ShowActivity => IsBusy || !string.IsNullOrEmpty(ErrorMessage);
 
     public Task InitializeAsync() => _refreshCommand.ExecuteAsync(null);
@@ -178,6 +181,7 @@ public partial class DashboardViewModel : ObservableObject
     partial void OnIsBusyChanged(bool value)
     {
         OnPropertyChanged(nameof(ShowActivity));
+        OnPropertyChanged(nameof(IsIdle));
         _refreshCommand.NotifyCanExecuteChanged();
         _renewAllCommand.NotifyCanExecuteChanged();
         _cancelCommand.NotifyCanExecuteChanged();

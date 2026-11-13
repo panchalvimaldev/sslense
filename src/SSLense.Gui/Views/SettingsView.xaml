@@ -4,23 +4,130 @@
  <Grid>
  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
  <StackPanel>
-  <TextBlock Text="Settings" Style="{StaticResource PageTitle}"/><TextBlock Text="Configure renewal behavior, notifications, and the background service." Style="{StaticResource PageSubtitle}" Margin="0,4,0,18"/>
+  <TextBlock Text="Settings" Style="{StaticResource DetailTitle}"/><TextBlock Text="How SSLense renews, where it sends reminders and alerts, and its background service." Style="{StaticResource PageSubtitle}" Margin="0,5,0,12"/>
  </StackPanel>
  <!-- Outside the scrolling area, so the outcome of a button far down the page is always visible. -->
  <StackPanel Grid.Row="1">
   <Border Margin="0,0,0,10"><Border.Style><Style TargetType="Border" BasedOn="{StaticResource ErrorBanner}"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding ErrorMessage}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger><DataTrigger Binding="{Binding ErrorMessage}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></Border.Style><TextBlock Text="{Binding ErrorMessage}" Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold" TextWrapping="Wrap"/></Border>
   <Border Margin="0,0,0,10"><Border.Style><Style TargetType="Border" BasedOn="{StaticResource SuccessBanner}"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding ResultMessage}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger><DataTrigger Binding="{Binding ResultMessage}" Value=""><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></Border.Style><TextBlock Text="{Binding ResultMessage}" Foreground="{StaticResource SuccessBrush}" FontWeight="SemiBold" TextWrapping="Wrap"/></Border>
  </StackPanel>
- <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
-  <StackPanel>
-
-   <GroupBox Header="General" Margin="0,10,0,14"><StackPanel>
-    <TextBlock Text="DEFAULT ACME EMAIL" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding DefaultEmail}" Margin="0,0,0,14"/>
+ <TabControl Grid.Row="2" Style="{StaticResource SectionTabs}" SelectedIndex="{Binding SelectedSection}" AutomationProperties.Name="Settings sections">
+  <TabItem Header="General"><ScrollViewer VerticalScrollBarVisibility="Auto"><Border Style="{StaticResource Card}" VerticalAlignment="Top" Margin="0,0,0,16"><StackPanel>
+    <TextBlock Text="Default ACME email" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding DefaultEmail}" Margin="0,0,0,14"/>
     <TextBlock Text="Let's Encrypt staging is the safe default. A certificate authority whose certificates are trusted must be chosen and confirmed for each new issue. Certificates renew when their CA recommends; reminders are set below." Style="{StaticResource CaptionText}" TextWrapping="Wrap"/>
     <Button Content="Save general settings" Command="{Binding SaveGeneralCommand}" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" Margin="0,16,0,0"/>
-   </StackPanel></GroupBox>
+  </StackPanel></Border></ScrollViewer></TabItem>
 
-   <GroupBox Header="Certificate authorities" Margin="0,0,0,14"><StackPanel>
+  <TabItem Header="Notifications"><ScrollViewer VerticalScrollBarVisibility="Auto"><Border Style="{StaticResource Card}" VerticalAlignment="Top" Margin="0,0,0,16"><StackPanel>
+    <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,14"
+               Text="Choose any combination. Every alert is also written to the Windows Event Log (source SSLense), which most monitoring tools can watch."/>
+
+    <TextBlock Text="Email" Style="{StaticResource SectionTitle}"/>
+    <TextBlock Text="{Binding EmailStatus}" Foreground="{StaticResource MutedTextBrush}" Margin="0,2,0,10"/>
+    <TextBlock Text="Preset" Style="{StaticResource FieldLabel}"/>
+    <ComboBox ItemsSource="{Binding EmailPresets}" SelectedItem="{Binding SelectedPreset}" DisplayMemberPath="DisplayName" Width="420" HorizontalAlignment="Left"/>
+    <TextBlock Text="{Binding PresetHint}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,10"/>
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+     <StackPanel Margin="0,0,14,0">
+      <TextBlock Text="SMTP host" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding EmailHost}" AutomationProperties.Name="SMTP host"/>
+      <TextBlock Text="Port" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/><TextBox Text="{Binding EmailPort}" Width="120" HorizontalAlignment="Left" AutomationProperties.Name="SMTP port"/>
+      <TextBlock Text="Security" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/><ComboBox ItemsSource="{Binding SecurityOptions}" SelectedItem="{Binding EmailSecurity}" AutomationProperties.Name="SMTP security"/>
+      <TextBlock Text="Sign-in" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/><ComboBox ItemsSource="{Binding AuthenticationOptions}" SelectedItem="{Binding EmailAuthentication}" AutomationProperties.Name="SMTP sign-in"/>
+      <TextBlock Text="None: relays that accept mail by IP address. Password: servers that need a login." Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+     </StackPanel>
+     <StackPanel Grid.Column="1">
+      <TextBlock Text="Username (password sign-in)" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding EmailUsername}" AutomationProperties.Name="SMTP username"/>
+      <TextBlock Text="Password (leave empty to keep)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/><PasswordBox x:Name="EmailPasswordBox" PasswordChanged="OnEmailPasswordChanged" AutomationProperties.Name="SMTP password"/>
+      <TextBlock Text="From address" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/><TextBox Text="{Binding EmailFrom}" AutomationProperties.Name="Sender address"/>
+      <TextBlock Text="To addresses (comma-separated)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/><TextBox Text="{Binding EmailTo}" AutomationProperties.Name="Recipient addresses"/>
+     </StackPanel>
+    </Grid>
+    <StackPanel Orientation="Horizontal" Margin="0,12,0,18">
+     <Button Content="Save email" Command="{Binding SaveEmailCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"/>
+     <Button Content="Send test" Command="{Binding TestNotificationCommand}" Margin="0,0,8,0" ToolTip="Sends a test through every configured channel; results appear under Options"/>
+     <Button Content="Remove email" Command="{Binding RemoveEmailCommand}" Style="{StaticResource DangerButton}"/>
+    </StackPanel>
+
+    <TextBlock Text="Chat and push" Style="{StaticResource SectionTitle}"/>
+    <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,2,0,10"
+               Text="Teams: a Workflows 'Post to a channel when a webhook request is received' URL. ntfy: a topic URL such as https://ntfy.sh/your-topic (free phone push). Telegram: https://api.telegram.org/bot&lt;token&gt;/sendMessage?chat_id=&lt;id&gt;."/>
+    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="7" ClipToBounds="True" Margin="0,0,0,8">
+     <DataGrid ItemsSource="{Binding ChatChannels}" SelectedItem="{Binding SelectedChat}" Height="110" AutomationProperties.Name="Chat channels">
+      <DataGrid.Columns>
+       <DataGridTextColumn Header="#" Binding="{Binding Number}" Width="40"/>
+       <DataGridTextColumn Header="Type" Binding="{Binding Format}" Width="110"/>
+       <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
+       <DataGridTextColumn Header="Host" Binding="{Binding Host}" Width="2*"/>
+      </DataGrid.Columns>
+     </DataGrid>
+    </Border>
+    <Button Content="Remove selected channel" Command="{Binding RemoveChatCommand}" Style="{StaticResource DangerButton}" HorizontalAlignment="Left" Margin="0,0,0,10"/>
+    <Grid Margin="0,0,0,18"><Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="180"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <StackPanel Margin="0,0,8,0"><TextBlock Text="Type" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding ChatFormats}" SelectedItem="{Binding NewChatFormat}" AutomationProperties.Name="Chat type"/></StackPanel>
+     <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="Name (optional)" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewChatName}" AutomationProperties.Name="Chat name"/></StackPanel>
+     <StackPanel Grid.Column="2" Margin="0,0,8,0"><TextBlock Text="Webhook URL" Style="{StaticResource FieldLabel}"/><PasswordBox x:Name="ChatUrlBox" PasswordChanged="OnChatUrlChanged" AutomationProperties.Name="Chat webhook URL"/></StackPanel>
+     <Button Grid.Column="3" Content="Add channel" Command="{Binding AddChatCommand}" Style="{StaticResource PrimaryButton}" VerticalAlignment="Bottom"/>
+    </Grid>
+
+    <TextBlock Text="Heartbeat" Style="{StaticResource SectionTitle}"/>
+    <TextBlock Text="{Binding HeartbeatStatus}" Foreground="{StaticResource MutedTextBrush}" Margin="0,2,0,4"/>
+    <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,8"
+               Text="A ping URL from healthchecks.io, Uptime Kuma, or similar. The service pings it after every healthy hourly check, so your monitor alerts you if the server or service stops, or renewals keep failing. Expect a ping every hour with a two to three hour grace period."/>
+    <Grid Margin="0,0,0,18"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <PasswordBox x:Name="HeartbeatUrlBox" PasswordChanged="OnHeartbeatUrlChanged" Margin="0,0,8,0" AutomationProperties.Name="Heartbeat URL"/>
+     <Button Grid.Column="1" Content="Save heartbeat" Command="{Binding SaveHeartbeatCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"/>
+     <Button Grid.Column="2" Content="Remove" Command="{Binding RemoveHeartbeatCommand}" Style="{StaticResource DangerButton}"/>
+    </Grid>
+
+    <TextBlock Text="Options" Style="{StaticResource SectionTitle}" Margin="0,0,0,6"/>
+    <CheckBox Content="Write alerts to the Windows Event Log (recommended)" IsChecked="{Binding EventLogEnabled}"/>
+    <CheckBox Content="Also send successful renewals to email and chat" IsChecked="{Binding NotifyOnSuccess}" Margin="0,6,0,0"/>
+    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+     <Button Content="Save options" Command="{Binding SaveOptionsCommand}" Margin="0,0,8,0"/>
+     <Button Content="Send test" Command="{Binding TestNotificationCommand}" Style="{StaticResource PrimaryButton}"/>
+    </StackPanel>
+    <ItemsControl ItemsSource="{Binding TestResults}" Margin="0,10,0,0">
+     <ItemsControl.ItemTemplate>
+      <DataTemplate>
+       <TextBlock TextWrapping="Wrap" Margin="0,2">
+        <Run Text="{Binding Channel, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=": "/><Run Text="{Binding Message, Mode=OneWay}"/>
+        <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/>
+         <Style.Triggers><DataTrigger Binding="{Binding Succeeded}" Value="False"><Setter Property="Foreground" Value="{StaticResource DangerBrush}"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+       </TextBlock>
+      </DataTemplate>
+     </ItemsControl.ItemTemplate>
+    </ItemsControl>
+  </StackPanel></Border></ScrollViewer></TabItem>
+
+  <TabItem Header="Reminders"><ScrollViewer VerticalScrollBarVisibility="Auto"><Border Style="{StaticResource Card}" VerticalAlignment="Top" Margin="0,0,0,16"><StackPanel>
+    <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,14"
+               Text="One digest a day to every notification channel, only when a certificate needs attention: one from another provider that must be ordered again, a manual DNS certificate that must be renewed by hand, an automatic renewal that is failing or late, or an expired certificate. It repeats until the certificate is renewed. Turn reminders off or snooze them per certificate, under Reminders on the certificate."/>
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+     <StackPanel Margin="0,0,24,0"><TextBlock Text="Start reminding (days before expiry)" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding ReminderStartDays}" Width="120" HorizontalAlignment="Left" AutomationProperties.Name="Start reminding, days before expiry"/></StackPanel>
+     <StackPanel Grid.Column="1" Margin="0,0,24,0"><TextBlock Text="Repeat every (days)" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding ReminderRepeatDays}" Width="120" HorizontalAlignment="Left" AutomationProperties.Name="Repeat every, days"/></StackPanel>
+     <StackPanel Grid.Column="2" Margin="0,0,24,0"><TextBlock Text="Send at (server time)" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding Hours}" SelectedItem="{Binding ReminderSendAt}" Width="120" AutomationProperties.Name="Send at"/></StackPanel>
+     <StackPanel Grid.Column="3"><TextBlock Text="Weekly summary" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding WeeklySummaryOptions}" SelectedItem="{Binding WeeklySummary}" Width="160" HorizontalAlignment="Left" AutomationProperties.Name="Weekly summary day"/></StackPanel>
+    </Grid>
+    <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,8,0,0"
+               Text="Reminders are daily in the last 7 days whatever the repeat says. The weekly summary is sent on that day even when all is well, so silence means something is wrong."/>
+    <CheckBox Content="Tell me once when a certificate is about to renew automatically" IsChecked="{Binding UpcomingRenewalNotices}" Margin="0,12,0,0"/>
+    <CheckBox Content="Keep reminding about automatically renewed certificates until they renew" IsChecked="{Binding RepeatAutomaticReminders}" Margin="0,8,0,0"
+              ToolTip="Lists the certificate at the repeat interval from the start of the reminder window until it renews, instead of telling you once. No action is needed for these lines. Problems are reported either way."/>
+    <CheckBox Content="Check renewal readiness and served certificates daily" IsChecked="{Binding ProactiveChecks}" Margin="0,8,0,0"
+              ToolTip="Runs the pre-flight checks in the 30 days before each automatic renewal, and compares what this server serves with what SSLense expects. Problems are reported after two daily failures in a row. The checks only report. The only thing written is one small file, removed straight away, in the challenge folder of a site using HTTP validation; DNS is never changed."/>
+    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+     <Button Content="Save reminders" Command="{Binding SaveRemindersCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"/>
+     <Button Content="Send sample digest" Command="{Binding SendSampleReminderCommand}" ToolTip="Sends today's digest now, marked as a sample. Nothing is recorded, so real reminders are unchanged."/>
+    </StackPanel>
+    <TextBlock Text="What happens next (estimate)" Style="{StaticResource FieldLabel}" Margin="0,16,0,0"/>
+    <ItemsControl ItemsSource="{Binding ReminderOutlookLines}" AutomationProperties.Name="What happens next">
+     <ItemsControl.ItemTemplate>
+      <DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,2"/></DataTemplate>
+     </ItemsControl.ItemTemplate>
+    </ItemsControl>
+  </StackPanel></Border></ScrollViewer></TabItem>
+
+  <TabItem Header="Certificate authorities"><ScrollViewer VerticalScrollBarVisibility="Auto"><Border Style="{StaticResource Card}" VerticalAlignment="Top" Margin="0,0,0,16"><StackPanel>
     <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,10"
                Text="Let's Encrypt is built in. Add another ACME certificate authority to issue from it, then choose it in Add certificate, Free and automatic. A certificate always renews with the CA that issued it. Most commercial CAs need External Account Binding (EAB): a key ID and an HMAC key from your account with them."/>
     <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="7" ClipToBounds="True" Margin="0,0,0,8">
@@ -39,22 +146,22 @@
      <Button Content="Remove selected" Command="{Binding RemoveCaCommand}" Style="{StaticResource DangerButton}" ToolTip="Refused while a certificate renews with it. Let's Encrypt cannot be removed."/>
     </StackPanel>
     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-     <StackPanel Margin="0,0,8,0"><TextBlock Text="CERTIFICATE AUTHORITY" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding CaChoices}" SelectedItem="{Binding SelectedCaChoice}" DisplayMemberPath="Label" AutomationProperties.Name="Certificate authority to add"/></StackPanel>
-     <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="EAB KEY ID" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewCaEabKeyId}" AutomationProperties.Name="EAB key ID"/></StackPanel>
-     <StackPanel Grid.Column="2" Margin="0,0,8,0"><TextBlock Text="EAB HMAC KEY" Style="{StaticResource FieldLabel}"/><PasswordBox x:Name="CaHmacBox" PasswordChanged="OnCaHmacChanged" AutomationProperties.Name="EAB HMAC key"/></StackPanel>
+     <StackPanel Margin="0,0,8,0"><TextBlock Text="Certificate authority" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding CaChoices}" SelectedItem="{Binding SelectedCaChoice}" DisplayMemberPath="Label" AutomationProperties.Name="Certificate authority to add"/></StackPanel>
+     <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="EAB key ID" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewCaEabKeyId}" AutomationProperties.Name="EAB key ID"/></StackPanel>
+     <StackPanel Grid.Column="2" Margin="0,0,8,0"><TextBlock Text="EAB HMAC key" Style="{StaticResource FieldLabel}"/><PasswordBox x:Name="CaHmacBox" PasswordChanged="OnCaHmacChanged" AutomationProperties.Name="EAB HMAC key"/></StackPanel>
      <Button Grid.Column="3" Content="Add certificate authority" Command="{Binding AddCaCommand}" Style="{StaticResource PrimaryButton}" VerticalAlignment="Bottom"/>
     </Grid>
     <Grid Margin="0,8,0,0" Visibility="{Binding NewCaIsCustom, Converter={StaticResource BooleanToVisibilityConverter}}">
      <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="2*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-     <StackPanel Margin="0,0,8,0"><TextBlock Text="NAME" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewCaName}" AutomationProperties.Name="Certificate authority name"/></StackPanel>
-     <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="ACME DIRECTORY URL" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewCaDirectory}" AutomationProperties.Name="ACME directory URL"/></StackPanel>
-     <StackPanel Grid.Column="2" Margin="0,0,8,0"><TextBlock Text="CAA DOMAIN (OPTIONAL)" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewCaCaaDomain}" AutomationProperties.Name="CAA domain" ToolTip="Only for a CA whose directory does not publish its CAA identities."/></StackPanel>
+     <StackPanel Margin="0,0,8,0"><TextBlock Text="Name" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewCaName}" AutomationProperties.Name="Certificate authority name"/></StackPanel>
+     <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="ACME directory URL" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewCaDirectory}" AutomationProperties.Name="ACME directory URL"/></StackPanel>
+     <StackPanel Grid.Column="2" Margin="0,0,8,0"><TextBlock Text="CAA domain (optional)" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewCaCaaDomain}" AutomationProperties.Name="CAA domain" ToolTip="Only for a CA whose directory does not publish its CAA identities."/></StackPanel>
      <CheckBox Grid.Column="3" Content="Test CA (untrusted certificates)" IsChecked="{Binding NewCaIsTest}" VerticalAlignment="Bottom" Margin="0,0,0,6" AutomationProperties.Name="Test certificate authority"/>
     </Grid>
     <TextBlock Text="SSLense reads the CA's directory before saving. A CA that requires EAB is refused without it. The HMAC key is encrypted on this server and never shown again." Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,0"/>
-   </StackPanel></GroupBox>
+  </StackPanel></Border></ScrollViewer></TabItem>
 
-   <GroupBox Header="DNS providers" Margin="0,0,0,14"><StackPanel>
+  <TabItem Header="DNS providers"><ScrollViewer VerticalScrollBarVisibility="Auto"><Border Style="{StaticResource Card}" VerticalAlignment="Top" Margin="0,0,0,16"><StackPanel>
     <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,10"
                Text="Needed for wildcard certificates and sites without port 80 when they renew automatically. In Cloudflare, go to My Profile, API Tokens, Create Token, and use the Edit zone DNS template for one zone only. The token can change every record in that zone, so for an important domain, consider a CNAME that points _acme-challenge to a separate zone. For any other DNS service with an API, use a PowerShell script."/>
     <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="7" ClipToBounds="True" Margin="0,0,0,8">
@@ -83,48 +190,48 @@
      <Button Content="Remove selected" Command="{Binding RemoveDnsProviderCommand}" Style="{StaticResource DangerButton}"/>
     </StackPanel>
     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-     <StackPanel Margin="0,0,8,0"><TextBlock Text="SERVICE" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding DnsServices}" SelectedItem="{Binding NewDnsService}" AutomationProperties.Name="DNS service"/></StackPanel>
-     <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="NAME" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewDnsName}" AutomationProperties.Name="DNS provider name"/></StackPanel>
+     <StackPanel Margin="0,0,8,0"><TextBlock Text="Service" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding DnsServices}" SelectedItem="{Binding NewDnsService}" AutomationProperties.Name="DNS service"/></StackPanel>
+     <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="Name" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewDnsName}" AutomationProperties.Name="DNS provider name"/></StackPanel>
      <StackPanel Grid.Column="2" Margin="0,0,8,0">
-      <TextBlock Text="ZONE" Style="{StaticResource FieldLabel}" Visibility="{Binding NewDnsUsesZone, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-      <TextBlock Text="DOMAIN" Style="{StaticResource FieldLabel}" Visibility="{Binding NewDnsIsAcmeDns, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+      <TextBlock Text="Zone" Style="{StaticResource FieldLabel}" Visibility="{Binding NewDnsUsesZone, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+      <TextBlock Text="Domain" Style="{StaticResource FieldLabel}" Visibility="{Binding NewDnsIsAcmeDns, Converter={StaticResource BooleanToVisibilityConverter}}"/>
       <TextBox Text="{Binding NewDnsZone}" AutomationProperties.Name="DNS zone, or the domain for acme-dns"/>
      </StackPanel>
      <StackPanel Grid.Column="3" Margin="0,0,8,0" Visibility="{Binding NewDnsIsAcmeDns, Converter={StaticResource BooleanToVisibilityConverter}}">
-      <TextBlock Text="ACME-DNS SERVER" Style="{StaticResource FieldLabel}"/>
+      <TextBlock Text="Acme-DNS server" Style="{StaticResource FieldLabel}"/>
       <TextBox Text="{Binding NewAcmeDnsServer}" AutomationProperties.Name="acme-dns server" ToolTip="Such as https://auth.acme-dns.io, the free public server, or your own."/>
      </StackPanel>
-     <StackPanel Grid.Column="3" Margin="0,0,8,0" Visibility="{Binding NewDnsIsCloudflare, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="CLOUDFLARE ZONE ID" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewDnsZoneId}" AutomationProperties.Name="Cloudflare zone ID"/></StackPanel>
+     <StackPanel Grid.Column="3" Margin="0,0,8,0" Visibility="{Binding NewDnsIsCloudflare, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="Cloudflare zone ID" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewDnsZoneId}" AutomationProperties.Name="Cloudflare zone ID"/></StackPanel>
      <StackPanel Grid.Column="3" Margin="0,0,8,0" Visibility="{Binding NewDnsIsScript, Converter={StaticResource BooleanToVisibilityConverter}}">
-      <TextBlock Text="SCRIPT" Style="{StaticResource FieldLabel}"/>
+      <TextBlock Text="Script" Style="{StaticResource FieldLabel}"/>
       <DockPanel>
        <Button DockPanel.Dock="Right" Content="Browse" Click="OnBrowseDnsScriptClick" Margin="4,0,0,0" AutomationProperties.Name="Browse for the DNS script"/>
        <TextBox Text="{Binding NewDnsScriptPath}" AutomationProperties.Name="DNS script path"/>
       </DockPanel>
      </StackPanel>
      <StackPanel Grid.Column="4" Margin="0,0,8,0" Visibility="{Binding NewDnsUsesZone, Converter={StaticResource BooleanToVisibilityConverter}}">
-      <TextBlock Text="API TOKEN" Style="{StaticResource FieldLabel}" Visibility="{Binding NewDnsIsCloudflare, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-      <TextBlock Text="SECRET (OPTIONAL)" Style="{StaticResource FieldLabel}" Visibility="{Binding NewDnsIsScript, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+      <TextBlock Text="API token" Style="{StaticResource FieldLabel}" Visibility="{Binding NewDnsIsCloudflare, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+      <TextBlock Text="Secret (optional)" Style="{StaticResource FieldLabel}" Visibility="{Binding NewDnsIsScript, Converter={StaticResource BooleanToVisibilityConverter}}"/>
       <PasswordBox x:Name="DnsTokenBox" PasswordChanged="OnDnsTokenChanged" AutomationProperties.Name="DNS API token or script secret"/>
      </StackPanel>
      <StackPanel Grid.Column="4" Margin="0,0,8,0" Visibility="{Binding NewDnsIsAcmeDns, Converter={StaticResource BooleanToVisibilityConverter}}">
-      <TextBlock Text="ALLOW FROM (OPTIONAL)" Style="{StaticResource FieldLabel}"/>
+      <TextBlock Text="Allow from (optional)" Style="{StaticResource FieldLabel}"/>
       <TextBox Text="{Binding NewAcmeDnsAllowFrom}" AutomationProperties.Name="acme-dns allowed networks" ToolTip="Networks that may update the account, such as this server's address, 203.0.113.10/32. Comma-separated."/>
      </StackPanel>
      <Button Grid.Column="5" Content="Add provider" Command="{Binding AddDnsProviderCommand}" Style="{StaticResource PrimaryButton}" VerticalAlignment="Bottom"/>
     </Grid>
     <StackPanel Orientation="Horizontal" Margin="0,8,0,0" Visibility="{Binding NewDnsIsScript, Converter={StaticResource BooleanToVisibilityConverter}}">
-     <TextBlock Text="TIMEOUT (SECONDS)" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+     <TextBlock Text="Timeout (seconds)" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,8,0"/>
      <TextBox Text="{Binding NewDnsScriptTimeout}" Width="70" AutomationProperties.Name="DNS script timeout in seconds" ToolTip="How long one call may run before it is stopped. Empty means 120."/>
     </StackPanel>
     <StackPanel Margin="0,8,0,0" Visibility="{Binding NewDnsIsAcmeDns, Converter={StaticResource BooleanToVisibilityConverter}}">
      <CheckBox Content="Import an account another tool registered, instead of registering a new one" IsChecked="{Binding NewAcmeDnsImport}" AutomationProperties.Name="Import an acme-dns account"/>
      <Grid Margin="0,8,0,0" Visibility="{Binding NewAcmeDnsShowsImport, Converter={StaticResource BooleanToVisibilityConverter}}">
       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="2*"/></Grid.ColumnDefinitions>
-      <StackPanel Margin="0,0,8,0"><TextBlock Text="USERNAME" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewAcmeDnsUsername}" AutomationProperties.Name="acme-dns username"/></StackPanel>
-      <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="PASSWORD" Style="{StaticResource FieldLabel}"/><PasswordBox x:Name="AcmeDnsPasswordBox" PasswordChanged="OnAcmeDnsPasswordChanged" AutomationProperties.Name="acme-dns password"/></StackPanel>
-      <StackPanel Grid.Column="2" Margin="0,0,8,0"><TextBlock Text="SUBDOMAIN" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewAcmeDnsSubdomain}" AutomationProperties.Name="acme-dns subdomain"/></StackPanel>
-      <StackPanel Grid.Column="3"><TextBlock Text="FULL DOMAIN" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewAcmeDnsFullDomain}" AutomationProperties.Name="acme-dns full domain"/></StackPanel>
+      <StackPanel Margin="0,0,8,0"><TextBlock Text="Username" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewAcmeDnsUsername}" AutomationProperties.Name="acme-dns username"/></StackPanel>
+      <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="Password" Style="{StaticResource FieldLabel}"/><PasswordBox x:Name="AcmeDnsPasswordBox" PasswordChanged="OnAcmeDnsPasswordChanged" AutomationProperties.Name="acme-dns password"/></StackPanel>
+      <StackPanel Grid.Column="2" Margin="0,0,8,0"><TextBlock Text="Subdomain" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewAcmeDnsSubdomain}" AutomationProperties.Name="acme-dns subdomain"/></StackPanel>
+      <StackPanel Grid.Column="3"><TextBlock Text="Full domain" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewAcmeDnsFullDomain}" AutomationProperties.Name="acme-dns full domain"/></StackPanel>
      </Grid>
      <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,0"
                 Text="acme-dns needs one CNAME, created once at any DNS host, even one without an API, and stores a credential that can change only the validation record. Add provider registers an account and shows the CNAME to create; then use Test selected. The free public server, https://auth.acme-dns.io, is run by volunteers with no promise of uptime; for an important domain, run your own."/>
@@ -134,124 +241,15 @@
     <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,0"
                Visibility="{Binding NewDnsIsScript, Converter={StaticResource BooleanToVisibilityConverter}}"
                Text="Read a script before adding it: the renewal service runs it as SYSTEM. SSLense keeps its own copy where only administrators can change it, so after you change the original, use Update script. The secret is encrypted and given to the script in SSLENSE_DNS_SECRET. Examples are in C:\Program Files\SSLense\dns-scripts."/>
-   </StackPanel></GroupBox>
+  </StackPanel></Border></ScrollViewer></TabItem>
 
-   <GroupBox Header="Reminders" Margin="0,0,0,14"><StackPanel>
-    <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,14"
-               Text="One digest a day to every notification channel, only when a certificate needs attention: one from another provider that must be ordered again, a manual DNS certificate that must be renewed by hand, an automatic renewal that is failing or late, or an expired certificate. It repeats until the certificate is renewed. Turn reminders off or snooze them per certificate, under Reminders on the certificate."/>
-    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-     <StackPanel Margin="0,0,24,0"><TextBlock Text="START REMINDING (DAYS BEFORE EXPIRY)" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding ReminderStartDays}" Width="120" HorizontalAlignment="Left" AutomationProperties.Name="Start reminding, days before expiry"/></StackPanel>
-     <StackPanel Grid.Column="1" Margin="0,0,24,0"><TextBlock Text="REPEAT EVERY (DAYS)" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding ReminderRepeatDays}" Width="120" HorizontalAlignment="Left" AutomationProperties.Name="Repeat every, days"/></StackPanel>
-     <StackPanel Grid.Column="2" Margin="0,0,24,0"><TextBlock Text="SEND AT (SERVER TIME)" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding Hours}" SelectedItem="{Binding ReminderSendAt}" Width="120" AutomationProperties.Name="Send at"/></StackPanel>
-     <StackPanel Grid.Column="3"><TextBlock Text="WEEKLY SUMMARY" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding WeeklySummaryOptions}" SelectedItem="{Binding WeeklySummary}" Width="160" HorizontalAlignment="Left" AutomationProperties.Name="Weekly summary day"/></StackPanel>
-    </Grid>
-    <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,8,0,0"
-               Text="Reminders are daily in the last 7 days whatever the repeat says. The weekly summary is sent on that day even when all is well, so silence means something is wrong."/>
-    <CheckBox Content="Tell me once when a certificate is about to renew automatically" IsChecked="{Binding UpcomingRenewalNotices}" Margin="0,12,0,0"/>
-    <CheckBox Content="Keep reminding about automatically renewed certificates until they renew" IsChecked="{Binding RepeatAutomaticReminders}" Margin="0,8,0,0"
-              ToolTip="Lists the certificate at the repeat interval from the start of the reminder window until it renews, instead of telling you once. No action is needed for these lines. Problems are reported either way."/>
-    <CheckBox Content="Check renewal readiness and served certificates daily" IsChecked="{Binding ProactiveChecks}" Margin="0,8,0,0"
-              ToolTip="Runs the pre-flight checks in the 30 days before each automatic renewal, and compares what this server serves with what SSLense expects. Problems are reported after two daily failures in a row. The checks only report. The only thing written is one small file, removed straight away, in the challenge folder of a site using HTTP validation; DNS is never changed."/>
-    <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-     <Button Content="Save reminders" Command="{Binding SaveRemindersCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"/>
-     <Button Content="Send sample digest" Command="{Binding SendSampleReminderCommand}" ToolTip="Sends today's digest now, marked as a sample. Nothing is recorded, so real reminders are unchanged."/>
-    </StackPanel>
-    <TextBlock Text="WHAT HAPPENS NEXT (ESTIMATE)" Style="{StaticResource FieldLabel}" Margin="0,16,0,0"/>
-    <ItemsControl ItemsSource="{Binding ReminderOutlookLines}" AutomationProperties.Name="What happens next">
-     <ItemsControl.ItemTemplate>
-      <DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,2"/></DataTemplate>
-     </ItemsControl.ItemTemplate>
-    </ItemsControl>
-   </StackPanel></GroupBox>
-
-   <GroupBox Header="Notifications" Margin="0,0,0,14"><StackPanel>
-    <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,14"
-               Text="Choose any combination. Every alert is also written to the Windows Event Log (source SSLense), which most monitoring tools can watch."/>
-
-    <TextBlock Text="EMAIL" Style="{StaticResource SectionTitle}"/>
-    <TextBlock Text="{Binding EmailStatus}" Foreground="{StaticResource MutedTextBrush}" Margin="0,2,0,10"/>
-    <TextBlock Text="PRESET" Style="{StaticResource FieldLabel}"/>
-    <ComboBox ItemsSource="{Binding EmailPresets}" SelectedItem="{Binding SelectedPreset}" DisplayMemberPath="DisplayName" Width="420" HorizontalAlignment="Left"/>
-    <TextBlock Text="{Binding PresetHint}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,10"/>
-    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-     <StackPanel Margin="0,0,14,0">
-      <TextBlock Text="SMTP HOST" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding EmailHost}" AutomationProperties.Name="SMTP host"/>
-      <TextBlock Text="PORT" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/><TextBox Text="{Binding EmailPort}" Width="120" HorizontalAlignment="Left" AutomationProperties.Name="SMTP port"/>
-      <TextBlock Text="SECURITY" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/><ComboBox ItemsSource="{Binding SecurityOptions}" SelectedItem="{Binding EmailSecurity}" AutomationProperties.Name="SMTP security"/>
-      <TextBlock Text="SIGN-IN" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/><ComboBox ItemsSource="{Binding AuthenticationOptions}" SelectedItem="{Binding EmailAuthentication}" AutomationProperties.Name="SMTP sign-in"/>
-      <TextBlock Text="None: relays that accept mail by IP address. Password: servers that need a login." Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,0"/>
-     </StackPanel>
-     <StackPanel Grid.Column="1">
-      <TextBlock Text="USERNAME (PASSWORD SIGN-IN)" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding EmailUsername}" AutomationProperties.Name="SMTP username"/>
-      <TextBlock Text="PASSWORD (LEAVE EMPTY TO KEEP)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/><PasswordBox x:Name="EmailPasswordBox" PasswordChanged="OnEmailPasswordChanged" AutomationProperties.Name="SMTP password"/>
-      <TextBlock Text="FROM ADDRESS" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/><TextBox Text="{Binding EmailFrom}" AutomationProperties.Name="Sender address"/>
-      <TextBlock Text="TO ADDRESSES (COMMA-SEPARATED)" Style="{StaticResource FieldLabel}" Margin="0,12,0,6"/><TextBox Text="{Binding EmailTo}" AutomationProperties.Name="Recipient addresses"/>
-     </StackPanel>
-    </Grid>
-    <StackPanel Orientation="Horizontal" Margin="0,12,0,18">
-     <Button Content="Save email" Command="{Binding SaveEmailCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"/>
-     <Button Content="Send test" Command="{Binding TestNotificationCommand}" Margin="0,0,8,0" ToolTip="Sends a test through every configured channel; results appear under Options"/>
-     <Button Content="Remove email" Command="{Binding RemoveEmailCommand}" Style="{StaticResource DangerButton}"/>
-    </StackPanel>
-
-    <TextBlock Text="CHAT AND PUSH" Style="{StaticResource SectionTitle}"/>
-    <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,2,0,10"
-               Text="Teams: a Workflows 'Post to a channel when a webhook request is received' URL. ntfy: a topic URL such as https://ntfy.sh/your-topic (free phone push). Telegram: https://api.telegram.org/bot&lt;token&gt;/sendMessage?chat_id=&lt;id&gt;."/>
-    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="7" ClipToBounds="True" Margin="0,0,0,8">
-     <DataGrid ItemsSource="{Binding ChatChannels}" SelectedItem="{Binding SelectedChat}" Height="110" AutomationProperties.Name="Chat channels">
-      <DataGrid.Columns>
-       <DataGridTextColumn Header="#" Binding="{Binding Number}" Width="40"/>
-       <DataGridTextColumn Header="Type" Binding="{Binding Format}" Width="110"/>
-       <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
-       <DataGridTextColumn Header="Host" Binding="{Binding Host}" Width="2*"/>
-      </DataGrid.Columns>
-     </DataGrid>
-    </Border>
-    <Button Content="Remove selected channel" Command="{Binding RemoveChatCommand}" Style="{StaticResource DangerButton}" HorizontalAlignment="Left" Margin="0,0,0,10"/>
-    <Grid Margin="0,0,0,18"><Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="180"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-     <StackPanel Margin="0,0,8,0"><TextBlock Text="TYPE" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding ChatFormats}" SelectedItem="{Binding NewChatFormat}" AutomationProperties.Name="Chat type"/></StackPanel>
-     <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="NAME (OPTIONAL)" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewChatName}" AutomationProperties.Name="Chat name"/></StackPanel>
-     <StackPanel Grid.Column="2" Margin="0,0,8,0"><TextBlock Text="WEBHOOK URL" Style="{StaticResource FieldLabel}"/><PasswordBox x:Name="ChatUrlBox" PasswordChanged="OnChatUrlChanged" AutomationProperties.Name="Chat webhook URL"/></StackPanel>
-     <Button Grid.Column="3" Content="Add channel" Command="{Binding AddChatCommand}" Style="{StaticResource PrimaryButton}" VerticalAlignment="Bottom"/>
-    </Grid>
-
-    <TextBlock Text="HEARTBEAT" Style="{StaticResource SectionTitle}"/>
-    <TextBlock Text="{Binding HeartbeatStatus}" Foreground="{StaticResource MutedTextBrush}" Margin="0,2,0,4"/>
-    <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,8"
-               Text="A ping URL from healthchecks.io, Uptime Kuma, or similar. The service pings it after every healthy hourly check, so your monitor alerts you if the server or service stops, or renewals keep failing. Expect a ping every hour with a two to three hour grace period."/>
-    <Grid Margin="0,0,0,18"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-     <PasswordBox x:Name="HeartbeatUrlBox" PasswordChanged="OnHeartbeatUrlChanged" Margin="0,0,8,0" AutomationProperties.Name="Heartbeat URL"/>
-     <Button Grid.Column="1" Content="Save heartbeat" Command="{Binding SaveHeartbeatCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"/>
-     <Button Grid.Column="2" Content="Remove" Command="{Binding RemoveHeartbeatCommand}" Style="{StaticResource DangerButton}"/>
-    </Grid>
-
-    <TextBlock Text="OPTIONS" Style="{StaticResource SectionTitle}" Margin="0,0,0,6"/>
-    <CheckBox Content="Write alerts to the Windows Event Log (recommended)" IsChecked="{Binding EventLogEnabled}"/>
-    <CheckBox Content="Also send successful renewals to email and chat" IsChecked="{Binding NotifyOnSuccess}" Margin="0,6,0,0"/>
-    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-     <Button Content="Save options" Command="{Binding SaveOptionsCommand}" Margin="0,0,8,0"/>
-     <Button Content="Send test" Command="{Binding TestNotificationCommand}" Style="{StaticResource PrimaryButton}"/>
-    </StackPanel>
-    <ItemsControl ItemsSource="{Binding TestResults}" Margin="0,10,0,0">
-     <ItemsControl.ItemTemplate>
-      <DataTemplate>
-       <TextBlock TextWrapping="Wrap" Margin="0,2">
-        <Run Text="{Binding Channel, Mode=OneWay}" FontWeight="SemiBold"/><Run Text=": "/><Run Text="{Binding Message, Mode=OneWay}"/>
-        <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/>
-         <Style.Triggers><DataTrigger Binding="{Binding Succeeded}" Value="False"><Setter Property="Foreground" Value="{StaticResource DangerBrush}"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
-       </TextBlock>
-      </DataTemplate>
-     </ItemsControl.ItemTemplate>
-    </ItemsControl>
-   </StackPanel></GroupBox>
-
-   <GroupBox Header="Windows Service"><StackPanel>
+  <TabItem Header="Service"><ScrollViewer VerticalScrollBarVisibility="Auto"><Border Style="{StaticResource Card}" VerticalAlignment="Top" Margin="0,0,0,16"><StackPanel>
     <Border Style="{StaticResource InfoBanner}" Margin="0,0,0,14"><TextBlock Text="{Binding ServiceStatus, StringFormat=Service status: {0}}" FontWeight="SemiBold"/></Border>
     <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap"
                Text="The installer registers this service and starts it automatically with Windows; it checks and renews certificates every hour. Stop or restart it only when troubleshooting, for example after editing files in C:\ProgramData\SSLense by hand."/>
     <WrapPanel Margin="0,14,0,0"><Button Content="Restart" Command="{Binding RestartServiceCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"/><Button Content="Start" Command="{Binding StartServiceCommand}" Margin="0,0,8,0"/><Button Content="Stop" Command="{Binding StopServiceCommand}" Margin="0,0,8,0"/><Button Content="Refresh status" Command="{Binding RefreshServiceCommand}"/></WrapPanel>
-   </StackPanel></GroupBox>
-  </StackPanel>
- </ScrollViewer>
+  </StackPanel></Border></ScrollViewer></TabItem>
+
+ </TabControl>
  </Grid>
 </UserControl>
