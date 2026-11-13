@@ -12,9 +12,11 @@ internal sealed class CertificateManagementService(
     IIisService iisService,
     ILogService logService,
     ICertificateAuthorityRegistry? authorities = null,
-    IServedCertificateCheck? servedCheck = null) : ICertificateManagementService
+    IServedCertificateCheck? servedCheck = null,
+    ICertificateOperationLock? operationLock = null) : ICertificateManagementService
 {
     private readonly ICertificateAuthorityRegistry _authorities = authorities ?? CertificateAuthorityRegistry.BuiltInOnly;
+    private readonly ICertificateOperationLock _operationLock = operationLock ?? new NoOpCertificateOperationLock();
 
     public async Task<CertificateDetails> GetDetailsAsync(
         string siteName,
@@ -92,6 +94,42 @@ internal sealed class CertificateManagementService(
         }
 
         await managedStore.RemoveAsync(record.SiteName, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<string> StopManagingAsync(string name, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        var before = await FindRecordAsync(name, cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(before.SiteName, name.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"IIS site '{name.Trim()}' shares the certificate managed for '{before.SiteName}'. To stop managing only this site, use " +
+                $"'SSLense.Cli share remove --site \"{name.Trim()}\"'. To stop managing the certificate on every site, use " +
+                $"'SSLense.Cli unmanage --site \"{before.SiteName}\"'.");
+        }
+
+        // A renewal running now would write the record back, so this waits for it.
+        await using var siteLocks = await _operationLock
+            .AcquireAllAsync(before.AllSiteNames(), cancellationToken)
+            .ConfigureAwait(false);
+        var record = await FindRecordAsync(before.SiteName, cancellationToken).ConfigureAwait(false);
+
+        // Only SSLense's record goes: IIS bindings, the certificate in the store and its deployment results stay as they are.
+        await managedStore.RemoveAsync(record.SiteName, CancellationToken.None).ConfigureAwait(false);
+
+        if (record.NoSite)
+        {
+            return $"SSLense no longer manages '{record.SiteName}'. The certificate stays in LocalMachine\\My for the services that use it " +
+                   $"and expires on {record.NotAfter:yyyy-MM-dd}.";
+        }
+
+        var sites = record.AllTargets()
+            .Select(target => $"'{ManagedCertificateNames.IisSiteOf(target.SiteName)}'")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return $"SSLense no longer manages the certificate for {string.Join(", ", record.Hosts)}. Its HTTPS bindings on IIS " +
+               $"{(sites.Length == 1 ? "site" : "sites")} {string.Join(", ", sites)} were not changed, so visitors are served it until it expires on " +
+               $"{record.NotAfter:yyyy-MM-dd}. Renew or replace it yourself before then.";
     }
 
     public async Task<CertificateCheckResult> CheckServedAsync(string name, CancellationToken cancellationToken = default)

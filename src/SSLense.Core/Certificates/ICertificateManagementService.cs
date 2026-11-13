@@ -9,6 +9,13 @@ public interface ICertificateManagementService
     Task RemoveAsync(string siteName, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// SSLense stops renewing, checking and reminding about the certificate, and changes nothing else: its IIS HTTPS
+    /// bindings and the certificate in the Windows store stay, so the sites keep working until it expires.
+    /// Returns what happened, in a sentence or two.
+    /// </summary>
+    Task<string> StopManagingAsync(string name, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Connects to each of the certificate's host names now, through IIS, and compares the certificate served with the
     /// one SSLense expects, on every site using it. Read-only.
     /// </summary>

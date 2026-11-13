@@ -48,6 +48,22 @@ public partial class CertificateDetailsView : UserControl
         }
     }
 
+    private async void OnUnmanageClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not CertificateDetailsViewModel viewModel || viewModel.Summary is not { } summary) return;
+        var sites = string.Join(", ", viewModel.SharedSites.Select(row => $"'{row.SiteName}'"));
+        var answer = MessageBox.Show(
+            summary.IsNoSite
+                ? $"Stop managing {summary.Title}?\n\nSSLense stops renewing it. The certificate stays in the Windows certificate store for the services that use it, until it expires on {summary.Expiry.ToLocalTime():d MMMM yyyy}."
+                : $"Stop managing {summary.Title}?\n\nSSLense stops renewing, checking and reminding about it. IIS is not changed: " +
+                  $"{(viewModel.SharedSites.Count > 1 ? $"the sites {sites} keep" : "the site keeps")} serving this certificate until it expires on {summary.Expiry.ToLocalTime():d MMMM yyyy}. " +
+                  "After that, visitors get a certificate error unless you replace it.",
+            "Stop managing",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (answer == MessageBoxResult.Yes) await viewModel.UnmanageCommand.ExecuteAsync(null);
+    }
+
     private async void OnRemoveClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is not CertificateDetailsViewModel viewModel || viewModel.SelectedSite is null) return;

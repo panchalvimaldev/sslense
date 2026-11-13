@@ -338,6 +338,13 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         services.GetRequiredService<ICertificateManagementService>(), result.GetRequiredValue(removeSiteOption), result.GetValue(removeYesOption), token));
     rootCommand.Subcommands.Add(removeCommand);
 
+    var unmanageSiteOption = new Option<string>("--site") { Required = true, Description = "Managed certificate name: its IIS site, or site/host for a further certificate on a site." };
+    var unmanageCommand = new Command("unmanage", "Stop managing a certificate and leave IIS as it is: its HTTPS bindings and the certificate stay, and SSLense no longer renews it.");
+    unmanageCommand.Options.Add(unmanageSiteOption);
+    unmanageCommand.SetAction((result, token) => StopManagingAsync(
+        services.GetRequiredService<ICertificateManagementService>(), result.GetRequiredValue(unmanageSiteOption), token));
+    rootCommand.Subcommands.Add(unmanageCommand);
+
     var settingsEmailOption = new Option<string?>("--email") { Description = "Default ACME account email." };
     var settingsDaysOption = new Option<int>("--renewal-days") { Required = true, Description = "Fallback schedule when the CA offers no renewal window (ARI), 1-89 days, capped at a third of the lifetime. Reminders are set with 'reminders set'." };
     var configureCommand = new Command("configure", "Save general defaults and renewal settings.");
@@ -433,6 +440,12 @@ static async Task<int> CheckAsync(ICertificateManagementService service, string 
         return check.Passed ? 0 : 2;
     }
     catch (Exception exception) { Log.Error(exception, "Failed to check the served certificate"); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
+}
+
+static async Task<int> StopManagingAsync(ICertificateManagementService service, string site, CancellationToken token)
+{
+    try { Console.WriteLine(await service.StopManagingAsync(site, token).ConfigureAwait(false)); return 0; }
+    catch (Exception exception) { Log.Error(exception, "Failed to stop managing the certificate for {Site}", site); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
 }
 
 static async Task<int> RemoveAsync(ICertificateManagementService service, string site, bool confirmed, CancellationToken token)

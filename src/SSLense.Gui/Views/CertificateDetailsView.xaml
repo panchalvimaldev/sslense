@@ -62,7 +62,9 @@
                             <MenuItem Header="Turn reminders off until it is replaced" Command="{Binding RemindersOffCommand}" />
                             <MenuItem Header="Refresh" Command="{Binding RefreshCommand}" />
                             <Separator />
-                            <MenuItem Header="Remove certificate and HTTPS bindings…" Click="OnRemoveClick" Foreground="{StaticResource DangerBrush}" />
+                            <MenuItem Header="Stop managing, keep it in IIS…" Click="OnUnmanageClick" ToolTip="SSLense stops renewing it. The site keeps working with this certificate until it expires." />
+                            <MenuItem Header="Remove certificate and HTTPS bindings…" Click="OnRemoveClick" Foreground="{StaticResource DangerBrush}"
+                                      Visibility="{Binding Summary.IsNoSite, Converter={StaticResource InverseBooleanToVisibilityConverter}, FallbackValue=Visible}" />
                         </ContextMenu>
                     </Button.ContextMenu>
                 </Button>

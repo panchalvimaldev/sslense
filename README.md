@@ -580,7 +580,7 @@ Windows displays an administrator elevation prompt because the application manif
 
 - Three tabs, **Certificates**, **Activity** and **Settings**, and two buttons for everything: **Renew all due** and **Add certificate**
 - **Certificates:** every certificate in a list grouped by IIS site, with its days left in green, amber or red, its kind (automatic, by hand, or bought), and a filter. With none selected, a summary and the certificates that need you, each with what to do
-- **A selected certificate:** what state it is in and what to do, in plain words; one main button that fits it (**Renew now**, **Renew by hand** for manual DNS, **Install renewal** for one you bought, a short dialog: choose the PFX or the provider's certificate file, confirm, done); and its sections: Status, Certificate, Sites (when it can be shared), Reminders, After install (deployment steps), and History. Removing it is in the **⋯** menu, named for what it does, with a confirmation
+- **A selected certificate:** what state it is in and what to do, in plain words; one main button that fits it (**Renew now**, **Renew by hand** for manual DNS, **Install renewal** for one you bought, a short dialog: choose the PFX or the provider's certificate file, confirm, done); and its sections: Status, Certificate, Sites (when it can be shared), Reminders, After install (deployment steps), and History. The **⋯** menu has **Stop managing, keep it in IIS**, which leaves the bindings and the certificate as they are so the site keeps working until it expires, and **Remove certificate and HTTPS bindings**, each with a confirmation
 - **Add certificate:** free and automatic, with the three-step wizard (IIS site, HTTP or DNS validation, certificate names for wildcards, a choice of certificate authority with a confirmation for trusted ones, pre-flight checks, the records to create for manual DNS validation, live progress, and cancellation); bought, with its PFX file; bought, with a request (CSR) to copy or save, completed with the certificate and bundle the provider sends; or already in IIS, ticking the bindings to watch without changing IIS. It starts by asking where the certificate comes from
 - **Activity:** one page with what is running now, the health checks (each with what to do) and a diagnostic bundle, and a live log with search and level filtering
 - **Settings:** tabs for General, Notifications, Reminders, Certificate authorities, DNS providers (Cloudflare, acme-dns or your own script), and the Windows Service
@@ -598,6 +598,12 @@ dotnet run --project .\src\SSLense.Cli -- configure --email admin@example.com --
 dotnet run --project .\src\SSLense.Cli -- service-status
 dotnet run --project .\src\SSLense.Cli -- start-service
 dotnet run --project .\src\SSLense.Cli -- stop-service
+```
+
+To stop managing a certificate and leave IIS as it is (the bindings and the certificate stay, and SSLense no longer renews it):
+
+```powershell
+dotnet run --project .\src\SSLense.Cli -- unmanage --site "My IIS Site"
 ```
 
 Certificate removal is destructive and therefore requires explicit CLI confirmation:

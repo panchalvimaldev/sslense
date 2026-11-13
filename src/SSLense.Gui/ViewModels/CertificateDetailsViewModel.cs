@@ -32,6 +32,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private readonly AsyncRelayCommand _refreshCommand;
     private readonly AsyncRelayCommand _renewCommand;
     private readonly AsyncRelayCommand _removeCommand;
+    private readonly AsyncRelayCommand _unmanageCommand;
     private bool _suppressSelectionRefresh;
     private bool _isNoSite;
 
@@ -111,6 +112,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
         _refreshCommand = new AsyncRelayCommand(RefreshAsync, CanOperate);
         _renewCommand = new AsyncRelayCommand(RenewAsync, () => CanOperate() && !IsImported && !IsManualDns);
         _removeCommand = new AsyncRelayCommand(RemoveAsync, CanOperate);
+        _unmanageCommand = new AsyncRelayCommand(UnmanageAsync, CanOperate);
         RenewByHandCommand = new RelayCommand(() => _navigation.Navigate("Issue", SelectedSite), () => !IsBusy && IsManualDns);
 
         SharedSites.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowSites));
@@ -185,12 +187,12 @@ public partial class CertificateDetailsViewModel : ObservableObject
 
     public IReadOnlyList<DeploymentKindChoice> DeploymentKinds { get; } =
     [
-        new("Give an account access to the private key", DeploymentStepKind.GrantKeyAccess, "ACCOUNT", "Such as IIS AppPool\\Shop or NT Service\\MSSQLSERVER."),
-        new("Restart a Windows service", DeploymentStepKind.RestartService, "SERVICE NAME", "The service name, such as MSSQLSERVER, not its display name."),
-        new("Run a PowerShell script", DeploymentStepKind.Script, "SCRIPT", "SSLense runs its own copy, checked by hash. Examples are in the deploy-scripts folder where SSLense is installed."),
-        new("Export a PFX file", DeploymentStepKind.ExportPfx, "PFX FILE", "A full path, such as D:\\Certs\\shop.pfx. Needs a certificate issued with an exportable private key."),
-        new("Export PEM files", DeploymentStepKind.ExportPem, "FOLDER", "cert.pem, chain.pem, fullchain.pem, and key.pem, which only administrators can read. Needs an exportable private key."),
-        new("Export to the IIS Central Certificate Store", DeploymentStepKind.CentralStore, "STORE FOLDER", "One PFX per name, protected by the store's password as set in IIS. Needs an exportable private key.")
+        new("Give an account access to the private key", DeploymentStepKind.GrantKeyAccess, "Account", "Such as IIS AppPool\\Shop or NT Service\\MSSQLSERVER."),
+        new("Restart a Windows service", DeploymentStepKind.RestartService, "Service name", "The service name, such as MSSQLSERVER, not its display name."),
+        new("Run a PowerShell script", DeploymentStepKind.Script, "Script", "SSLense runs its own copy, checked by hash. Examples are in the deploy-scripts folder where SSLense is installed."),
+        new("Export a PFX file", DeploymentStepKind.ExportPfx, "PFX file", "A full path, such as D:\\Certs\\shop.pfx. Needs a certificate issued with an exportable private key."),
+        new("Export PEM files", DeploymentStepKind.ExportPem, "Folder", "cert.pem, chain.pem, fullchain.pem, and key.pem, which only administrators can read. Needs an exportable private key."),
+        new("Export to the IIS Central Certificate Store", DeploymentStepKind.CentralStore, "Store folder", "One PFX per name, protected by the store's password as set in IIS. Needs an exportable private key.")
     ];
 
     public IAsyncRelayCommand AddDeploymentStepCommand => _addDeploymentStepCommand;
@@ -209,6 +211,9 @@ public partial class CertificateDetailsViewModel : ObservableObject
     public IAsyncRelayCommand RefreshCommand => _refreshCommand;
     public IAsyncRelayCommand RenewCommand => _renewCommand;
     public IAsyncRelayCommand RemoveCommand => _removeCommand;
+
+    /// <summary>SSLense stops managing the certificate and leaves IIS and the certificate store as they are.</summary>
+    public IAsyncRelayCommand UnmanageCommand => _unmanageCommand;
 
     /// <summary>A certificate bought from a provider is renewed by the provider; this installs the renewed one.</summary>
     public IRelayCommand InstallRenewalCommand { get; }
@@ -577,6 +582,19 @@ public partial class CertificateDetailsViewModel : ObservableObject
         }, cancellationToken);
     }
 
+    private async Task UnmanageAsync(CancellationToken cancellationToken)
+    {
+        if (SelectedSite is null) return;
+        var name = SelectedSite;
+        await RunAsync(async token =>
+        {
+            var message = await _managementService.StopManagingAsync(name, token).ConfigureAwait(true);
+            _logger.LogInformation("Stopped managing the certificate for {Certificate}; IIS was not changed", name);
+            Clear();
+            CertificatesChanged?.Invoke(message);
+        }, cancellationToken);
+    }
+
     private async Task RemoveAsync(CancellationToken cancellationToken)
     {
         if (SelectedSite is null) return;
@@ -585,7 +603,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
         {
             await _managementService.RemoveAsync(removedSite, token).ConfigureAwait(true);
             var message = _isNoSite
-                ? $"Stopped managing '{removedSite}'. The certificate stays in LocalMachine\\My for the services that may use it; delete it in certlm when they no longer do."
+                ? $"Stopped managing '{removedSite}'. The certificate stays in the Windows certificate store for the services that may use it. Delete it there when they no longer do."
                 : SharedSites.Count > 1
                 ? $"Removed the managed certificate and its IIS HTTPS bindings on {string.Join(", ", SharedSites.Select(row => $"'{row.SiteName}'"))}."
                 : $"Removed the managed certificate and its matching IIS HTTPS bindings for '{removedSite}'.";
@@ -621,7 +639,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private void NotifyCommands()
     {
         (RenewByHandCommand as RelayCommand)?.NotifyCanExecuteChanged();
-        _refreshCommand?.NotifyCanExecuteChanged(); _renewCommand?.NotifyCanExecuteChanged(); _removeCommand?.NotifyCanExecuteChanged();
+        _refreshCommand?.NotifyCanExecuteChanged(); _renewCommand?.NotifyCanExecuteChanged(); _removeCommand?.NotifyCanExecuteChanged(); _unmanageCommand?.NotifyCanExecuteChanged();
         (InstallRenewalCommand as RelayCommand)?.NotifyCanExecuteChanged();
         (CheckCommand as AsyncRelayCommand)?.NotifyCanExecuteChanged();
         (RemindersOffCommand as RelayCommand)?.NotifyCanExecuteChanged();

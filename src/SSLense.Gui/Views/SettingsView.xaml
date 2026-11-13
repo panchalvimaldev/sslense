@@ -114,7 +114,7 @@
     <CheckBox Content="Keep reminding about automatically renewed certificates until they renew" IsChecked="{Binding RepeatAutomaticReminders}" Margin="0,8,0,0"
               ToolTip="Lists the certificate at the repeat interval from the start of the reminder window until it renews, instead of telling you once. No action is needed for these lines. Problems are reported either way."/>
     <CheckBox Content="Check renewal readiness and served certificates daily" IsChecked="{Binding ProactiveChecks}" Margin="0,8,0,0"
-              ToolTip="Runs the pre-flight checks in the 30 days before each automatic renewal, and compares what this server serves with what SSLense expects. Problems are reported after two daily failures in a row. The checks only report. The only thing written is one small file, removed straight away, in the challenge folder of a site using HTTP validation; DNS is never changed."/>
+              ToolTip="Runs the checks done before issuing in the 30 days before each automatic renewal, and compares what this server serves with what SSLense expects. Problems are reported after two daily failures in a row. The checks only report. The only thing written is one small file, removed straight away, in the challenge folder of a site using HTTP validation; DNS is never changed."/>
     <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
      <Button Content="Save reminders" Command="{Binding SaveRemindersCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0"/>
      <Button Content="Send sample digest" Command="{Binding SendSampleReminderCommand}" ToolTip="Sends today's digest now, marked as a sample. Nothing is recorded, so real reminders are unchanged."/>
