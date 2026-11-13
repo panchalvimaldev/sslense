@@ -130,21 +130,34 @@
   <TabItem Header="Certificate authorities"><ScrollViewer VerticalScrollBarVisibility="Auto"><Border Style="{StaticResource Card}" VerticalAlignment="Top" Margin="0,0,0,16"><StackPanel>
     <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,10"
                Text="Let's Encrypt is built in. Add another ACME certificate authority to issue from it, then choose it in Add certificate, Free and automatic. A certificate always renews with the CA that issued it. Most commercial CAs need External Account Binding (EAB): a key ID and an HMAC key from your account with them."/>
-    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="7" ClipToBounds="True" Margin="0,0,0,8">
-     <DataGrid ItemsSource="{Binding CertificateAuthorityList}" SelectedItem="{Binding SelectedCertificateAuthority}" Height="130" AutomationProperties.Name="Certificate authorities">
-      <DataGrid.Columns>
-       <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="130"/>
-       <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
-       <DataGridCheckBoxColumn Header="Test" Binding="{Binding IsTest, Mode=OneWay}" Width="50"/>
-       <DataGridCheckBoxColumn Header="EAB" Binding="{Binding HasExternalAccountBinding, Mode=OneWay}" Width="50"/>
-       <DataGridTextColumn Header="Renews" Binding="{Binding UsedBy.Count}" Width="70"/>
-      </DataGrid.Columns>
-     </DataGrid>
-    </Border>
-    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-     <Button Content="Test selected" Command="{Binding TestCaCommand}" Margin="0,0,8,0" ToolTip="Reads the CA's directory and reports what it requires and offers. Creates no account."/>
-     <Button Content="Remove selected" Command="{Binding RemoveCaCommand}" Style="{StaticResource DangerButton}" ToolTip="Refused while a certificate renews with it. Let's Encrypt cannot be removed."/>
-    </StackPanel>
+    <!-- One row per certificate authority, with its own actions. -->
+    <ItemsControl ItemsSource="{Binding CertificateAuthorityList}" Focusable="False" Margin="0,4,0,8" AutomationProperties.Name="Certificate authorities">
+     <ItemsControl.ItemTemplate>
+      <DataTemplate>
+       <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,12">
+        <DockPanel>
+         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+          <Button Content="Test" Tag="test" Click="OnCaRowClick" Margin="0,0,8,0" ToolTip="Reads the CA's directory and reports what it requires and offers. Creates no account."/>
+          <Button Content="Remove" Tag="remove" Click="OnCaRowClick" Visibility="{Binding IsBuiltIn, Converter={StaticResource InverseBooleanToVisibilityConverter}}" Style="{StaticResource LinkButton}" Foreground="{StaticResource DangerBrush}" ToolTip="Refused while a certificate renews with it. Let's Encrypt cannot be removed."/>
+         </StackPanel>
+         <StackPanel>
+          <StackPanel Orientation="Horizontal">
+           <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" FontSize="13.5"/>
+           <Border Style="{StaticResource Tag}" Margin="8,1,0,0" Visibility="{Binding IsTest, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="Test certificates" FontSize="11" Foreground="{StaticResource MutedTextBrush}"/></Border>
+           <Border Style="{StaticResource Tag}" Margin="6,1,0,0" Visibility="{Binding IsBuiltIn, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="Built in" FontSize="11" Foreground="{StaticResource MutedTextBrush}"/></Border>
+           <Border Style="{StaticResource Tag}" Margin="6,1,0,0" Visibility="{Binding HasExternalAccountBinding, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="EAB" FontSize="11" Foreground="{StaticResource MutedTextBrush}"/></Border>
+          </StackPanel>
+          <TextBlock Style="{StaticResource CaptionText}" Margin="0,3,0,0" TextTrimming="CharacterEllipsis">
+           <Run Text="{Binding Id, Mode=OneWay}"/><Run Text=" · renews "/><Run Text="{Binding UsedBy.Count, Mode=OneWay}"/><Run Text=" certificate(s) · "/><Run Text="{Binding DirectoryUri, Mode=OneWay}"/>
+          </TextBlock>
+         </StackPanel>
+        </DockPanel>
+       </Border>
+      </DataTemplate>
+     </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <Expander Header="Add a certificate authority" Foreground="{StaticResource BrandBrush}" Margin="0,4,0,0">
+     <StackPanel Margin="0,12,0,0" TextElement.Foreground="{StaticResource TextBrush}">
     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
      <StackPanel Margin="0,0,8,0"><TextBlock Text="Certificate authority" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding CaChoices}" SelectedItem="{Binding SelectedCaChoice}" DisplayMemberPath="Label" AutomationProperties.Name="Certificate authority to add"/></StackPanel>
      <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="EAB key ID" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewCaEabKeyId}" AutomationProperties.Name="EAB key ID"/></StackPanel>
@@ -159,36 +172,44 @@
      <CheckBox Grid.Column="3" Content="Test CA (untrusted certificates)" IsChecked="{Binding NewCaIsTest}" VerticalAlignment="Bottom" Margin="0,0,0,6" AutomationProperties.Name="Test certificate authority"/>
     </Grid>
     <TextBlock Text="SSLense reads the CA's directory before saving. A CA that requires EAB is refused without it. The HMAC key is encrypted on this server and never shown again." Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+     </StackPanel>
+    </Expander>
   </StackPanel></Border></ScrollViewer></TabItem>
 
   <TabItem Header="DNS providers"><ScrollViewer VerticalScrollBarVisibility="Auto"><Border Style="{StaticResource Card}" VerticalAlignment="Top" Margin="0,0,0,16"><StackPanel>
     <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,10"
                Text="Needed for wildcard certificates and sites without port 80 when they renew automatically. In Cloudflare, go to My Profile, API Tokens, Create Token, and use the Edit zone DNS template for one zone only. The token can change every record in that zone, so for an important domain, consider a CNAME that points _acme-challenge to a separate zone. For any other DNS service with an API, use a PowerShell script."/>
-    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="7" ClipToBounds="True" Margin="0,0,0,8">
-     <DataGrid ItemsSource="{Binding DnsProviders}" SelectedItem="{Binding SelectedDnsProvider}" Height="110" AutomationProperties.Name="DNS providers">
-      <DataGrid.Columns>
-       <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
-       <DataGridTextColumn Header="Service" Binding="{Binding Provider}" Width="110"/>
-       <DataGridTextColumn Header="Zone" Binding="{Binding ZoneName}" Width="2*"/>
-       <DataGridTextColumn Header="Script SHA-256" Binding="{Binding ScriptSha256}" Width="*">
-        <DataGridTextColumn.ElementStyle>
-         <Style TargetType="TextBlock"><Setter Property="TextTrimming" Value="CharacterEllipsis"/><Setter Property="ToolTip" Value="{Binding ScriptSha256}"/></Style>
-        </DataGridTextColumn.ElementStyle>
-       </DataGridTextColumn>
-       <DataGridTextColumn Header="acme-dns CNAME to create" Binding="{Binding AcmeDnsCname}" Width="2*">
-        <DataGridTextColumn.ElementStyle>
-         <Style TargetType="TextBlock"><Setter Property="TextTrimming" Value="CharacterEllipsis"/><Setter Property="ToolTip" Value="{Binding AcmeDnsCname}"/></Style>
-        </DataGridTextColumn.ElementStyle>
-       </DataGridTextColumn>
-      </DataGrid.Columns>
-     </DataGrid>
-    </Border>
-    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-     <Button Content="Test selected" Command="{Binding TestDnsProviderCommand}" Margin="0,0,8,0" ToolTip="Adds a temporary TXT record at _sslense-test in the zone, then removes it. For a script, also waits until every authoritative name server returns it."/>
-     <Button Content="Replace token or secret" Command="{Binding ReplaceDnsTokenCommand}" Margin="0,0,8,0" ToolTip="Enter the new token or secret in the box below, then click this. Certificates keep renewing through this provider."/>
-     <Button Content="Update script" Command="{Binding UpdateDnsScriptCommand}" Margin="0,0,8,0" ToolTip="After you change a provider's script: choose it under Script below, then click this. The new copy is checked first; if it fails, the old copy stays in use."/>
-     <Button Content="Remove selected" Command="{Binding RemoveDnsProviderCommand}" Style="{StaticResource DangerButton}"/>
-    </StackPanel>
+    <!-- One row per DNS provider, with its own actions. -->
+    <ItemsControl ItemsSource="{Binding DnsProviders}" Focusable="False" Margin="0,4,0,8" AutomationProperties.Name="DNS providers">
+     <ItemsControl.ItemTemplate>
+      <DataTemplate>
+       <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,12">
+        <DockPanel>
+         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+          <Button Content="Test" Tag="test" Click="OnDnsRowClick" Margin="0,0,8,0" ToolTip="Adds a temporary TXT record at _sslense-test in the zone, then removes it. For a script, also waits until every authoritative name server returns it."/>
+          <Button Content="Replace token" Tag="token" Click="OnDnsRowClick" ToolTip="Enter the new token or secret under Add a DNS provider below, then click this. Certificates keep renewing through this provider."><Button.Style><Style TargetType="Button" BasedOn="{StaticResource LinkButton}"><Style.Triggers><DataTrigger Binding="{Binding Provider}" Value="AcmeDns"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></Button.Style></Button>
+          <Button Content="Update script" Tag="script" Click="OnDnsRowClick" ToolTip="After you change a provider's script: choose it under Add a DNS provider below, then click this. The new copy is checked first; if it fails, the old copy stays in use."><Button.Style><Style TargetType="Button" BasedOn="{StaticResource LinkButton}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding Provider}" Value="Script"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Button.Style></Button>
+          <Button Content="Remove" Tag="remove" Click="OnDnsRowClick" Style="{StaticResource LinkButton}" Foreground="{StaticResource DangerBrush}"/>
+         </StackPanel>
+         <StackPanel>
+          <StackPanel Orientation="Horizontal">
+           <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" FontSize="13.5"/>
+           <Border Style="{StaticResource Tag}" Margin="8,1,0,0"><TextBlock FontSize="11" Foreground="{StaticResource MutedTextBrush}"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value="{Binding Provider}"/><Style.Triggers><DataTrigger Binding="{Binding Provider}" Value="AcmeDns"><Setter Property="Text" Value="acme-dns"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock></Border>
+          </StackPanel>
+          <TextBlock Style="{StaticResource CaptionText}" Margin="0,3,0,0"><Run Text="Zone "/><Run Text="{Binding ZoneName, Mode=OneWay}"/></TextBlock>
+          <TextBox Text="{Binding AcmeDnsCname, Mode=OneWay, StringFormat=CNAME to create: {0}}" IsReadOnly="True" BorderThickness="0" Background="Transparent" Padding="0" MinHeight="0" Margin="0,3,0,0"
+                   FontFamily="Consolas" FontSize="12" Foreground="{StaticResource TextBrush}" AutomationProperties.Name="acme-dns CNAME to create">
+           <TextBox.Style><Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}"><Style.Triggers><DataTrigger Binding="{Binding AcmeDnsCname}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBox.Style>
+          </TextBox>
+          <TextBlock Text="{Binding ScriptSha256, StringFormat=Script SHA-256: {0}}" FontSize="12" Foreground="{StaticResource MutedTextBrush}" Margin="0,3,0,0" TextTrimming="CharacterEllipsis" ToolTip="{Binding ScriptSha256}"><TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers><DataTrigger Binding="{Binding ScriptSha256}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
+         </StackPanel>
+        </DockPanel>
+       </Border>
+      </DataTemplate>
+     </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <Expander Header="Add a DNS provider" Foreground="{StaticResource BrandBrush}" Margin="0,4,0,0">
+     <StackPanel Margin="0,12,0,0" TextElement.Foreground="{StaticResource TextBrush}">
     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="110"/><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
      <StackPanel Margin="0,0,8,0"><TextBlock Text="Service" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding DnsServices}" SelectedItem="{Binding NewDnsService}" AutomationProperties.Name="DNS service"/></StackPanel>
      <StackPanel Grid.Column="1" Margin="0,0,8,0"><TextBlock Text="Name" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewDnsName}" AutomationProperties.Name="DNS provider name"/></StackPanel>
@@ -241,6 +262,8 @@
     <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,0"
                Visibility="{Binding NewDnsIsScript, Converter={StaticResource BooleanToVisibilityConverter}}"
                Text="Read a script before adding it: the renewal service runs it as SYSTEM. SSLense keeps its own copy where only administrators can change it, so after you change the original, use Update script. The secret is encrypted and given to the script in SSLENSE_DNS_SECRET. Examples are in C:\Program Files\SSLense\dns-scripts."/>
+     </StackPanel>
+    </Expander>
   </StackPanel></Border></ScrollViewer></TabItem>
 
   <TabItem Header="Service"><ScrollViewer VerticalScrollBarVisibility="Auto"><Border Style="{StaticResource Card}" VerticalAlignment="Top" Margin="0,0,0,16"><StackPanel>

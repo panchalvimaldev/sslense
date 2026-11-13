@@ -68,10 +68,24 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
             Save(window, folder, "05-after-install-section");
             SelectSection(window, "Reminders");
             Save(window, folder, "05b-reminders-section");
+            ClickReminder(window, 3);
+            WaitFor(() => !certificates.Details.IsBusy);
+            Assert.Equal(3, ReminderList(window).SelectedIndex);
+            Assert.Contains("Off until", certificates.Details.ReminderState, StringComparison.Ordinal);
+            ClickReminder(window, 1);
+            WaitFor(() => !certificates.Details.IsBusy);
+            Assert.Equal(1, ReminderList(window).SelectedIndex);
+            Assert.Contains("Snoozed until", certificates.Details.ReminderState, StringComparison.Ordinal);
+            Assert.Null(certificates.Details.ErrorMessage);
+            Save(window, folder, "05d-reminders-snoozed");
             SelectSection(window, "Status");
 
             // Check, and the ⋯ menu, which must open with its actions.
-            certificates.Details.CheckCommand.Execute(null);
+            // Pressed as a person would: through the button, not its command.
+            var check = Find<Button>(window).Single(button => button.IsVisible && System.Windows.Automation.AutomationProperties.GetName(button) == "Check");
+            Assert.True(check.IsEnabled);
+            ((System.Windows.Automation.Provider.IInvokeProvider)new System.Windows.Automation.Peers.ButtonAutomationPeer(check)
+                .GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)).Invoke();
             WaitFor(() => certificates.Details.LastCheckPassed is not null);
             Assert.True(certificates.Details.LastCheckPassed);
             Save(window, folder, "05c-checked");
@@ -85,6 +99,9 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
 
             main.SelectedTab = main.Tabs[1];
             Settle();
+            var healthChecks = provider.GetRequiredService<HealthViewModel>();
+            healthChecks.RunCommand.Execute(null);
+            WaitFor(() => healthChecks.Results.Count == 3);
             Save(window, folder, "06-activity");
 
             main.SelectedTab = main.Tabs[2];
@@ -93,6 +110,12 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
             provider.GetRequiredService<SettingsViewModel>().ShowSection("Notifications");
             Settle();
             Save(window, folder, "07b-settings-notifications");
+            provider.GetRequiredService<SettingsViewModel>().ShowSection("Certificate authorities");
+            Settle();
+            Save(window, folder, "07c-settings-authorities");
+            provider.GetRequiredService<SettingsViewModel>().ShowSection("DNS providers");
+            Settle();
+            Save(window, folder, "07d-settings-dns");
 
             main.AddCertificateCommand.Execute(null);
             Settle();
@@ -133,6 +156,20 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
             window.Close();
         });
         output.WriteLine($"Screens saved to {folder}");
+    }
+
+    private static ListBox ReminderList(Window window) =>
+        Find<ListBox>(window).Single(list => list.IsVisible && System.Windows.Automation.AutomationProperties.GetName(list) == "Reminders for this certificate");
+
+    /// <summary>Clicks a reminder choice with the mouse button, as a person would.</summary>
+    private static void ClickReminder(Window window, int index)
+    {
+        var item = (ListBoxItem)ReminderList(window).ItemContainerGenerator.ContainerFromIndex(index);
+        item.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left)
+        {
+            RoutedEvent = UIElement.MouseLeftButtonDownEvent
+        });
+        Settle();
     }
 
     private static void SelectSection(Window window, string header)
@@ -212,10 +249,18 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
         management.Setup(value => value.GetDetailsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string name, CancellationToken _) => Details(records.Single(record => record.SiteName == name)));
         management.Setup(value => value.CheckServedAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((string name, CancellationToken _) => new CertificateCheckResult(true, $"https://{records.Single(record => record.SiteName == name).Hosts[0]} serves the expected certificate."));
+            .Returns(async (string name, CancellationToken _) => { await Task.Delay(40); return new CertificateCheckResult(true, $"https://{records.Single(record => record.SiteName == name).Hosts[0]} serves the expected certificate."); });
         var reminders = new Mock<IReminderService> { DefaultValue = DefaultValue.Mock };
+        // Saves like the real store: the next overview shows the new setting.
         reminders.Setup(value => value.GetOverviewAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ReminderOverview(new ReminderConfig(), records, null));
+            .Returns(async () => { await Task.Delay(40); return new ReminderOverview(new ReminderConfig(), records.ToArray(), null); });
+        reminders.Setup(value => value.SetCertificateRemindersAsync(It.IsAny<string>(), It.IsAny<ReminderMode>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, ReminderMode, int?, CancellationToken>((name, mode, days, _) =>
+            {
+                var index = Array.FindIndex(records, record => record.SiteName == name);
+                records[index] = records[index] with { Reminders = mode, SnoozedUntil = days is { } d ? DateTimeOffset.UtcNow.AddDays(d) : null };
+            })
+            .Returns(() => Task.Delay(40));
         var deployment = new Mock<IDeploymentService> { DefaultValue = DefaultValue.Mock };
         deployment.Setup(value => value.ListAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string site, CancellationToken _) => new DeploymentOverview(site, "AB12", [], null, false));
@@ -243,10 +288,33 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
             new IisSite(2, "Blog", "Started", @"C:\inetpub\blog", [new IisBinding("http", "*", 80, "blog.example.com", null, null, false)])
         ]);
         services.AddSingleton(iis.Object);
+        var authorities = new Mock<SSLense.Core.Acme.ICertificateAuthorityService> { DefaultValue = DefaultValue.Mock };
+        authorities.Setup(value => value.ListAsync(It.IsAny<CancellationToken>())).ReturnsAsync(
+        [
+            new SSLense.Core.Acme.CertificateAuthorityOverview("letsencrypt-staging", "Let's Encrypt staging", new Uri("https://acme-staging-v02.api.letsencrypt.org/directory"), true, true, false, ["letsencrypt.org"], ["Blog", "Shop"]),
+            new SSLense.Core.Acme.CertificateAuthorityOverview("letsencrypt", "Let's Encrypt", new Uri("https://acme-v02.api.letsencrypt.org/directory"), false, true, false, ["letsencrypt.org"], []),
+            new SSLense.Core.Acme.CertificateAuthorityOverview("zerossl", "ZeroSSL", new Uri("https://acme.zerossl.com/v2/DV90"), false, false, true, ["sectigo.com"], []),
+            new SSLense.Core.Acme.CertificateAuthorityOverview("google", "Google Trust Services", new Uri("https://dv.acme-v02.api.pki.goog/directory"), false, false, true, ["pki.goog"], [])
+        ]);
+        services.AddSingleton(authorities.Object);
+        var dns = new Mock<SSLense.Core.DnsValidation.IDnsProviderService> { DefaultValue = DefaultValue.Mock };
+        dns.Setup(value => value.ListAsync(It.IsAny<CancellationToken>())).ReturnsAsync(
+        [
+            new SSLense.Core.DnsValidation.DnsProviderOverview("example-cloudflare", SSLense.Core.DnsValidation.DnsProviderType.Cloudflare, "example.com", "0123456789abcdef"),
+            new SSLense.Core.DnsValidation.DnsProviderOverview("domain1-script", SSLense.Core.DnsValidation.DnsProviderType.Script, "domain1.co.uk", null, "9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08"),
+            new SSLense.Core.DnsValidation.DnsProviderOverview("intranet-acme-dns", SSLense.Core.DnsValidation.DnsProviderType.AcmeDns, "example.local", null, null, "_acme-challenge.example.local CNAME 8e5700ea.auth.acme-dns.io")
+        ]);
+        services.AddSingleton(dns.Object);
         var settings = new Mock<ISettingsService> { DefaultValue = DefaultValue.Mock };
         settings.Setup(value => value.GetAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new AppConfig());
         services.AddSingleton(settings.Object);
         var health = new Mock<IHealthCheckService> { DefaultValue = DefaultValue.Mock };
+        health.Setup(value => value.RunAsync(It.IsAny<IProgress<SSLense.Core.ProgressEvent>>(), It.IsAny<CancellationToken>())).ReturnsAsync(
+        [
+            new HealthCheckResult("Renewal service", HealthStatus.Pass, "Running; last check 12 minutes ago."),
+            new HealthCheckResult("Port 80 for shop.example.com", HealthStatus.Fail, "Let's Encrypt could not reach the site on port 80.", "Open port 80 in the Windows firewall, or switch the certificate to DNS validation."),
+            new HealthCheckResult("Notifications", HealthStatus.Warning, "No email or chat channel is set up.", "Add one in Settings, Notifications, and send a test.")
+        ]);
         health.Setup(value => value.RunQuickAsync(It.IsAny<CancellationToken>())).ReturnsAsync([]);
         services.AddSingleton(renewal.Object);
         services.AddSingleton(management.Object);
@@ -254,7 +322,7 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
         services.AddSingleton(deployment.Object);
         services.AddSingleton(health.Object);
 
-        var configured = new HashSet<Type> { typeof(IRenewalService), typeof(ICertificateManagementService), typeof(IReminderService), typeof(IDeploymentService), typeof(IHealthCheckService), typeof(ISettingsService), typeof(IImportedCertificateService), typeof(IPendingRequestStore), typeof(IIisService) };
+        var configured = new HashSet<Type> { typeof(IRenewalService), typeof(ICertificateManagementService), typeof(IReminderService), typeof(IDeploymentService), typeof(IHealthCheckService), typeof(ISettingsService), typeof(IImportedCertificateService), typeof(IPendingRequestStore), typeof(IIisService), typeof(SSLense.Core.Acme.ICertificateAuthorityService), typeof(SSLense.Core.DnsValidation.IDnsProviderService) };
         var coreServices = typeof(MainViewModel).Assembly.GetTypes()
             .Where(type => type.Namespace == typeof(MainViewModel).Namespace && type.IsClass && !type.IsAbstract)
             .SelectMany(type => type.GetConstructors())

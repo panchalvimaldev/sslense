@@ -14,7 +14,11 @@
                 </StackPanel>
             </DockPanel>
 
-            <ItemsControl ItemsSource="{Binding Results}" Margin="0,10,0,0" Focusable="False" AutomationProperties.Name="Health check results">
+            <!-- The results fold away, so the diagnostic bundle below stays in reach. -->
+            <Expander IsExpanded="True" Margin="0,10,0,0" Foreground="{StaticResource BrandBrush}" AutomationProperties.Name="Health check results">
+                <Expander.Header><TextBlock><Run Text="Results of " /><Run Text="{Binding Results.Count, Mode=OneWay}" /><Run Text=" checks" /></TextBlock></Expander.Header>
+                <Expander.Style><Style TargetType="Expander"><Style.Triggers><DataTrigger Binding="{Binding Results.Count}" Value="0"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></Expander.Style>
+            <ItemsControl ItemsSource="{Binding Results}" Margin="0,6,0,0" Focusable="False" TextElement.Foreground="{StaticResource TextBrush}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,10">
@@ -42,6 +46,7 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+            </Expander>
 
             <Expander Header="Diagnostic bundle for support" Margin="0,8,0,0" Foreground="{StaticResource BrandBrush}">
                 <StackPanel Margin="0,10,0,0" TextElement.Foreground="{StaticResource TextBrush}">

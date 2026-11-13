@@ -77,4 +77,40 @@ public partial class SettingsView : UserControl
     {
         if (ViewModel is { } vm) vm.HeartbeatUrl = HeartbeatUrlBox.Password;
     }
+
+    /// <summary>A certificate authority row's Test or Remove: the row becomes the selected one, then its action runs.</summary>
+    private async void OnCaRowClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is not { } vm || sender is not FrameworkElement { DataContext: SSLense.Core.Acme.CertificateAuthorityOverview authority, Tag: string action }) return;
+        vm.SelectedCertificateAuthority = authority;
+        if (action == "remove" && !Confirm($"Remove the certificate authority '{authority.Name}'? Its ACME account key on this server is deleted.")) return;
+        var command = action == "remove" ? vm.RemoveCaCommand : vm.TestCaCommand;
+        if (command.CanExecute(null)) await command.ExecuteAsync(null);
+    }
+
+    /// <summary>A DNS provider row's Test, Replace token, Update script or Remove, run for that row.</summary>
+    private async void OnDnsRowClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is not { } vm || sender is not FrameworkElement { DataContext: SSLense.Core.DnsValidation.DnsProviderOverview provider, Tag: string action }) return;
+        vm.SelectedDnsProvider = provider;
+        if (action == "remove" && !Confirm($"Remove the DNS provider '{provider.Name}'? Revoke its token in the DNS service too.")) return;
+        var command = action switch
+        {
+            "remove" => vm.RemoveDnsProviderCommand,
+            "token" => vm.ReplaceDnsTokenCommand,
+            "script" => vm.UpdateDnsScriptCommand,
+            _ => vm.TestDnsProviderCommand
+        };
+        if (command.CanExecute(null)) await command.ExecuteAsync(null);
+        else if (action is "token" or "script")
+        {
+            MessageBox.Show(action == "token"
+                    ? "Enter the new token or secret under Add a DNS provider, then choose Replace token again."
+                    : "Choose the changed script under Add a DNS provider, then choose Update script again.",
+                "SSLense", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+    }
+
+    private static bool Confirm(string question) =>
+        MessageBox.Show(question, "SSLense", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes;
 }

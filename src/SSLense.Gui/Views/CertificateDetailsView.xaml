@@ -37,8 +37,14 @@
         <!-- The certificate, and the one action that fits it. -->
         <DockPanel Margin="0,0,0,8">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
-                <Button Content="Check" Command="{Binding CheckCommand}" Margin="0,0,8,0"
-                        ToolTip="Connect to the site now and check that it serves this certificate. Changes nothing." />
+                <Button Command="{Binding CheckCommand}" AutomationProperties.Name="Check" Margin="0,0,8,0"
+                        ToolTip="Connect to the site now and check that it serves this certificate. Changes nothing.">
+                    <TextBlock>
+                        <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Text" Value="Check" />
+                            <Style.Triggers><DataTrigger Binding="{Binding IsChecking}" Value="True"><Setter Property="Text" Value="Checking…" /></DataTrigger></Style.Triggers>
+                        </Style></TextBlock.Style>
+                    </TextBlock>
+                </Button>
                 <Button Content="Install renewal" Command="{Binding InstallRenewalCommand}" Style="{StaticResource PrimaryButton}"
                         Visibility="{Binding Summary.IsImported, Converter={StaticResource BooleanToVisibilityConverter}}"
                         ToolTip="Install the renewed certificate from your provider. Only this certificate's bindings change." />
@@ -78,7 +84,7 @@
             </Border>
         </StackPanel>
 
-        <TabControl Grid.Row="2" Style="{StaticResource SectionTabs}" AutomationProperties.Name="Certificate sections">
+        <TabControl Grid.Row="2" Style="{StaticResource SectionTabs}" SelectedIndex="{Binding SelectedSection}" AutomationProperties.Name="Certificate sections">
             <TabItem Header="Status">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
@@ -103,7 +109,8 @@
                                     <TextBlock Text="Is the site serving it?" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
                                     <TextBlock TextWrapping="Wrap" Margin="0,3,0,0">
                                         <TextBlock.Style><Style TargetType="TextBlock" BasedOn="{StaticResource CaptionText}"><Setter Property="FontSize" Value="13" /><Setter Property="Text" Value="{Binding LastCheckText}" />
-                                            <Style.Triggers><DataTrigger Binding="{Binding HasCheck}" Value="False"><Setter Property="Text" Value="Not checked yet. Check connects to each of its domains and compares the certificate served with this one. The daily checks do the same." /></DataTrigger></Style.Triggers>
+                                            <Style.Triggers><DataTrigger Binding="{Binding HasCheck}" Value="False"><Setter Property="Text" Value="Not checked yet. Check connects to each of its domains and compares the certificate served with this one. The daily checks do the same." /></DataTrigger>
+                                                <DataTrigger Binding="{Binding IsChecking}" Value="True"><Setter Property="Text" Value="Checking… connecting to each of its domains. A site that does not answer takes up to ten seconds." /></DataTrigger></Style.Triggers>
                                         </Style></TextBlock.Style>
                                     </TextBlock>
                                 </StackPanel>

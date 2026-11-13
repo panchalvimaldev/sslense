@@ -473,13 +473,15 @@ public partial class CertificateDetailsViewModel : ObservableObject
         ReminderSchedule = $"From {settings.StartDays} days before it expires, in the daily digest at {settings.SendAtHour:00}:00" +
                            (settings.RepeatDays <= 1 ? ", every day until it is renewed." : $", every {settings.RepeatDays} days until it is renewed.");
 
-        // Shown as chosen; choosing another one applies it at once. A snooze shows none, with its end date above.
+        // Shown as chosen; choosing another one applies it at once.
         _loadingReminder = true;
         try
         {
             SelectedReminderChoice = record.Reminders switch
             {
-                ReminderMode.Snoozed when record.SnoozedUntil is { } snoozed && snoozed > DateTimeOffset.UtcNow => null,
+                // The snooze that ends closest to it; the line above gives its exact end.
+                ReminderMode.Snoozed when record.SnoozedUntil is { } snoozed && snoozed > DateTimeOffset.UtcNow =>
+                    (snoozed - DateTimeOffset.UtcNow).TotalDays <= 7.5 ? ReminderChoices[1] : ReminderChoices[2],
                 ReminderMode.OffUntilReplaced => ReminderChoices[3],
                 ReminderMode.Off => ReminderChoices[4],
                 _ => ReminderChoices[0]
@@ -507,19 +509,45 @@ public partial class CertificateDetailsViewModel : ObservableObject
 
     public bool CheckFailed => LastCheckPassed == false;
 
+    /// <summary>True while Check connects to the site, which can take up to ten seconds for a site that does not answer.</summary>
+    [ObservableProperty] private bool isChecking;
+
+    /// <summary>The section shown: 0 is Status, where Check shows its result.</summary>
+    [ObservableProperty] private int selectedSection;
+
     private async Task CheckAsync(CancellationToken cancellationToken)
     {
         if (SelectedSite is null) return;
+        var name = SelectedSite;
         ResultMessage = string.Empty;
-        await RunAsync(async token =>
+        SelectedSection = 0;
+        IsChecking = true;
+        LastCheckPassed = null;
+        LastCheckText = string.Empty;
+        _logger.LogInformation("Checking the certificate served for {Certificate}", name);
+        try
         {
-            var name = SelectedSite;
-            var check = await Task.Run(() => _managementService.CheckServedAsync(name, token), token).ConfigureAwait(true);
-            LastCheckPassed = check.Passed;
-            LastCheckText = $"{DateTime.Now:HH:mm} · {check.Message}";
-            if (check.Passed) ResultMessage = check.Message;
-            else ErrorMessage = check.Message;
-        }, cancellationToken);
+            await RunAsync(async token =>
+            {
+                var check = await Task.Run(() => _managementService.CheckServedAsync(name, token), token).ConfigureAwait(true);
+                _logger.LogInformation("Check for {Certificate}: {Result}", name, check.Message);
+                LastCheckPassed = check.Passed;
+                LastCheckText = $"Checked at {DateTime.Now:HH:mm}. {check.Message}";
+                if (check.Passed) ResultMessage = check.Message;
+                else ErrorMessage = check.Message;
+            }, cancellationToken);
+
+            // The check itself could not run, such as when IIS could not be read: say so where its result goes.
+            if (LastCheckPassed is null && ErrorMessage is { } error)
+            {
+                LastCheckPassed = false;
+                LastCheckText = $"Could not check at {DateTime.Now:HH:mm}. {error}";
+            }
+        }
+        finally
+        {
+            IsChecking = false;
+        }
     }
 
     private async Task ApplyReminderAsync(CancellationToken cancellationToken)
