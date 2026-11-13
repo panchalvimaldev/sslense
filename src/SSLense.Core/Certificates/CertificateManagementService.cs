@@ -67,7 +67,7 @@ internal sealed class CertificateManagementService(
         {
             // A site left on an older certificate keeps that binding, and a deleted site has none to remove.
             if (record.IsShared() && (target.PendingSince is not null ||
-                !existingSites.Any(site => string.Equals(site.Name, target.SiteName, StringComparison.OrdinalIgnoreCase))))
+                existingSites.FindSite(target.SiteName) is null))
             {
                 continue;
             }

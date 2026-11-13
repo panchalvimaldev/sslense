@@ -95,8 +95,10 @@ internal sealed partial class AcmeService : IAcmeService
         var sites = await _iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
         var site = sites.SingleOrDefault(candidate =>
             string.Equals(candidate.Name, request.SiteName, StringComparison.OrdinalIgnoreCase));
-        var existingRecord = (await _managedCertificateStore.GetAllAsync(cancellationToken).ConfigureAwait(false))
+        var allRecords = await _managedCertificateStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        var existingRecord = allRecords
             .FirstOrDefault(record => string.Equals(record.SiteName, request.SiteName.Trim(), StringComparison.OrdinalIgnoreCase));
+        ThrowIfOtherCertificateOnSite(request, existingRecord, allRecords);
         if (request.NoSite)
         {
             // One name never means both a site and a certificate without one.
@@ -687,6 +689,43 @@ internal sealed partial class AcmeService : IAcmeService
         }
     }
 
+    /// <summary>
+    /// Phase 1 of docs/design/multiple-certificates-per-site.md: a second certificate on a site ("site/host") comes from
+    /// another provider, and an ACME certificate keeps off the host names of the site's other certificates.
+    /// </summary>
+    internal static void ThrowIfOtherCertificateOnSite(
+        AcmeIssueRequest request,
+        ManagedCertificate? existingRecord,
+        IReadOnlyList<ManagedCertificate> records)
+    {
+        if (!ManagedCertificateNames.IsAdditional(request.SiteName))
+        {
+            if (!request.NoSite)
+            {
+                ManagedCertificateNames.ThrowIfHostsTaken(records, request.SiteName, request.Hosts);
+            }
+
+            return;
+        }
+
+        if (request.NoSite)
+        {
+            // Names chosen before 0.23 may contain '/'; those keep renewing.
+            if (existingRecord is not { NoSite: true })
+            {
+                throw new InvalidOperationException(
+                    $"'{request.SiteName.Trim()}' contains '/', which names a second certificate on an IIS site. Choose a name without '/' for a certificate with no IIS site.");
+            }
+
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"'{request.SiteName.Trim()}' is a second certificate on IIS site '{ManagedCertificateNames.IisSiteOf(request.SiteName)}'. " +
+            "SSLense does not issue or renew a second certificate on a site from an ACME CA yet; replace it from Other providers " +
+            "('import' or 'csr' in the CLI).");
+    }
+
     internal static bool Matches(AsymmetricAlgorithm key, CertificateKeyType keyType) => (key, keyType) switch
     {
         (ECDsa ecdsa, CertificateKeyType.EcdsaP256) => ecdsa.KeySize == 256,
@@ -778,7 +817,7 @@ internal sealed partial class AcmeService : IAcmeService
                     $"certificate names {string.Join(", ", names)}. Keep the names, or stop sharing with 'SSLense.Cli share remove --site \"{target.SiteName}\"'.");
             }
 
-            var site = sites.FirstOrDefault(value => string.Equals(value.Name, target.SiteName, StringComparison.OrdinalIgnoreCase));
+            var site = sites.FindSite(target.SiteName);
             if (site is null)
             {
                 leftOut.Add(new LeftOutSite(target.SiteName, $"IIS site '{target.SiteName}' no longer exists."));

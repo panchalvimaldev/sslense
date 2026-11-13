@@ -344,6 +344,134 @@ public sealed class ImportedCertificateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Adopt_SeveralCertificatesOnOneSite_EachIsManagedOnItsOwn()
+    {
+        using var site = TwoCertificateSite();
+
+        var first = await CreateService().AdoptAsync(Site, site.A.Thumbprint);
+        var second = await CreateService().AdoptAsync(Site, site.B.Thumbprint);
+
+        Assert.Equal(Site, first.SiteName);
+        Assert.Equal(["a.example.com"], first.Hosts);
+        Assert.Equal("Shop/b.example.com", second.SiteName);
+        Assert.Equal(["b.example.com"], second.Hosts);
+        Assert.Equal(2, _managed.Count);
+        var again = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateService().AdoptAsync(Site, site.B.Thumbprint));
+        Assert.Contains("already managed by SSLense as 'Shop/b.example.com'", again.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Discover_NamesTheCertificateEachBindingIsManagedAs()
+    {
+        using var site = TwoCertificateSite();
+        await CreateService().AdoptAsync(Site, site.A.Thumbprint);
+        await CreateService().AdoptAsync(Site, site.B.Thumbprint);
+
+        var bindings = await CreateService().DiscoverAsync();
+
+        Assert.Equal(Site, bindings.Single(binding => binding.Host == "a.example.com").ManagedAs);
+        Assert.Equal("Shop/b.example.com", bindings.Single(binding => binding.Host == "b.example.com").ManagedAs);
+        Assert.All(bindings, binding => Assert.True(binding.IsManaged));
+    }
+
+    [Fact]
+    public async Task Import_ForOneOfSeveralCertificates_ReplacesOnlyThatOne()
+    {
+        using var site = TwoCertificateSite();
+        await CreateService().AdoptAsync(Site, site.A.Thumbprint);
+        await CreateService().AdoptAsync(Site, site.B.Thumbprint);
+        var (renewed, key) = _ca.IssueWithNewKey("b.example.com");
+        using (renewed)
+        using (key)
+        {
+            var result = await CreateService().ImportPfxAsync(Site, [], _ca.ExportPfx(renewed, key, "secret"), "secret");
+
+            Assert.Equal("Shop/b.example.com", result.Certificate.SiteName);
+            Assert.Equal(renewed.Thumbprint, _managed.Single(record => record.SiteName == "Shop/b.example.com").Thumbprint);
+            Assert.Equal(site.A.Thumbprint, _managed.Single(record => record.SiteName == Site).Thumbprint);
+            _iis.Verify(value => value.ConfigureHttpsBindingsAsync(Site,
+                It.Is<IReadOnlyList<string>>(hosts => hosts.SequenceEqual(new[] { "b.example.com" })),
+                renewed.Thumbprint, "My", It.IsAny<CancellationToken>()));
+        }
+    }
+
+    [Fact]
+    public async Task Request_ForANewHostOnAManagedSite_IsASecondCertificate_AndCompletesFromTheSiteName()
+    {
+        using var site = TwoCertificateSite();
+        await CreateService().AdoptAsync(Site, site.A.Thumbprint);
+        var service = CreateService();
+
+        var request = await service.CreateRequestAsync(Site, ["B.example.com"]);
+        using var issued = _ca.Issue(request.CsrPem);
+        var result = await service.CompleteRequestAsync(Site, Encoding.ASCII.GetBytes(issued.ExportCertificatePem()),
+            Encoding.ASCII.GetBytes(_ca.ChainPem));
+
+        Assert.Equal("Shop/b.example.com", request.SiteName);
+        Assert.Equal("Shop/b.example.com", result.Certificate.SiteName);
+        Assert.Equal(2, _managed.Count);
+        Assert.Null(await _pending.GetAsync("Shop/b.example.com"));
+    }
+
+    [Fact]
+    public async Task Request_ForHostsOfTwoCertificates_IsRefused()
+    {
+        using var site = TwoCertificateSite();
+        await CreateService().AdoptAsync(Site, site.A.Thumbprint);
+        await CreateService().AdoptAsync(Site, site.B.Thumbprint);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            CreateService().CreateRequestAsync(Site, ["a.example.com", "b.example.com"]));
+
+        Assert.Contains("belong to 2 certificates", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(await _pending.GetAllAsync());
+    }
+
+    [Fact]
+    public async Task Adopt_OnASiteThatSharesACertificate_IsRefusedForASecondCertificate()
+    {
+        using var site = TwoCertificateSite();
+        _managed.Add(new ManagedCertificate(Site, ["a.example.com"], "a@example.com", site.A.Thumbprint,
+            DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(60), ValidationMethod: ValidationMethod.Dns01Provider,
+            AdditionalTargets: [new CertificateTarget("Blog", ["blog.example.com"])]));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateService().AdoptAsync(Site, site.B.Thumbprint));
+
+        Assert.Contains("share remove", exception.Message, StringComparison.Ordinal);
+        Assert.Single(_managed);
+    }
+
+    /// <summary>Site "Shop" with a.example.com and b.example.com, each bound on 443 to its own certificate.</summary>
+    private TwoCertificates TwoCertificateSite()
+    {
+        var (a, aKey) = _ca.IssueWithNewKey("a.example.com");
+        var (b, bKey) = _ca.IssueWithNewKey("b.example.com");
+        foreach (var certificate in new[] { a, b })
+        {
+            _store.Installed[certificate.Thumbprint] = new InstalledCertificate(
+                certificate.Thumbprint, certificate.NotBefore, certificate.NotAfter, true, IssuerName: "Sectigo RSA DV");
+        }
+
+        _iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => [new IisSite(1, Site, "Started", @"C:\inetpub\shop", [
+                new IisBinding("https", "*", 443, "a.example.com", a.Thumbprint, "My", true),
+                new IisBinding("https", "*", 443, "b.example.com", b.Thumbprint, "My", true)
+            ])]);
+        return new TwoCertificates(a, aKey, b, bKey);
+    }
+
+    private sealed record TwoCertificates(X509Certificate2 A, RSA AKey, X509Certificate2 B, RSA BKey) : IDisposable
+    {
+        public void Dispose()
+        {
+            A.Dispose();
+            AKey.Dispose();
+            B.Dispose();
+            BKey.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task CancelRequest_DeletesTheKey()
     {
         var service = CreateService();

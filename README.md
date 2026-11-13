@@ -416,6 +416,8 @@ SSLense.Cli discover                                   # HTTPS bindings and whet
 SSLense.Cli adopt --site "Shop"                        # --thumbprint when the site uses several certificates
 ```
 
+**Several certificates on one site.** A site that serves several domains, each through its own HTTPS binding with its own certificate, has each certificate managed on its own. Adopt each one (select its binding in the app, or `--thumbprint`): the first keeps the site's name, and the others are named `<site>/<first host>`, such as `Shop/www.other.example`. Choose the site and the host names as usual, and SSLense works out which certificate they belong to: replacing one changes only its own bindings, and host names of two certificates are refused. For now, the second and later certificates on a site come from other providers: `issue` and `share` refuse them ([design](docs/design/multiple-certificates-per-site.md)).
+
 Before anything changes, SSLense checks that the certificate covers the hosts, is currently valid, is meant for server authentication, matches the private key, and chains to a trusted root (missing intermediates are reported with a hint to use `--chain`). Replacing a certificate SSLense renews from Let's Encrypt needs `--force`. The previous certificate is left in the certificate store.
 
 Imported certificates are included in the daily reminder digest from 30 days before expiry (configurable) until they are replaced; see [Reminders](#reminders). `renew` skips them, and `status` shows them as renewed manually.
@@ -632,6 +634,8 @@ SSLense stores files under `C:\ProgramData\SSLense`:
 `config.json`, `managed-certificates.json`, `pending-requests.json`, and transaction journals carry a `schemaVersion`. Before SSLense first rewrites a file from an older schema, it saves the original as `<file>.v<old version>.bak` (for example `managed-certificates.json.v0.bak`). A file written by a newer SSLense version is never modified: SSLense stops with a message to install the newer version, so a downgrade cannot corrupt state.
 
 Private keys, PFX passwords, SMTP passwords, webhook URLs, DNS provider tokens and script secrets, and the ACME account key must never appear in logs.
+
+**Going back to 0.22:** the first save after upgrading to 0.23 moves `managed-certificates.json` to schema 11, which 0.22 cannot read, and keeps the old file as `managed-certificates.json.v10.bak`. Going back means restoring that copy, which has no second certificates on a site.
 
 **Going back to 0.21:** the first save after upgrading to 0.22 moves `managed-certificates.json` to schema 10, which 0.21 cannot read, and keeps the old file as `managed-certificates.json.v9.bak`. Going back means restoring that copy; certificates then renew with a new key.
 

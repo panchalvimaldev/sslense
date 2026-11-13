@@ -53,7 +53,7 @@ internal sealed class ServedCertificateCheck(
                 continue;
             }
 
-            var site = sites.FirstOrDefault(value => string.Equals(value.Name, certificate.SiteName, StringComparison.OrdinalIgnoreCase));
+            var site = sites.FindSite(certificate.SiteName);
             var sharedProblem = DescribeSharing(certificate, sites, certificates);
             if (site is not { State: StartedState })
             {
@@ -117,7 +117,7 @@ internal sealed class ServedCertificateCheck(
 
         foreach (var target in certificate.AllTargets())
         {
-            var site = sites.FirstOrDefault(value => string.Equals(value.Name, target.SiteName, StringComparison.OrdinalIgnoreCase));
+            var site = sites.FindSite(target.SiteName);
             if (site is null)
             {
                 found.Add($"IIS site '{target.SiteName}' uses this certificate but no longer exists. If it was deleted, run 'SSLense.Cli share remove --site \"{target.SiteName}\"'.");

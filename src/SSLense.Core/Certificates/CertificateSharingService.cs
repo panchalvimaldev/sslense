@@ -39,6 +39,8 @@ internal sealed class CertificateSharingService(
         }
 
         ThrowIfCannotShare(owner);
+        ThrowIfSeveralCertificates(records, owner.SiteName);
+        ThrowIfSeveralCertificates(records, toSite);
         var sites = await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
         var site = sites.FirstOrDefault(value => string.Equals(value.Name, toSite.Trim(), StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidOperationException($"IIS site '{toSite}' was not found. Run 'list-sites' to see the site names.");
@@ -172,7 +174,7 @@ internal sealed class CertificateSharingService(
         {
             targets.Add(target);
             if (target.PendingSince is null ||
-                sites.FirstOrDefault(site => string.Equals(site.Name, target.SiteName, StringComparison.OrdinalIgnoreCase)) is not { } site ||
+                sites.FindSite(target.SiteName) is not { } site ||
                 !target.Hosts.All(host => HasWebBinding(site, host)))
             {
                 continue;
@@ -202,6 +204,18 @@ internal sealed class CertificateSharingService(
 
     private static ManagedCertificate FindOwner(IReadOnlyList<ManagedCertificate> records, string siteName) =>
         records.FirstOrDefault(record => record.ManagesSite(siteName)) ?? throw ManagedCertificateNotFound.Create(siteName, records);
+
+    /// <summary>Phase 1 of docs/design/multiple-certificates-per-site.md: a site with several certificates does not share.</summary>
+    private static void ThrowIfSeveralCertificates(IReadOnlyList<ManagedCertificate> records, string siteName)
+    {
+        var onSite = ManagedCertificateNames.OnSite(records, siteName);
+        if (ManagedCertificateNames.IsAdditional(siteName) || onSite.Any(record => ManagedCertificateNames.IsAdditional(record.SiteName)))
+        {
+            throw new InvalidOperationException(
+                $"IIS site '{ManagedCertificateNames.IisSiteOf(siteName)}' has several certificates " +
+                $"({string.Join(", ", onSite.Select(record => $"'{record.SiteName}'"))}). Sharing a certificate with such a site is not supported yet.");
+        }
+    }
 
     private static void ThrowIfCannotShare(ManagedCertificate owner)
     {

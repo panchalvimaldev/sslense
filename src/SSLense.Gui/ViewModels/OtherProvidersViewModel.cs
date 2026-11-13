@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using SSLense.Core;
 using SSLense.Core.Certificates;
+using SSLense.Core.Config;
 using SSLense.Core.Iis;
 
 namespace SSLense.Gui.ViewModels;
@@ -94,11 +95,22 @@ public partial class OtherProvidersViewModel : ObservableObject
     public async Task InitializeAsync(string? replaceSite = null)
     {
         await _refreshCommand.ExecuteAsync(null);
+        // The certificate may be one of several on its site ("site/host"): preselect its site and only its host names.
         if (replaceSite is not null && Sites.FirstOrDefault(site =>
-                string.Equals(site.Name, replaceSite, StringComparison.OrdinalIgnoreCase)) is { } site)
+                string.Equals(site.Name, ManagedCertificateNames.IisSiteOf(replaceSite), StringComparison.OrdinalIgnoreCase)) is { } site)
         {
             RequestSite = site;
-            ResultMessage = $"To replace the certificate for '{site.Name}', create a request below and submit it to your " +
+            var hosts = Bindings
+                .Where(row => string.Equals(row.Binding.ManagedAs, replaceSite, StringComparison.OrdinalIgnoreCase) && row.Binding.Host.Length > 0)
+                .Select(row => row.Binding.Host)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (hosts.Length > 0)
+            {
+                RequestHosts = string.Join(", ", hosts);
+            }
+
+            ResultMessage = $"To replace the certificate for '{replaceSite}', create a request below and submit it to your " +
                             "certificate provider as a renewal or reissue. When the new certificate arrives, complete the request.";
         }
     }
