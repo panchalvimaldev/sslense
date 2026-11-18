@@ -92,12 +92,17 @@ internal sealed class ImportedCertificateService(
                     certificates[thumbprint] = certificate;
                 }
 
-                // Any certificate on the site, or shared with it, that this binding uses.
-                var owner = managed.FirstOrDefault(record =>
+                // Any certificate on the site, or shared with it, that this binding uses. Two on a site can use one wildcard
+                // or SAN certificate for different host names, so the one with this binding's host name is preferred.
+                var candidates = managed.Where(record =>
                     !record.NoSite &&
                     record.AllSiteNames().Any(name =>
                         string.Equals(ManagedCertificateNames.IisSiteOf(name), site.Name, StringComparison.OrdinalIgnoreCase)) &&
-                    string.Equals(record.Thumbprint, binding.CertificateThumbprint, StringComparison.OrdinalIgnoreCase));
+                    string.Equals(record.Thumbprint, binding.CertificateThumbprint, StringComparison.OrdinalIgnoreCase)).ToArray();
+                var owner = candidates.FirstOrDefault(record => record.AllTargets().Any(target =>
+                                string.Equals(ManagedCertificateNames.IisSiteOf(target.SiteName), site.Name, StringComparison.OrdinalIgnoreCase) &&
+                                target.Hosts.Contains(binding.HostName, StringComparer.OrdinalIgnoreCase)))
+                            ?? candidates.FirstOrDefault();
                 discovered.Add(new DiscoveredBinding(
                     site.Name,
                     binding.HostName,
