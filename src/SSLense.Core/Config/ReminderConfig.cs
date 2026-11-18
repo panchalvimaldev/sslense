@@ -6,8 +6,18 @@ public sealed record ReminderConfig
     public const int MaximumStartDays = 365;
     public const int MaximumRepeatDays = 30;
 
+    /// <summary>Above this, the app asks before saving and the CLI warns: reminders would fill much of a certificate's life.</summary>
+    public const int LongStartDays = 90;
+
     /// <summary>Reminders start this many days before a certificate expires.</summary>
     public int StartDays { get; init; } = 30;
+
+    /// <summary>What a long start setting means in practice, or null when it is <see cref="LongStartDays"/> or less.</summary>
+    public string? LongStartWarning => StartDays <= LongStartDays
+        ? null
+        : $"Reminders will start {StartDays} days before expiry, so a certificate bought for a year is in the daily reminder email " +
+          $"for about {Math.Max(4, (int)Math.Round(StartDays / 30.4))} months of it, and a 90-day certificate from Let's Encrypt " +
+          "is listed as soon as it is issued. 30 to 60 days is usually enough time to order a renewal.";
 
     /// <summary>Days between reminders for the same certificate. Always 1 in the last seven days.</summary>
     public int RepeatDays { get; init; } = 1;

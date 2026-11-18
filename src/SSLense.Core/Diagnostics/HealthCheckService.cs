@@ -331,7 +331,7 @@ internal sealed class HealthCheckService(
                 name,
                 HealthStatus.Warning,
                 $"{summary} Reminders are off or snoozed for {string.Join(", ", mutedSoon.Select(certificate => $"'{certificate.SiteName}' (expires {certificate.NotAfter:yyyy-MM-dd})"))}.",
-                "Turn its reminders back on in Certificate Details, or with 'SSLense.Cli reminders site --site <site> --mode on'.");
+                "Turn its reminders back on in the certificate's Reminders tab, or with 'SSLense.Cli reminders site --site <site> --mode on'.");
     }
 
     private static HealthCheckResult CheckElevation() =>

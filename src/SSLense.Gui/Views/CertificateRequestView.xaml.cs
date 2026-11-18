@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
@@ -6,37 +5,14 @@ using SSLense.Gui.ViewModels;
 
 namespace SSLense.Gui.Views;
 
-/// <summary>
-/// File dialogs, the clipboard, and confirmations live here; the PFX password is passed to the view model because
-/// PasswordBox cannot be data-bound, and the box is cleared once the view model clears its copy after an import.
-/// </summary>
-public partial class OtherProvidersView : UserControl
+/// <summary>File dialogs, the clipboard, and the confirmation to cancel a request live here.</summary>
+public partial class CertificateRequestView : UserControl
 {
     private const string CertificateFilter = "Certificates (*.crt;*.cer;*.pem;*.ca-bundle)|*.crt;*.cer;*.pem;*.ca-bundle|All files (*.*)|*.*";
 
-    public OtherProvidersView()
-    {
-        InitializeComponent();
-        DataContextChanged += OnDataContextChanged;
-    }
+    public CertificateRequestView() => InitializeComponent();
 
     private OtherProvidersViewModel? ViewModel => DataContext as OtherProvidersViewModel;
-
-    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
-    {
-        if (e.OldValue is OtherProvidersViewModel oldViewModel) oldViewModel.PropertyChanged -= OnViewModelPropertyChanged;
-        if (e.NewValue is OtherProvidersViewModel newViewModel) newViewModel.PropertyChanged += OnViewModelPropertyChanged;
-    }
-
-    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(OtherProvidersViewModel.PfxPassword) && ViewModel?.PfxPassword.Length == 0) PfxPasswordBox.Clear();
-    }
-
-    private void OnPfxPasswordChanged(object sender, RoutedEventArgs e)
-    {
-        if (ViewModel is { } vm) vm.PfxPassword = PfxPasswordBox.Password;
-    }
 
     private void OnCopyCsrClick(object sender, RoutedEventArgs e)
     {
@@ -65,18 +41,13 @@ public partial class OtherProvidersView : UserControl
         if (ViewModel is { } vm && Browse(CertificateFilter) is { } path) vm.ChainPath = path;
     }
 
-    private void OnBrowsePfxClick(object sender, RoutedEventArgs e)
-    {
-        if (ViewModel is { } vm && Browse("PFX files (*.pfx;*.p12)|*.pfx;*.p12|All files (*.*)|*.*") is { } path) vm.PfxPath = path;
-    }
-
     private async void OnCancelRequestClick(object sender, RoutedEventArgs e)
     {
         if (ViewModel is not { SelectedPending: { } pending } vm) return;
         var answer = MessageBox.Show(
-            $"Cancel the certificate request for '{pending.SiteName}'? Its private key is deleted, so a certificate the provider " +
+            $"Cancel the request for {pending.Hosts}? Its private key is deleted, so a certificate the provider " +
             "issues for this request can no longer be installed.",
-            "Confirm cancelling the request",
+            "Cancel the request",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning);
         if (answer == MessageBoxResult.Yes) await vm.CancelRequestCommand.ExecuteAsync(null);

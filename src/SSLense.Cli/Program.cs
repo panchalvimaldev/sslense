@@ -323,6 +323,13 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         services.GetRequiredService<ICertificateManagementService>(), result.GetRequiredValue(detailsSiteOption), token));
     rootCommand.Subcommands.Add(detailsCommand);
 
+    var checkSiteOption = new Option<string>("--site") { Required = true, Description = "Managed certificate name: its IIS site, or site/host for a further certificate on a site." };
+    var checkCommand = new Command("check", "Check now that IIS serves the expected certificate on each of its host names. Changes nothing.");
+    checkCommand.Options.Add(checkSiteOption);
+    checkCommand.SetAction((result, token) => CheckAsync(
+        services.GetRequiredService<ICertificateManagementService>(), result.GetRequiredValue(checkSiteOption), token));
+    rootCommand.Subcommands.Add(checkCommand);
+
     var removeSiteOption = new Option<string>("--site") { Required = true, Description = "Managed IIS site name." };
     var removeYesOption = new Option<bool>("--yes") { Description = "Confirm removal of matching HTTPS bindings and the managed certificate." };
     var removeCommand = new Command("remove", "Remove a managed certificate and its matching IIS HTTPS bindings.");
@@ -330,6 +337,13 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     removeCommand.SetAction((result, token) => RemoveAsync(
         services.GetRequiredService<ICertificateManagementService>(), result.GetRequiredValue(removeSiteOption), result.GetValue(removeYesOption), token));
     rootCommand.Subcommands.Add(removeCommand);
+
+    var unmanageSiteOption = new Option<string>("--site") { Required = true, Description = "Managed certificate name: its IIS site, or site/host for a further certificate on a site." };
+    var unmanageCommand = new Command("unmanage", "Stop managing a certificate and leave IIS as it is: its HTTPS bindings and the certificate stay, and SSLense no longer renews it.");
+    unmanageCommand.Options.Add(unmanageSiteOption);
+    unmanageCommand.SetAction((result, token) => StopManagingAsync(
+        services.GetRequiredService<ICertificateManagementService>(), result.GetRequiredValue(unmanageSiteOption), token));
+    rootCommand.Subcommands.Add(unmanageCommand);
 
     var settingsEmailOption = new Option<string?>("--email") { Description = "Default ACME account email." };
     var settingsDaysOption = new Option<int>("--renewal-days") { Required = true, Description = "Fallback schedule when the CA offers no renewal window (ARI), 1-89 days, capped at a third of the lifetime. Reminders are set with 'reminders set'." };
@@ -415,6 +429,23 @@ static async Task<int> DetailsAsync(ICertificateManagementService service, strin
         return 0;
     }
     catch (Exception exception) { Log.Error(exception, "Failed to read certificate details"); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
+}
+
+static async Task<int> CheckAsync(ICertificateManagementService service, string site, CancellationToken token)
+{
+    try
+    {
+        var check = await service.CheckServedAsync(site, token).ConfigureAwait(false);
+        Console.WriteLine(check.Passed ? $"OK: {check.Message}" : $"Problem: {check.Message}");
+        return check.Passed ? 0 : 2;
+    }
+    catch (Exception exception) { Log.Error(exception, "Failed to check the served certificate"); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
+}
+
+static async Task<int> StopManagingAsync(ICertificateManagementService service, string site, CancellationToken token)
+{
+    try { Console.WriteLine(await service.StopManagingAsync(site, token).ConfigureAwait(false)); return 0; }
+    catch (Exception exception) { Log.Error(exception, "Failed to stop managing the certificate for {Site}", site); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
 }
 
 static async Task<int> RemoveAsync(ICertificateManagementService service, string site, bool confirmed, CancellationToken token)
@@ -1777,22 +1808,21 @@ static async Task<int> SetRemindersAsync(
     try
     {
         var current = (await reminders.GetOverviewAsync(token).ConfigureAwait(false)).Settings;
-        await reminders.SaveSettingsAsync(
-                current with
-                {
-                    StartDays = startDays ?? current.StartDays,
-                    RepeatDays = repeatDays ?? current.RepeatDays,
-                    SendAtHour = sendAt ?? current.SendAtHour,
-                    UpcomingRenewalNotices = notices is null ? current.UpcomingRenewalNotices : notices == "on",
-                    RepeatAutomaticReminders = repeatAutomatic is null ? current.RepeatAutomaticReminders : repeatAutomatic == "on",
-                    ProactiveChecks = checks is null ? current.ProactiveChecks : checks == "on",
-                    WeeklySummaryDay = weekly is null
-                        ? current.WeeklySummaryDay
-                        : weekly == "off" ? null : Enum.Parse<DayOfWeek>(weekly, ignoreCase: true)
-                },
-                token)
-            .ConfigureAwait(false);
+        var updated = current with
+        {
+            StartDays = startDays ?? current.StartDays,
+            RepeatDays = repeatDays ?? current.RepeatDays,
+            SendAtHour = sendAt ?? current.SendAtHour,
+            UpcomingRenewalNotices = notices is null ? current.UpcomingRenewalNotices : notices == "on",
+            RepeatAutomaticReminders = repeatAutomatic is null ? current.RepeatAutomaticReminders : repeatAutomatic == "on",
+            ProactiveChecks = checks is null ? current.ProactiveChecks : checks == "on",
+            WeeklySummaryDay = weekly is null
+                ? current.WeeklySummaryDay
+                : weekly == "off" ? null : Enum.Parse<DayOfWeek>(weekly, ignoreCase: true)
+        };
+        await reminders.SaveSettingsAsync(updated, token).ConfigureAwait(false);
         Console.WriteLine("Reminder settings saved. The service uses them from its next hourly check.");
+        if (updated.LongStartWarning is { } warning) Console.WriteLine($"Note: {warning}");
         return 0;
     }
     catch (Exception exception)

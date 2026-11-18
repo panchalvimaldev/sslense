@@ -106,6 +106,18 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string? errorMessage;
     [ObservableProperty] private string resultMessage = string.Empty;
 
+    /// <summary>The Settings tab shown: General, Notifications, Reminders, Certificate authorities, DNS providers, Service.</summary>
+    [ObservableProperty] private int selectedSection;
+
+    public static IReadOnlyList<string> Sections { get; } = ["General", "Notifications", "Reminders", "Certificate authorities", "DNS providers", "Service"];
+
+    /// <summary>Shows a tab by its name, as when another screen links to it.</summary>
+    public void ShowSection(string name)
+    {
+        var index = Sections.ToList().FindIndex(section => string.Equals(section, name, StringComparison.OrdinalIgnoreCase));
+        if (index >= 0) SelectedSection = index;
+    }
+
     public SettingsViewModel(
         ISettingsService settingsService,
         INotificationSettingsService notificationSettingsService,
@@ -158,6 +170,14 @@ public partial class SettingsViewModel : ObservableObject
     public IReadOnlyList<HourOption> Hours { get; } = Enumerable.Range(0, 24).Select(hour => new HourOption(hour)).ToArray();
     public IReadOnlyList<string> WeeklySummaryOptions { get; } = ["Off", .. Enum.GetNames<DayOfWeek>()];
     public IAsyncRelayCommand SaveRemindersCommand { get; }
+
+    /// <summary>Shown under Start reminding, and asked about before saving, when the value is unusually long.</summary>
+    public string? LongStartWarning => new ReminderConfig { StartDays = ReminderStartDays }.LongStartWarning;
+
+    partial void OnReminderStartDaysChanged(int value) => OnPropertyChanged(nameof(LongStartWarning));
+
+    /// <summary>Asks the person a yes/no question; the view shows a dialog. Without a view, the answer is yes.</summary>
+    public Func<string, bool> Confirm { get; set; } = _ => true;
     public IAsyncRelayCommand SendSampleReminderCommand { get; }
     public IAsyncRelayCommand AddDnsProviderCommand { get; }
     public IAsyncRelayCommand TestDnsProviderCommand { get; }
@@ -260,7 +280,7 @@ public partial class SettingsViewModel : ObservableObject
         NewCaEabHmacKey = string.Empty; NewCaEabKeyId = string.Empty; NewCaName = string.Empty;
         NewCaDirectory = string.Empty; NewCaIsTest = false; NewCaCaaDomain = string.Empty;
         await LoadCertificateAuthoritiesAsync(ct).ConfigureAwait(true);
-        ResultMessage = $"Certificate authority '{added.Name}' added as '{added.Id}'. Choose it in the Issue wizard." +
+        ResultMessage = $"Certificate authority '{added.Name}' added as '{added.Id}'. Choose it in Add certificate, Free and automatic." +
                         (added.IsTest ? string.Empty : " Its certificates are trusted, so issuing asks for confirmation.");
     }, token);
 
@@ -518,6 +538,12 @@ public partial class SettingsViewModel : ObservableObject
 
     private Task SaveRemindersAsync(CancellationToken token) => RunAsync(async ct =>
     {
+        if (LongStartWarning is { } warning && !Confirm($"{warning}\n\nSave {ReminderStartDays} days anyway?"))
+        {
+            ResultMessage = "Reminder settings not saved.";
+            return;
+        }
+
         await _reminderService.SaveSettingsAsync(
                 new ReminderConfig
                 {

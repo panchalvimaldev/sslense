@@ -407,7 +407,7 @@ public partial class IssueCertificateViewModel : ObservableObject
                 PreflightChecks.Add(new PreflightCheckViewModel(check));
             }
             PreflightPassed = checks.Count > 0 && checks.All(check => check.Succeeded);
-            ResultMessage = PreflightPassed ? "All pre-flight checks passed." : "Fix the failed checks before issuing.";
+            ResultMessage = PreflightPassed ? "All checks passed. You can issue the certificate." : "Fix the failed checks before issuing.";
         }, cancellationToken);
     }
 
@@ -441,7 +441,8 @@ public partial class IssueCertificateViewModel : ObservableObject
                 new Progress<ProgressEvent>(value =>
                     ProgressLines.Add($"[{DateTime.Now:HH:mm:ss}] [{value.Step}] {value.Message}")),
                 token).ConfigureAwait(true);
-            ResultMessage = $"Certificate from {SelectedAuthority?.Name ?? "the certificate authority"} installed successfully. Thumbprint: {result.CertificateThumbprint}" +
+            ResultMessage = $"Certificate from {SelectedAuthority?.Name ?? "the certificate authority"} is installed" +
+                            (SelectedValidation == ValidationMethod.Dns01Manual ? "." : ", and SSLense renews it automatically.") +
                             (SelectedValidation == ValidationMethod.Dns01Manual ? " You can now delete the TXT records you created." : string.Empty);
         }, cancellationToken);
     }

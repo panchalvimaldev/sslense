@@ -149,7 +149,7 @@ public sealed record ReminderDigest(
             body.AppendLine();
         }
 
-        body.Append("Turn reminders off or snooze them per certificate on the Certificate Details page in SSLense.");
+        body.Append("Turn reminders off or snooze them per certificate: select it in SSLense and open its Reminders tab.");
         return new NotificationMessage(NotificationKind.ExpiryWarning, subject, body.ToString(), Severity(attention));
     }
 
@@ -172,7 +172,7 @@ public sealed record ReminderDigest(
             ReminderItemKind.Expired =>
                 $"{name} ({source}): EXPIRED on {Date(certificate.NotAfter)}. Browsers now reject this site's certificate. " +
                 (certificate.Source == CertificateSource.Imported
-                    ? "Order a replacement from the provider and install it on the Other Providers page."
+                    ? "Order a replacement from your provider, then select the certificate in SSLense and use Install renewal."
                     : certificate.ValidationMethod == ValidationMethod.Dns01Manual
                         ? $"It uses manual DNS validation, so renew it by hand: {Renewal.ManualDnsRenewal.Command(certificate)}"
                         : $"Automatic renewal has not succeeded: {certificate.LastRenewalMessage ?? "see the SSLense log"}"),
@@ -181,7 +181,7 @@ public sealed record ReminderDigest(
                 $"so SSLense cannot renew it on its own. Renew it by hand: {Renewal.ManualDnsRenewal.Command(certificate)}",
             ReminderItemKind.ManualRenewalDue =>
                 $"{name} ({source}): expires {Date(certificate.NotAfter)}, {item.DaysLeft} days left. Order the renewal from " +
-                $"{source}, then on the Other Providers page in SSLense create a request and complete it with the new certificate.",
+                "your provider. When it arrives, select the certificate in SSLense and use Install renewal. If the provider needs a certificate request (CSR) first, create one with Add certificate.",
             ReminderItemKind.AutomaticRenewalFailing =>
                 $"{name} ({source}): automatic renewal is failing ({certificate.ConsecutiveFailures} attempt(s)): " +
                 $"{certificate.LastRenewalMessage}. Expires {Date(certificate.NotAfter)}, {item.DaysLeft} days left.",

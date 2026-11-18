@@ -30,20 +30,23 @@ public sealed class GuiStartupTests
     [Fact]
     public void EveryScreen_LoadsAndLaysOut_WithItsViewModel()
     {
-        RunOnStaThread(() =>
+        GuiThread.Run(() =>
         {
-            // The app's own resources (styles, brushes), which the screens use.
-            new App().InitializeComponent();
             using var provider = BuildViewModels();
             (UserControl View, object ViewModel)[] screens =
             [
                 (new DashboardView(), provider.GetRequiredService<DashboardViewModel>()),
                 (new IssueCertificateView(), provider.GetRequiredService<IssueCertificateViewModel>()),
-                (new OtherProvidersView(), provider.GetRequiredService<OtherProvidersViewModel>()),
+                (new ImportPfxView(), provider.GetRequiredService<OtherProvidersViewModel>()),
+                (new CertificateRequestView(), provider.GetRequiredService<OtherProvidersViewModel>()),
+                (new WatchCertificatesView(), provider.GetRequiredService<OtherProvidersViewModel>()),
+                (new InstallRenewalView(), provider.GetRequiredService<InstallRenewalViewModel>()),
                 (new CertificateDetailsView(), provider.GetRequiredService<CertificateDetailsViewModel>()),
                 (new SettingsView(), provider.GetRequiredService<SettingsViewModel>()),
                 (new HealthView(), provider.GetRequiredService<HealthViewModel>()),
                 (new LogsView(), provider.GetRequiredService<LogsViewModel>()),
+                (new AddCertificateView(), provider.GetRequiredService<AddCertificateViewModel>()),
+                (new ActivityView(), provider.GetRequiredService<ActivityViewModel>()),
             ];
 
             foreach (var (view, viewModel) in screens)
@@ -78,6 +81,9 @@ public sealed class GuiStartupTests
         services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<HealthViewModel>();
         services.AddSingleton<LogsViewModel>();
+        services.AddSingleton<AddCertificateViewModel>();
+        services.AddSingleton<ActivityViewModel>();
+        services.AddSingleton<InstallRenewalViewModel>();
         services.AddSingleton<MainViewModel>();
 
         var coreServices = typeof(MainViewModel).Assembly.GetTypes()
@@ -95,19 +101,5 @@ public sealed class GuiStartupTests
         }
 
         return services.BuildServiceProvider();
-    }
-
-    private static void RunOnStaThread(Action action)
-    {
-        ExceptionDispatchInfo? failure = null;
-        var thread = new Thread(() =>
-        {
-            try { action(); }
-            catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-        failure?.Throw();
     }
 }

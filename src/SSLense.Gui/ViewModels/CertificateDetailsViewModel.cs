@@ -32,10 +32,17 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private readonly AsyncRelayCommand _refreshCommand;
     private readonly AsyncRelayCommand _renewCommand;
     private readonly AsyncRelayCommand _removeCommand;
+    private readonly AsyncRelayCommand _unmanageCommand;
     private bool _suppressSelectionRefresh;
     private bool _isNoSite;
 
     [ObservableProperty] private string? selectedSite;
+
+    /// <summary>The certificate's row in the list: its title, state and what to do, in plain words.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCertificate))]
+    private CertificateRowViewModel? summary;
+
     [ObservableProperty] private bool isBusy;
     [ObservableProperty] private string? errorMessage;
     [ObservableProperty] private string hosts = string.Empty;
@@ -73,12 +80,23 @@ public partial class CertificateDetailsViewModel : ObservableObject
         IReminderService reminderService,
         ICertificateSharingService sharingService,
         IIisService iisService,
-        IDeploymentService deploymentService)
+        IDeploymentService deploymentService,
+        InstallRenewalViewModel installRenewal)
     {
         _deploymentService = deploymentService;
+        InstallRenewal = installRenewal;
+        installRenewal.Installed += () =>
+        {
+            _ = _refreshCommand?.ExecuteAsync(null);
+            CertificatesChanged?.Invoke(null);
+        };
         _addDeploymentStepCommand = new AsyncRelayCommand(AddDeploymentStepAsync, () => CanOperate() && SelectedDeploymentKind is not null && !string.IsNullOrWhiteSpace(DeploymentValue));
         _removeDeploymentStepCommand = new AsyncRelayCommand<DeploymentStepRow>(RemoveDeploymentStepAsync, row => CanOperate() && row is not null);
         _runDeploymentCommand = new AsyncRelayCommand(RunDeploymentAsync, () => CanOperate() && DeploymentSteps.Count > 0);
+        // Not held back while the certificate loads: Check reads the site, not what is loading.
+        CheckCommand = new AsyncRelayCommand(CheckAsync, () => SelectedSite is not null);
+        RemindersOffCommand = new RelayCommand(() => SelectedReminderChoice = ReminderChoices[3], () => !IsBusy && SelectedSite is not null);
+        OpenReminderSettingsCommand = new RelayCommand(() => navigation.Navigate("Settings", "Reminders"));
         _reminderService = reminderService;
         _sharingService = sharingService;
         _iisService = iisService;
@@ -90,14 +108,82 @@ public partial class CertificateDetailsViewModel : ObservableObject
         _renewalService = renewalService;
         _logger = logger;
         _navigation = navigation;
-        OrderReplacementCommand = new RelayCommand(() => _navigation.Navigate("Other Providers", SelectedSite), () => !IsBusy && IsImported);
+        InstallRenewalCommand = new RelayCommand(() => { if (Summary is { } row) _ = InstallRenewal.OpenAsync(row); }, () => !IsBusy && IsImported);
         _refreshCommand = new AsyncRelayCommand(RefreshAsync, CanOperate);
         _renewCommand = new AsyncRelayCommand(RenewAsync, () => CanOperate() && !IsImported && !IsManualDns);
         _removeCommand = new AsyncRelayCommand(RemoveAsync, CanOperate);
+        _unmanageCommand = new AsyncRelayCommand(UnmanageAsync, CanOperate);
         RenewByHandCommand = new RelayCommand(() => _navigation.Navigate("Issue", SelectedSite), () => !IsBusy && IsManualDns);
+
+        SharedSites.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowSites));
+        DeploymentSteps.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasDeploymentSteps));
+        RecentLogLines.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasHistory));
 
         // Last: setting it notifies the commands, so they must all exist by now.
         SelectedDeploymentKind = DeploymentKinds[0];
+    }
+
+    /// <summary>
+    /// Raised when the certificate changed in a way the list shows, with a message to show there when the
+    /// certificate is no longer selected, such as after it was removed.
+    /// </summary>
+    public event Action<string?>? CertificatesChanged;
+
+    public bool HasCertificate => Summary is not null;
+
+    /// <summary>The Sites section: only for a certificate that can be shared, or already is.</summary>
+    public bool ShowSites => CanShare || SharedSites.Count > 1 || HasSitesLeftBehind;
+
+    public bool HasDeploymentSteps => DeploymentSteps.Count > 0;
+
+    public bool HasHistory => RecentLogLines.Count > 0;
+
+    /// <summary>Shows a certificate from the list.</summary>
+    public async Task ShowAsync(CertificateRowViewModel row)
+    {
+        StartSelection();
+        Summary = row;
+        LastCheckPassed = null;
+        LastCheckText = string.Empty;
+        ErrorMessage = null;
+        ResultMessage = string.Empty;
+        _suppressSelectionRefresh = true;
+        SelectedSite = row.SiteName;
+        _suppressSelectionRefresh = false;
+        await RefreshAsync(CancellationToken.None).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Reads the shown certificate again after the list was reloaded, keeping the last result and check on screen.
+    /// A different certificate (the shown one was renamed) is shown afresh.
+    /// </summary>
+    public async Task ReloadAsync(CertificateRowViewModel row)
+    {
+        if (!string.Equals(row.SiteName, SelectedSite, StringComparison.OrdinalIgnoreCase))
+        {
+            await ShowAsync(row).ConfigureAwait(true);
+            return;
+        }
+
+        Summary = row;
+        await RefreshAsync(CancellationToken.None).ConfigureAwait(true);
+    }
+
+    /// <summary>Shows no certificate.</summary>
+    public void Clear()
+    {
+        StartSelection();
+        LastCheckPassed = null;
+        LastCheckText = string.Empty;
+        _suppressSelectionRefresh = true;
+        SelectedSite = null;
+        _suppressSelectionRefresh = false;
+        Summary = null;
+        ErrorMessage = null;
+        ResultMessage = string.Empty;
+        SharedSites.Clear();
+        DeploymentSteps.Clear();
+        RecentLogLines.Clear();
     }
 
     /// <summary>Each manual DNS renewal needs new records, so it goes through the wizard, which shows them.</summary>
@@ -119,12 +205,12 @@ public partial class CertificateDetailsViewModel : ObservableObject
 
     public IReadOnlyList<DeploymentKindChoice> DeploymentKinds { get; } =
     [
-        new("Give an account access to the private key", DeploymentStepKind.GrantKeyAccess, "ACCOUNT", "Such as IIS AppPool\\Shop or NT Service\\MSSQLSERVER."),
-        new("Restart a Windows service", DeploymentStepKind.RestartService, "SERVICE NAME", "The service name, such as MSSQLSERVER, not its display name."),
-        new("Run a PowerShell script", DeploymentStepKind.Script, "SCRIPT", "SSLense runs its own copy, checked by hash. Examples are in the deploy-scripts folder where SSLense is installed."),
-        new("Export a PFX file", DeploymentStepKind.ExportPfx, "PFX FILE", "A full path, such as D:\\Certs\\shop.pfx. Needs a certificate issued with an exportable private key."),
-        new("Export PEM files", DeploymentStepKind.ExportPem, "FOLDER", "cert.pem, chain.pem, fullchain.pem, and key.pem, which only administrators can read. Needs an exportable private key."),
-        new("Export to the IIS Central Certificate Store", DeploymentStepKind.CentralStore, "STORE FOLDER", "One PFX per name, protected by the store's password as set in IIS. Needs an exportable private key.")
+        new("Give an account access to the private key", DeploymentStepKind.GrantKeyAccess, "Account", "Such as IIS AppPool\\Shop or NT Service\\MSSQLSERVER."),
+        new("Restart a Windows service", DeploymentStepKind.RestartService, "Service name", "The service name, such as MSSQLSERVER, not its display name."),
+        new("Run a PowerShell script", DeploymentStepKind.Script, "Script", "SSLense runs its own copy, checked by hash. Examples are in the deploy-scripts folder where SSLense is installed."),
+        new("Export a PFX file", DeploymentStepKind.ExportPfx, "PFX file", "A full path, such as D:\\Certs\\shop.pfx. Needs a certificate issued with an exportable private key."),
+        new("Export PEM files", DeploymentStepKind.ExportPem, "Folder", "cert.pem, chain.pem, fullchain.pem, and key.pem, which only administrators can read. Needs an exportable private key."),
+        new("Export to the IIS Central Certificate Store", DeploymentStepKind.CentralStore, "Store folder", "One PFX per name, protected by the store's password as set in IIS. Needs an exportable private key.")
     ];
 
     public IAsyncRelayCommand AddDeploymentStepCommand => _addDeploymentStepCommand;
@@ -144,19 +230,34 @@ public partial class CertificateDetailsViewModel : ObservableObject
     public IAsyncRelayCommand RenewCommand => _renewCommand;
     public IAsyncRelayCommand RemoveCommand => _removeCommand;
 
-    /// <summary>Imported certificates are replaced by ordering again from their provider; SSLense cannot renew them.</summary>
-    public IRelayCommand OrderReplacementCommand { get; }
+    /// <summary>SSLense stops managing the certificate and leaves IIS and the certificate store as they are.</summary>
+    public IAsyncRelayCommand UnmanageCommand => _unmanageCommand;
+
+    /// <summary>A certificate bought from a provider is renewed by the provider; this installs the renewed one.</summary>
+    public IRelayCommand InstallRenewalCommand { get; }
+
+    /// <summary>The Install renewal dialog, shown over the window.</summary>
+    public InstallRenewalViewModel InstallRenewal { get; }
 
     public IAsyncRelayCommand ApplyReminderCommand => _applyReminderCommand;
 
     public IReadOnlyList<ReminderChoice> ReminderChoices { get; } =
     [
-        new("On", ReminderMode.On, null),
+        new("On: email me before it expires", ReminderMode.On, null),
         new("Snooze for 7 days", ReminderMode.Snoozed, 7),
         new("Snooze for 30 days", ReminderMode.Snoozed, 30),
         new("Off until this certificate is replaced", ReminderMode.OffUntilReplaced, null),
-        new("Off permanently", ReminderMode.Off, null)
+        new("Off permanently (renewal failures are still reported)", ReminderMode.Off, null)
     ];
+
+    /// <summary>Checks now that IIS serves this certificate on each of its host names.</summary>
+    public IAsyncRelayCommand CheckCommand { get; private set; } = null!;
+
+    /// <summary>Turns reminders off until the certificate is replaced, from the ⋯ menu.</summary>
+    public IRelayCommand RemindersOffCommand { get; private set; } = null!;
+
+    /// <summary>Settings, at its Reminders tab.</summary>
+    public IRelayCommand OpenReminderSettingsCommand { get; private set; } = null!;
 
     public async Task InitializeAsync(string? requestedSite = null)
     {
@@ -186,12 +287,29 @@ public partial class CertificateDetailsViewModel : ObservableObject
 
     partial void OnIsBusyChanged(bool value) => NotifyCommands();
 
+    /// <summary>
+    /// Cancelled when another certificate is shown, so a slower load of the previous one cannot write over it. Every
+    /// loader checks it after each call, before changing what is shown.
+    /// </summary>
+    private CancellationTokenSource _selection = new();
+
+    private void StartSelection()
+    {
+        _selection.Cancel();
+        _selection.Dispose();
+        _selection = new CancellationTokenSource();
+        // A check of the previous certificate still running reports nowhere now.
+        IsChecking = false;
+    }
+
     private async Task RefreshAsync(CancellationToken cancellationToken)
     {
-        if (SelectedSite is null) return;
+        if (SelectedSite is not { } site) return;
+        using var load = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _selection.Token);
         await RunAsync(async token =>
         {
-            var detail = await _managementService.GetDetailsAsync(SelectedSite, token).ConfigureAwait(true);
+            var detail = await _managementService.GetDetailsAsync(site, token).ConfigureAwait(true);
+            token.ThrowIfCancellationRequested();
             Hosts = string.Join(", ", detail.Hosts);
             Issuer = detail.Issuer;
             Thumbprint = detail.Thumbprint;
@@ -206,7 +324,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
             await LoadDeploymentAsync(token).ConfigureAwait(true);
             RecentLogLines.Clear();
             foreach (var line in detail.RecentLogLines) RecentLogLines.Add(line);
-        }, cancellationToken);
+        }, load.Token);
     }
 
     private void LoadSharedSites(CertificateDetails detail)
@@ -231,6 +349,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private async Task LoadSitesToAddAsync(CancellationToken cancellationToken)
     {
         var sites = await _iisService.GetSitesAsync(cancellationToken).ConfigureAwait(true);
+        cancellationToken.ThrowIfCancellationRequested();
         SitesToAdd.Clear();
         foreach (var site in sites.Where(site => SharedSites.All(row => !string.Equals(row.SiteName, site.Name, StringComparison.OrdinalIgnoreCase))))
         {
@@ -249,8 +368,9 @@ public partial class CertificateDetailsViewModel : ObservableObject
         {
             var hosts = HostsToAdd.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             var bound = await _sharingService.AddSiteAsync(SelectedSite, site, hosts, ReplaceExistingCertificate, null, token).ConfigureAwait(true);
-            ResultMessage = $"'{site}' now shares this certificate ({string.Join(", ", bound)}). They renew together.";
+            Report($"'{site}' now shares this certificate ({string.Join(", ", bound)}). They renew together.");
             await InitializeAsync(SelectedSite).ConfigureAwait(true);
+            CertificatesChanged?.Invoke(null);
         }, cancellationToken);
     }
 
@@ -264,8 +384,9 @@ public partial class CertificateDetailsViewModel : ObservableObject
             : SelectedSite;
         await RunAsync(async token =>
         {
-            ResultMessage = await _sharingService.RemoveSiteAsync(row.SiteName, token).ConfigureAwait(true);
+            Report(await _sharingService.RemoveSiteAsync(row.SiteName, token).ConfigureAwait(true));
             await InitializeAsync(remaining).ConfigureAwait(true);
+            CertificatesChanged?.Invoke(null);
         }, cancellationToken);
     }
 
@@ -275,10 +396,11 @@ public partial class CertificateDetailsViewModel : ObservableObject
         await RunAsync(async token =>
         {
             var moved = await _sharingService.CatchUpAsync(SelectedSite, null, token).ConfigureAwait(true);
-            ResultMessage = moved.Count == 0
+            Report(moved.Count == 0
                 ? "No site could move yet. Fix the site in IIS, then try again."
-                : $"Moved to the current certificate: {string.Join(", ", moved)}.";
+                : $"Moved to the current certificate: {string.Join(", ", moved)}.");
             await RefreshAsync(token).ConfigureAwait(true);
+            CertificatesChanged?.Invoke(null);
         }, cancellationToken);
     }
 
@@ -286,6 +408,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
     {
         if (SelectedSite is null) return;
         var overview = await _deploymentService.ListAsync(SelectedSite, cancellationToken).ConfigureAwait(true);
+        cancellationToken.ThrowIfCancellationRequested();
         DeploymentSteps.Clear();
         for (var index = 0; index < overview.Steps.Count; index++)
         {
@@ -319,7 +442,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
             DeploymentValue = string.Empty;
             DeploymentPassword = string.Empty;
             PasswordCleared?.Invoke();
-            ResultMessage = $"Added: {step.Describe()}. The steps run after every renewal; Run now runs them for this certificate.";
+            Report($"Added: {step.Describe()}. The steps run after every renewal; Run now runs them for this certificate.");
             await LoadDeploymentAsync(token).ConfigureAwait(true);
         }, cancellationToken);
     }
@@ -330,7 +453,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
         await RunAsync(async token =>
         {
             var removed = await _deploymentService.RemoveAsync(SelectedSite, row.Number, token).ConfigureAwait(true);
-            ResultMessage = $"Removed: {removed.Describe()}. What it already did is not undone.";
+            Report($"Removed: {removed.Describe()}. What it already did is not undone.");
             await LoadDeploymentAsync(token).ConfigureAwait(true);
         }, cancellationToken);
     }
@@ -343,7 +466,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
             var result = await _deploymentService.RunAsync(SelectedSite, null, token).ConfigureAwait(true);
             await LoadDeploymentAsync(token).ConfigureAwait(true);
             if (!result.Succeeded) throw new InvalidOperationException(result.Message);
-            ResultMessage = result.Message;
+            Report(result.Message);
         }, cancellationToken);
     }
 
@@ -351,6 +474,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
 
     {
         var overview = await _reminderService.GetOverviewAsync(cancellationToken).ConfigureAwait(true);
+        cancellationToken.ThrowIfCancellationRequested();
         var record = overview.Certificates.FirstOrDefault(value =>
             string.Equals(value.SiteName, SelectedSite, StringComparison.OrdinalIgnoreCase));
         if (record is null) return;
@@ -389,12 +513,88 @@ public partial class CertificateDetailsViewModel : ObservableObject
             _ => $"On: from {overview.Settings.StartDays} days before expiry, in the daily digest at {overview.Settings.SendAtHour:00}:00"
         };
         LastReminded = record.LastRemindedAt is { } at ? at.ToLocalTime().ToString("dd MMM yyyy HH:mm") : "Not yet";
-        SelectedReminderChoice = record.Reminders switch
+        var settings = overview.Settings;
+        ReminderSchedule = $"From {settings.StartDays} days before it expires, in the daily digest at {settings.SendAtHour:00}:00" +
+                           (settings.RepeatDays <= 1 ? ", every day until it is renewed." : $", every {settings.RepeatDays} days until it is renewed.");
+
+        // Shown as chosen; choosing another one applies it at once.
+        _loadingReminder = true;
+        try
         {
-            ReminderMode.OffUntilReplaced => ReminderChoices[3],
-            ReminderMode.Off => ReminderChoices[4],
-            _ => ReminderChoices[0]
-        };
+            SelectedReminderChoice = record.Reminders switch
+            {
+                // The snooze that ends closest to it; the line above gives its exact end.
+                ReminderMode.Snoozed when record.SnoozedUntil is { } snoozed && snoozed > DateTimeOffset.UtcNow =>
+                    (snoozed - DateTimeOffset.UtcNow).TotalDays <= 7.5 ? ReminderChoices[1] : ReminderChoices[2],
+                ReminderMode.OffUntilReplaced => ReminderChoices[3],
+                ReminderMode.Off => ReminderChoices[4],
+                _ => ReminderChoices[0]
+            };
+        }
+        finally
+        {
+            _loadingReminder = false;
+        }
+    }
+
+    private bool _loadingReminder;
+
+    /// <summary>When reminders are sent, from Settings › Reminders.</summary>
+    [ObservableProperty] private string reminderSchedule = string.Empty;
+
+    /// <summary>The result of the last Check: whether the expected certificate was served, and what was found.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasCheck), nameof(CheckFailed))]
+    private bool? lastCheckPassed;
+
+    [ObservableProperty] private string lastCheckText = string.Empty;
+
+    public bool HasCheck => LastCheckPassed is not null;
+
+    public bool CheckFailed => LastCheckPassed == false;
+
+    /// <summary>True while Check connects to the site, which can take up to ten seconds for a site that does not answer.</summary>
+    [ObservableProperty] private bool isChecking;
+
+    /// <summary>The section shown: 0 is Status, where Check shows its result.</summary>
+    [ObservableProperty] private int selectedSection;
+
+    private async Task CheckAsync(CancellationToken cancellationToken)
+    {
+        if (SelectedSite is null) return;
+        var name = SelectedSite;
+        // The result belongs to this certificate: after another is chosen it is only logged.
+        var shown = _selection.Token;
+        ResultMessage = string.Empty;
+        SelectedSection = 0;
+        IsChecking = true;
+        LastCheckPassed = null;
+        LastCheckText = string.Empty;
+        _logger.LogInformation("Checking the certificate served for {Certificate}", name);
+        try
+        {
+            await RunAsync(async token =>
+            {
+                var check = await Task.Run(() => _managementService.CheckServedAsync(name, token), token).ConfigureAwait(true);
+                _logger.LogInformation("Check for {Certificate}: {Result}", name, check.Message);
+                if (shown.IsCancellationRequested) return;
+                LastCheckPassed = check.Passed;
+                LastCheckText = $"Checked at {DateTime.Now:HH:mm}. {check.Message}";
+                if (check.Passed) ResultMessage = check.Message;
+                else ErrorMessage = check.Message;
+            }, cancellationToken);
+
+            // The check itself could not run, such as when IIS could not be read: say so where its result goes.
+            if (!shown.IsCancellationRequested && LastCheckPassed is null && ErrorMessage is { } error)
+            {
+                LastCheckPassed = false;
+                LastCheckText = $"Could not check at {DateTime.Now:HH:mm}. {error}";
+            }
+        }
+        finally
+        {
+            if (!shown.IsCancellationRequested) IsChecking = false;
+        }
     }
 
     private async Task ApplyReminderAsync(CancellationToken cancellationToken)
@@ -404,7 +604,8 @@ public partial class CertificateDetailsViewModel : ObservableObject
         {
             await _reminderService.SetCertificateRemindersAsync(SelectedSite, choice.Mode, choice.SnoozeDays, token).ConfigureAwait(true);
             await LoadReminderAsync(token).ConfigureAwait(true);
-            ResultMessage = $"Reminders for '{SelectedSite}': {ReminderState}.";
+            Report($"Reminders: {ReminderState}.");
+            CertificatesChanged?.Invoke(null);
         }, cancellationToken);
     }
 
@@ -415,9 +616,23 @@ public partial class CertificateDetailsViewModel : ObservableObject
         {
             var result = AssertSingle(await _renewalService.RenewAsync(
                 new RenewalRequest(SiteName: SelectedSite, Force: true), null, token).ConfigureAwait(true));
-            ResultMessage = result.Message;
+            Report(result.Message);
+            CertificatesChanged?.Invoke(null);
             if (!result.Succeeded) throw new InvalidOperationException(result.Message);
             await RefreshAsync(token).ConfigureAwait(true);
+        }, cancellationToken);
+    }
+
+    private async Task UnmanageAsync(CancellationToken cancellationToken)
+    {
+        if (SelectedSite is null) return;
+        var name = SelectedSite;
+        await RunAsync(async token =>
+        {
+            var message = await _managementService.StopManagingAsync(name, token).ConfigureAwait(true);
+            _logger.LogInformation("Stopped managing the certificate for {Certificate}; IIS was not changed", name);
+            Clear();
+            CertificatesChanged?.Invoke(message);
         }, cancellationToken);
     }
 
@@ -428,40 +643,67 @@ public partial class CertificateDetailsViewModel : ObservableObject
         await RunAsync(async token =>
         {
             await _managementService.RemoveAsync(removedSite, token).ConfigureAwait(true);
-            ResultMessage = _isNoSite
-                ? $"Stopped managing '{removedSite}'. The certificate stays in LocalMachine\\My for the services that may use it; delete it in certlm when they no longer do."
+            var message = _isNoSite
+                ? $"Stopped managing '{removedSite}'. The certificate stays in the Windows certificate store for the services that may use it. Delete it there when they no longer do."
                 : SharedSites.Count > 1
                 ? $"Removed the managed certificate and its IIS HTTPS bindings on {string.Join(", ", SharedSites.Select(row => $"'{row.SiteName}'"))}."
                 : $"Removed the managed certificate and its matching IIS HTTPS bindings for '{removedSite}'.";
-            await InitializeAsync().ConfigureAwait(true);
+            Clear();
+            CertificatesChanged?.Invoke(message);
         }, cancellationToken);
+    }
+
+    /// <summary>Operations running now. Loading a certificate and a choice made meanwhile, such as a reminder, can overlap.</summary>
+    private int _running;
+
+    /// <summary>
+    /// The certificate shown when the running operation started, as its selection token: an operation that finishes after
+    /// another certificate was chosen does not report on the new one. It flows into the operation's continuations.
+    /// </summary>
+    private static readonly AsyncLocal<CancellationToken> ShownWhenStarted = new();
+
+    /// <summary>True when another certificate was chosen since the running operation started.</summary>
+    private static bool Superseded => ShownWhenStarted.Value.IsCancellationRequested;
+
+    /// <summary>Shows the result of an operation, unless another certificate is shown now.</summary>
+    private void Report(string message)
+    {
+        if (!Superseded) ResultMessage = message;
     }
 
     private async Task RunAsync(Func<CancellationToken, Task> action, CancellationToken cancellationToken)
     {
+        _running++;
+        ShownWhenStarted.Value = _selection.Token;
         IsBusy = true; ErrorMessage = null;
         try { await action(cancellationToken).ConfigureAwait(true); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Another certificate was chosen, or the operation was cancelled: nothing to report.
+        }
         catch (Exception exception)
         {
             _logger.LogError(exception, "Certificate details operation failed");
-            ErrorMessage = exception.Message;
+            if (!Superseded) ErrorMessage = exception.Message;
         }
-        finally { IsBusy = false; }
+        finally { IsBusy = --_running > 0; }
     }
 
     private bool CanOperate() => !IsBusy && SelectedSite is not null;
     partial void OnIsImportedChanged(bool value) => NotifyCommands();
     partial void OnIsManualDnsChanged(bool value) => NotifyCommands();
-    partial void OnCanShareChanged(bool value) => NotifyCommands();
+    partial void OnCanShareChanged(bool value) { NotifyCommands(); OnPropertyChanged(nameof(ShowSites)); }
     partial void OnSiteToAddChanged(string? value) => NotifyCommands();
-    partial void OnHasSitesLeftBehindChanged(bool value) => NotifyCommands();
+    partial void OnHasSitesLeftBehindChanged(bool value) { NotifyCommands(); OnPropertyChanged(nameof(ShowSites)); }
     partial void OnSelectedDeploymentKindChanged(DeploymentKindChoice? value) => NotifyCommands();
     partial void OnDeploymentValueChanged(string value) => NotifyCommands();
     private void NotifyCommands()
     {
         (RenewByHandCommand as RelayCommand)?.NotifyCanExecuteChanged();
-        _refreshCommand?.NotifyCanExecuteChanged(); _renewCommand?.NotifyCanExecuteChanged(); _removeCommand?.NotifyCanExecuteChanged();
-        (OrderReplacementCommand as RelayCommand)?.NotifyCanExecuteChanged();
+        _refreshCommand?.NotifyCanExecuteChanged(); _renewCommand?.NotifyCanExecuteChanged(); _removeCommand?.NotifyCanExecuteChanged(); _unmanageCommand?.NotifyCanExecuteChanged();
+        (InstallRenewalCommand as RelayCommand)?.NotifyCanExecuteChanged();
+        (CheckCommand as AsyncRelayCommand)?.NotifyCanExecuteChanged();
+        (RemindersOffCommand as RelayCommand)?.NotifyCanExecuteChanged();
         _applyReminderCommand?.NotifyCanExecuteChanged();
         _addSiteCommand?.NotifyCanExecuteChanged();
         _stopManagingCommand?.NotifyCanExecuteChanged();
@@ -470,7 +712,12 @@ public partial class CertificateDetailsViewModel : ObservableObject
         _removeDeploymentStepCommand?.NotifyCanExecuteChanged();
         _runDeploymentCommand?.NotifyCanExecuteChanged();
     }
-    partial void OnSelectedReminderChoiceChanged(ReminderChoice? value) => _applyReminderCommand?.NotifyCanExecuteChanged();
+    partial void OnSelectedReminderChoiceChanged(ReminderChoice? value)
+    {
+        _applyReminderCommand?.NotifyCanExecuteChanged();
+        // Applied even while the certificate is still loading, so a click is never dropped.
+        if (!_loadingReminder && value is not null && SelectedSite is not null) _ = _applyReminderCommand?.ExecuteAsync(null);
+    }
     private static RenewalResult AssertSingle(IReadOnlyList<RenewalResult> results) => results.Single();
 }
 
