@@ -389,10 +389,7 @@ internal sealed class ImportedCertificateService(
             var dnsNames = CertificateInspector.GetDnsNames(leaf);
             var targetHosts = hosts.Count > 0
                 ? NormalizeHosts(hosts)
-                : site.Bindings.Select(binding => NormalizeHost(binding.HostName))
-                    .Where(host => host.Length > 0 && CertificateInspector.Covers(dnsNames, host))
-                    .Distinct()
-                    .ToArray();
+                : await InferHostsAsync(siteName, site, dnsNames, cancellationToken).ConfigureAwait(false);
             if (targetHosts.Count == 0)
             {
                 throw new InvalidOperationException(
@@ -654,6 +651,37 @@ internal sealed class ImportedCertificateService(
     private async Task<ManagedCertificate?> FindRecordAsync(string siteName, CancellationToken cancellationToken) =>
         (await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false))
         .FirstOrDefault(record => string.Equals(record.SiteName, siteName, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The host names a PFX is installed for when none are given: the site's bindings it covers. When it is for a
+    /// certificate managed under the name (it covers that one's host names), the host names of the site's other
+    /// certificates are left out, since one wildcard or SAN file can serve several certificates on a site. Otherwise
+    /// the host names decide which certificate it replaces.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> InferHostsAsync(
+        string siteName,
+        IisSite site,
+        IReadOnlyList<string> dnsNames,
+        CancellationToken cancellationToken)
+    {
+        var onSite = ManagedCertificateNames.OnSite(await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false), siteName);
+        var bound = site.Bindings.Select(binding => NormalizeHost(binding.HostName))
+            .Where(host => host.Length > 0 && CertificateInspector.Covers(dnsNames, host))
+            .Distinct()
+            .ToArray();
+        if (onSite.FirstOrDefault(record => string.Equals(record.SiteName, siteName.Trim(), StringComparison.OrdinalIgnoreCase)) is { } named)
+        {
+            if (named.Hosts.Any(host => CertificateInspector.Covers(dnsNames, NormalizeHost(host))))
+            {
+                var others = onSite.Where(record => !ReferenceEquals(record, named))
+                    .SelectMany(record => record.Hosts)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                return bound.Where(host => !others.Contains(host)).ToArray();
+            }
+        }
+
+        return bound;
+    }
 
     /// <summary>The certificate on the site that these host names belong to, or a new one (docs/design/multiple-certificates-per-site.md).</summary>
     private async Task<string> ResolveNameAsync(string siteName, IReadOnlyList<string> hosts, CancellationToken cancellationToken)
