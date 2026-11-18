@@ -215,6 +215,11 @@ internal sealed class ImportedCertificateService(
             throw new ArgumentException($"Unknown key type '{keyType}'. Use {string.Join(", ", PrivateKeyTypes.All)}.", nameof(keyType));
         }
 
+        // The site's lock comes first: an import or adoption running now may create the certificate these host names
+        // belong to, and the name is resolved after it. Held while saving, so a completion of the request being
+        // replaced cannot run at the same time.
+        await using var siteLock = await operationLock.AcquireAsync(siteName, cancellationToken).ConfigureAwait(false);
+
         // The request belongs to the certificate on the site with these host names, or to a new one.
         var name = await ResolveNameAsync(siteName, normalizedHosts, cancellationToken).ConfigureAwait(false);
 
@@ -234,12 +239,10 @@ internal sealed class ImportedCertificateService(
         }
 
         var request = new PendingCertificateRequest(name, normalizedHosts, keyName, keyType, csr, DateTimeOffset.UtcNow);
-        // Held so a completion of the request being replaced cannot run at the same time.
-        IAsyncDisposable siteLock;
         PendingCertificateRequest? replaced;
         try
         {
-            siteLock = await operationLock.AcquireAsync(name, cancellationToken).ConfigureAwait(false);
+            replaced = await pendingRequests.SaveAsync(request, CancellationToken.None).ConfigureAwait(false);
         }
         catch
         {
@@ -247,22 +250,9 @@ internal sealed class ImportedCertificateService(
             throw;
         }
 
-        await using (siteLock.ConfigureAwait(false))
+        if (replaced is not null)
         {
-            try
-            {
-                replaced = await pendingRequests.SaveAsync(request, CancellationToken.None).ConfigureAwait(false);
-            }
-            catch
-            {
-                DeleteKeyQuietly(keyName);
-                throw;
-            }
-
-            if (replaced is not null)
-            {
-                await ReleaseRequestKeyAsync(replaced, CancellationToken.None).ConfigureAwait(false);
-            }
+            await ReleaseRequestKeyAsync(replaced, CancellationToken.None).ConfigureAwait(false);
         }
 
         return request;

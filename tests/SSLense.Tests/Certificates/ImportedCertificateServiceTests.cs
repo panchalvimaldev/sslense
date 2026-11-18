@@ -290,6 +290,20 @@ public sealed class ImportedCertificateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task CreateRequest_WhileAnImportCreatesTheSitesFirstCertificate_IsNamedAfterIt()
+    {
+        // Another operation on the site finishes while this one waits for the lock: the site's first certificate,
+        // for other host names, is now managed as "Shop".
+        _lock.WhileWaiting = () => _managed.Add(new ManagedCertificate(Site, ["a.example.com"], string.Empty, "AAAA",
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(300), Source: CertificateSource.Imported));
+
+        var request = await CreateService().CreateRequestAsync(Site, ["b.example.com"]);
+
+        Assert.Equal("Shop/b.example.com", request.SiteName);
+        Assert.Equal("Shop/b.example.com", Assert.Single(await _pending.GetAllAsync()).SiteName);
+    }
+
+    [Fact]
     public async Task Import_CertificateForAPendingRequest_PointsToComplete()
     {
         var service = CreateService();
