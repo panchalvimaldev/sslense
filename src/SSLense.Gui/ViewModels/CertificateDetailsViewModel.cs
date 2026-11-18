@@ -141,6 +141,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
     /// <summary>Shows a certificate from the list.</summary>
     public async Task ShowAsync(CertificateRowViewModel row)
     {
+        StartSelection();
         Summary = row;
         LastCheckPassed = null;
         LastCheckText = string.Empty;
@@ -152,9 +153,26 @@ public partial class CertificateDetailsViewModel : ObservableObject
         await RefreshAsync(CancellationToken.None).ConfigureAwait(true);
     }
 
+    /// <summary>
+    /// Reads the shown certificate again after the list was reloaded, keeping the last result and check on screen.
+    /// A different certificate (the shown one was renamed) is shown afresh.
+    /// </summary>
+    public async Task ReloadAsync(CertificateRowViewModel row)
+    {
+        if (!string.Equals(row.SiteName, SelectedSite, StringComparison.OrdinalIgnoreCase))
+        {
+            await ShowAsync(row).ConfigureAwait(true);
+            return;
+        }
+
+        Summary = row;
+        await RefreshAsync(CancellationToken.None).ConfigureAwait(true);
+    }
+
     /// <summary>Shows no certificate.</summary>
     public void Clear()
     {
+        StartSelection();
         LastCheckPassed = null;
         LastCheckText = string.Empty;
         _suppressSelectionRefresh = true;
@@ -269,12 +287,27 @@ public partial class CertificateDetailsViewModel : ObservableObject
 
     partial void OnIsBusyChanged(bool value) => NotifyCommands();
 
+    /// <summary>
+    /// Cancelled when another certificate is shown, so a slower load of the previous one cannot write over it. Every
+    /// loader checks it after each call, before changing what is shown.
+    /// </summary>
+    private CancellationTokenSource _selection = new();
+
+    private void StartSelection()
+    {
+        _selection.Cancel();
+        _selection.Dispose();
+        _selection = new CancellationTokenSource();
+    }
+
     private async Task RefreshAsync(CancellationToken cancellationToken)
     {
-        if (SelectedSite is null) return;
+        if (SelectedSite is not { } site) return;
+        using var load = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _selection.Token);
         await RunAsync(async token =>
         {
-            var detail = await _managementService.GetDetailsAsync(SelectedSite, token).ConfigureAwait(true);
+            var detail = await _managementService.GetDetailsAsync(site, token).ConfigureAwait(true);
+            token.ThrowIfCancellationRequested();
             Hosts = string.Join(", ", detail.Hosts);
             Issuer = detail.Issuer;
             Thumbprint = detail.Thumbprint;
@@ -289,7 +322,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
             await LoadDeploymentAsync(token).ConfigureAwait(true);
             RecentLogLines.Clear();
             foreach (var line in detail.RecentLogLines) RecentLogLines.Add(line);
-        }, cancellationToken);
+        }, load.Token);
     }
 
     private void LoadSharedSites(CertificateDetails detail)
@@ -314,6 +347,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private async Task LoadSitesToAddAsync(CancellationToken cancellationToken)
     {
         var sites = await _iisService.GetSitesAsync(cancellationToken).ConfigureAwait(true);
+        cancellationToken.ThrowIfCancellationRequested();
         SitesToAdd.Clear();
         foreach (var site in sites.Where(site => SharedSites.All(row => !string.Equals(row.SiteName, site.Name, StringComparison.OrdinalIgnoreCase))))
         {
@@ -372,6 +406,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
     {
         if (SelectedSite is null) return;
         var overview = await _deploymentService.ListAsync(SelectedSite, cancellationToken).ConfigureAwait(true);
+        cancellationToken.ThrowIfCancellationRequested();
         DeploymentSteps.Clear();
         for (var index = 0; index < overview.Steps.Count; index++)
         {
@@ -437,6 +472,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
 
     {
         var overview = await _reminderService.GetOverviewAsync(cancellationToken).ConfigureAwait(true);
+        cancellationToken.ThrowIfCancellationRequested();
         var record = overview.Certificates.FirstOrDefault(value =>
             string.Equals(value.SiteName, SelectedSite, StringComparison.OrdinalIgnoreCase));
         if (record is null) return;
@@ -620,6 +656,10 @@ public partial class CertificateDetailsViewModel : ObservableObject
         _running++;
         IsBusy = true; ErrorMessage = null;
         try { await action(cancellationToken).ConfigureAwait(true); }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Another certificate was chosen, or the operation was cancelled: nothing to report.
+        }
         catch (Exception exception)
         {
             _logger.LogError(exception, "Certificate details operation failed");

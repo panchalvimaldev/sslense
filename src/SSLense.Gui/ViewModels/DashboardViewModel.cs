@@ -270,7 +270,8 @@ public partial class DashboardViewModel : ObservableObject
             _reloading = false;
         }
 
-        if (SelectedCertificate is { } selected) Details.Summary = selected;
+        // Its details are read again too: a renewal from Renew all due, the service or the CLI changes them.
+        if (SelectedCertificate is { } selected) await Details.ReloadAsync(selected).ConfigureAwait(true);
         else if (kept is not null) Details.Clear();
 
         OnPropertyChanged(nameof(TotalCount));
