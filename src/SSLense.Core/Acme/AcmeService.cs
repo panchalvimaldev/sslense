@@ -153,11 +153,19 @@ internal sealed partial class AcmeService : IAcmeService
             throw new ArgumentException("Give the names the certificate covers, such as --names rdp.example.com.", nameof(request));
         }
 
+        // Taken from the bindings, the host names leave out those of the site's other certificates, which keep their own.
+        var otherCertificatesHosts = request.NoSite
+            ? []
+            : ManagedCertificateNames.OnSite(allRecords, request.SiteName)
+                .Where(record => !string.Equals(record.SiteName, request.SiteName.Trim(), StringComparison.OrdinalIgnoreCase))
+                .SelectMany(record => record.Hosts)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var requestedHosts = request.Hosts.Count > 0
             ? request.Hosts
             : sharedRecord?.Hosts ?? site.Bindings
                 .Where(binding => IsUsableBinding(binding) && !string.IsNullOrWhiteSpace(binding.HostName))
                 .Select(binding => binding.HostName)
+                .Where(host => !otherCertificatesHosts.Contains(NormalizeHost(host)))
                 .Where(host => requestedNames is null || CertificateInspector.Covers(requestedNames, host));
         var hosts = request.NoSite ? requestedNames! : NormalizeAndValidateHosts(
             requestedHosts,
@@ -166,6 +174,11 @@ internal sealed partial class AcmeService : IAcmeService
                 : usesDns
                     ? "No host names were supplied and the IIS site has no named HTTP or HTTPS bindings."
                     : "No host names were supplied and the IIS site has no named HTTP bindings on port 80.");
+        if (!request.NoSite)
+        {
+            ManagedCertificateNames.ThrowIfHostsTaken(allRecords, request.SiteName, hosts);
+        }
+
         var names = requestedNames ?? hosts;
         if (hosts.FirstOrDefault(host => !CertificateInspector.Covers(names, host)) is { } uncovered)
         {

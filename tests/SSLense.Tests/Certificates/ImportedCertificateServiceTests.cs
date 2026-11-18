@@ -375,6 +375,26 @@ public sealed class ImportedCertificateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Discover_OneWildcardFileForTwoCertificatesOnASite_NamesEachBindingByItsHostName()
+    {
+        _store.Installed["WILD"] = new InstalledCertificate("WILD", DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(300), true);
+        _iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => [new IisSite(1, Site, "Started", @"C:\inetpub\shop", [
+                new IisBinding("https", "*", 443, "a.example.com", "WILD", "My", true),
+                new IisBinding("https", "*", 443, "b.example.com", "WILD", "My", true)
+            ])]);
+        _managed.Add(new ManagedCertificate(Site, ["a.example.com"], string.Empty, "WILD", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(300),
+            Source: CertificateSource.Imported));
+        _managed.Add(new ManagedCertificate("Shop/b.example.com", ["b.example.com"], string.Empty, "WILD", DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow.AddDays(300), Source: CertificateSource.Imported));
+
+        var bindings = await CreateService().DiscoverAsync();
+
+        Assert.Equal(Site, bindings.Single(binding => binding.Host == "a.example.com").ManagedAs);
+        Assert.Equal("Shop/b.example.com", bindings.Single(binding => binding.Host == "b.example.com").ManagedAs);
+    }
+
+    [Fact]
     public async Task Import_ForOneOfSeveralCertificates_ReplacesOnlyThatOne()
     {
         using var site = TwoCertificateSite();
