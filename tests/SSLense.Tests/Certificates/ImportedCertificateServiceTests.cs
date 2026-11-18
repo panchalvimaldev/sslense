@@ -394,6 +394,37 @@ public sealed class ImportedCertificateServiceTests : IDisposable
         Assert.Equal("Shop/b.example.com", bindings.Single(binding => binding.Host == "b.example.com").ManagedAs);
     }
 
+    [Theory]
+    [InlineData("Shop/b.example.com", "b.example.com")]
+    [InlineData("Shop", "a.example.com")]
+    public async Task Import_ANewWildcardForOneOfTwoCertificatesSharingOne_ByName_ReplacesOnlyItsHostNames(string name, string host)
+    {
+        var other = host == "a.example.com" ? "b.example.com" : "a.example.com";
+        _store.Installed["WILD"] = new InstalledCertificate("WILD", DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30), true);
+        _iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => [new IisSite(1, Site, "Started", @"C:\inetpub\shop", [
+                new IisBinding("https", "*", 443, "a.example.com", "WILD", "My", true),
+                new IisBinding("https", "*", 443, "b.example.com", "WILD", "My", true)
+            ])]);
+        _managed.Add(new ManagedCertificate(Site, ["a.example.com"], string.Empty, "WILD", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(30),
+            Source: CertificateSource.Imported));
+        _managed.Add(new ManagedCertificate("Shop/b.example.com", ["b.example.com"], string.Empty, "WILD", DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow.AddDays(30), Source: CertificateSource.Imported));
+        var (renewed, key) = _ca.IssueWithNewKey("*.example.com");
+        using (renewed)
+        using (key)
+        {
+            var result = await CreateService().ImportPfxAsync(name, [], _ca.ExportPfx(renewed, key, "secret"), "secret");
+
+            Assert.Equal(name, result.Certificate.SiteName);
+            Assert.Equal([host], result.Certificate.Hosts);
+            Assert.Equal("WILD", _managed.Single(record => record.Hosts.Contains(other)).Thumbprint);
+            _iis.Verify(value => value.ConfigureHttpsBindingsAsync(Site,
+                It.Is<IReadOnlyList<string>>(hosts => hosts.SequenceEqual(new[] { host })),
+                renewed.Thumbprint, "My", It.IsAny<CancellationToken>()));
+        }
+    }
+
     [Fact]
     public async Task Import_ForOneOfSeveralCertificates_ReplacesOnlyThatOne()
     {
