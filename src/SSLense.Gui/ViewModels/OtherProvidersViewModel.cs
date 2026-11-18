@@ -201,12 +201,15 @@ public partial class OtherProvidersViewModel : ObservableObject
     {
         var watched = new List<string>();
         var failed = new List<string>();
-        foreach (var binding in Bindings.Where(row => row.IsChecked && row.CanAdopt).Select(row => row.Binding).ToArray())
+        // One adoption per certificate on a site: it takes every binding of that certificate there, such as example.com
+        // and www.example.com, so a second call for the same one would be refused as already watched.
+        foreach (var binding in Bindings.Where(row => row.IsChecked && row.CanAdopt).Select(row => row.Binding)
+                     .DistinctBy(binding => (binding.SiteName.ToUpperInvariant(), binding.Thumbprint?.ToUpperInvariant())).ToArray())
         {
             try
             {
                 var record = await OffUiThread(() => _service.AdoptAsync(binding.SiteName, binding.Thumbprint, token)).ConfigureAwait(true);
-                watched.Add(record.Hosts.Count > 0 ? record.Hosts[0] : record.SiteName);
+                watched.Add(record.Hosts.Count > 0 ? string.Join(", ", record.Hosts) : record.SiteName);
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
