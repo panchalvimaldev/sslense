@@ -18,6 +18,7 @@ public sealed class CertificateDetailsLoadingTests
 {
     private static readonly DateTimeOffset Now = DateTimeOffset.UtcNow;
     private readonly Mock<ICertificateManagementService> _management = new();
+    private readonly Mock<IRenewalService> _renewal = new();
 
     [Fact]
     public void ASlowLoadOfThePreviousCertificate_DoesNotOverwriteTheOneShown() => GuiThread.Run(() =>
@@ -37,6 +38,54 @@ public sealed class CertificateDetailsLoadingTests
         Assert.Equal("BBBB", details.Thumbprint);
         Assert.Equal("b.example.com", details.Hosts);
         Assert.False(details.IsBusy);
+    });
+
+    [Fact]
+    public void ACheckOfThePreviousCertificate_DoesNotReportOnTheOneShown() => GuiThread.Run(() =>
+    {
+        var slowCheck = new TaskCompletionSource<CertificateCheckResult>();
+        _management.Setup(value => value.GetDetailsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string site, CancellationToken _) => Detail(site, site == "A" ? "AAAA" : "BBBB"));
+        _management.Setup(value => value.CheckServedAsync("A", It.IsAny<CancellationToken>())).Returns(slowCheck.Task);
+        var details = Details();
+        var showA = details.ShowAsync(Row("A", "AAAA"));
+        WaitFor(() => showA.IsCompleted);
+
+        var checking = details.CheckCommand.ExecuteAsync(null);
+        WaitFor(() => details.IsChecking);
+        var showB = details.ShowAsync(Row("B", "BBBB"));
+        WaitFor(() => showB.IsCompleted);
+        slowCheck.SetResult(new CertificateCheckResult(false, "https://a.example.com serves another certificate."));
+        WaitFor(() => checking.IsCompleted);
+
+        Assert.Equal("B", details.SelectedSite);
+        Assert.False(details.IsChecking);
+        Assert.Null(details.LastCheckPassed);
+        Assert.Equal(string.Empty, details.LastCheckText);
+        Assert.Null(details.ErrorMessage);
+    });
+
+    [Fact]
+    public void ARenewalOfThePreviousCertificateFailing_DoesNotReportOnTheOneShown() => GuiThread.Run(() =>
+    {
+        var slowRenewal = new TaskCompletionSource<IReadOnlyList<RenewalResult>>();
+        _management.Setup(value => value.GetDetailsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string site, CancellationToken _) => Detail(site, site == "A" ? "AAAA" : "BBBB"));
+        _renewal.Setup(value => value.RenewAsync(It.IsAny<RenewalRequest>(), It.IsAny<IProgress<SSLense.Core.ProgressEvent>>(), It.IsAny<CancellationToken>()))
+            .Returns(slowRenewal.Task);
+        var details = Details();
+        var showA = details.ShowAsync(Row("A", "AAAA"));
+        WaitFor(() => showA.IsCompleted);
+
+        var renewing = details.RenewCommand.ExecuteAsync(null);
+        var showB = details.ShowAsync(Row("B", "BBBB"));
+        WaitFor(() => showB.IsCompleted);
+        slowRenewal.SetException(new InvalidOperationException("The CA refused the order for A."));
+        WaitFor(() => renewing.IsCompleted && !details.IsBusy);
+
+        Assert.Equal("B", details.SelectedSite);
+        Assert.Null(details.ErrorMessage);
+        Assert.Equal(string.Empty, details.ResultMessage);
     });
 
     [Fact]
@@ -65,13 +114,13 @@ public sealed class CertificateDetailsLoadingTests
 
     private CertificateDetailsViewModel Details() => new(
         _management.Object,
-        Mock.Of<IRenewalService>(),
+        _renewal.Object,
         NullLogger<CertificateDetailsViewModel>.Instance,
         Mock.Of<INavigationService>(),
-        Mock.Of<IReminderService>(),
+        Mock.Of<IReminderService>(value => value.GetOverviewAsync(It.IsAny<CancellationToken>()) == Task.FromResult(new ReminderOverview(new ReminderConfig(), Array.Empty<ManagedCertificate>(), null))),
         Mock.Of<ICertificateSharingService>(),
-        Mock.Of<IIisService>(),
-        Mock.Of<IDeploymentService>(),
+        Mock.Of<IIisService>(value => value.GetSitesAsync(It.IsAny<CancellationToken>()) == Task.FromResult<IReadOnlyList<IisSite>>(Array.Empty<IisSite>())),
+        Mock.Of<IDeploymentService>(value => value.ListAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()) == Task.FromResult(new DeploymentOverview("", "", Array.Empty<DeploymentStep>(), null, false))),
         new InstallRenewalViewModel(Mock.Of<IImportedCertificateService>(), Mock.Of<IPendingRequestStore>(),
             Mock.Of<INavigationService>(), NullLogger<InstallRenewalViewModel>.Instance));
 

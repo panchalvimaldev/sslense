@@ -298,6 +298,8 @@ public partial class CertificateDetailsViewModel : ObservableObject
         _selection.Cancel();
         _selection.Dispose();
         _selection = new CancellationTokenSource();
+        // A check of the previous certificate still running reports nowhere now.
+        IsChecking = false;
     }
 
     private async Task RefreshAsync(CancellationToken cancellationToken)
@@ -366,7 +368,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
         {
             var hosts = HostsToAdd.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             var bound = await _sharingService.AddSiteAsync(SelectedSite, site, hosts, ReplaceExistingCertificate, null, token).ConfigureAwait(true);
-            ResultMessage = $"'{site}' now shares this certificate ({string.Join(", ", bound)}). They renew together.";
+            Report($"'{site}' now shares this certificate ({string.Join(", ", bound)}). They renew together.");
             await InitializeAsync(SelectedSite).ConfigureAwait(true);
             CertificatesChanged?.Invoke(null);
         }, cancellationToken);
@@ -382,7 +384,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
             : SelectedSite;
         await RunAsync(async token =>
         {
-            ResultMessage = await _sharingService.RemoveSiteAsync(row.SiteName, token).ConfigureAwait(true);
+            Report(await _sharingService.RemoveSiteAsync(row.SiteName, token).ConfigureAwait(true));
             await InitializeAsync(remaining).ConfigureAwait(true);
             CertificatesChanged?.Invoke(null);
         }, cancellationToken);
@@ -394,9 +396,9 @@ public partial class CertificateDetailsViewModel : ObservableObject
         await RunAsync(async token =>
         {
             var moved = await _sharingService.CatchUpAsync(SelectedSite, null, token).ConfigureAwait(true);
-            ResultMessage = moved.Count == 0
+            Report(moved.Count == 0
                 ? "No site could move yet. Fix the site in IIS, then try again."
-                : $"Moved to the current certificate: {string.Join(", ", moved)}.";
+                : $"Moved to the current certificate: {string.Join(", ", moved)}.");
             await RefreshAsync(token).ConfigureAwait(true);
             CertificatesChanged?.Invoke(null);
         }, cancellationToken);
@@ -440,7 +442,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
             DeploymentValue = string.Empty;
             DeploymentPassword = string.Empty;
             PasswordCleared?.Invoke();
-            ResultMessage = $"Added: {step.Describe()}. The steps run after every renewal; Run now runs them for this certificate.";
+            Report($"Added: {step.Describe()}. The steps run after every renewal; Run now runs them for this certificate.");
             await LoadDeploymentAsync(token).ConfigureAwait(true);
         }, cancellationToken);
     }
@@ -451,7 +453,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
         await RunAsync(async token =>
         {
             var removed = await _deploymentService.RemoveAsync(SelectedSite, row.Number, token).ConfigureAwait(true);
-            ResultMessage = $"Removed: {removed.Describe()}. What it already did is not undone.";
+            Report($"Removed: {removed.Describe()}. What it already did is not undone.");
             await LoadDeploymentAsync(token).ConfigureAwait(true);
         }, cancellationToken);
     }
@@ -464,7 +466,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
             var result = await _deploymentService.RunAsync(SelectedSite, null, token).ConfigureAwait(true);
             await LoadDeploymentAsync(token).ConfigureAwait(true);
             if (!result.Succeeded) throw new InvalidOperationException(result.Message);
-            ResultMessage = result.Message;
+            Report(result.Message);
         }, cancellationToken);
     }
 
@@ -561,6 +563,8 @@ public partial class CertificateDetailsViewModel : ObservableObject
     {
         if (SelectedSite is null) return;
         var name = SelectedSite;
+        // The result belongs to this certificate: after another is chosen it is only logged.
+        var shown = _selection.Token;
         ResultMessage = string.Empty;
         SelectedSection = 0;
         IsChecking = true;
@@ -573,6 +577,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
             {
                 var check = await Task.Run(() => _managementService.CheckServedAsync(name, token), token).ConfigureAwait(true);
                 _logger.LogInformation("Check for {Certificate}: {Result}", name, check.Message);
+                if (shown.IsCancellationRequested) return;
                 LastCheckPassed = check.Passed;
                 LastCheckText = $"Checked at {DateTime.Now:HH:mm}. {check.Message}";
                 if (check.Passed) ResultMessage = check.Message;
@@ -580,7 +585,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
             }, cancellationToken);
 
             // The check itself could not run, such as when IIS could not be read: say so where its result goes.
-            if (LastCheckPassed is null && ErrorMessage is { } error)
+            if (!shown.IsCancellationRequested && LastCheckPassed is null && ErrorMessage is { } error)
             {
                 LastCheckPassed = false;
                 LastCheckText = $"Could not check at {DateTime.Now:HH:mm}. {error}";
@@ -588,7 +593,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
         }
         finally
         {
-            IsChecking = false;
+            if (!shown.IsCancellationRequested) IsChecking = false;
         }
     }
 
@@ -599,7 +604,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
         {
             await _reminderService.SetCertificateRemindersAsync(SelectedSite, choice.Mode, choice.SnoozeDays, token).ConfigureAwait(true);
             await LoadReminderAsync(token).ConfigureAwait(true);
-            ResultMessage = $"Reminders: {ReminderState}.";
+            Report($"Reminders: {ReminderState}.");
             CertificatesChanged?.Invoke(null);
         }, cancellationToken);
     }
@@ -611,7 +616,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
         {
             var result = AssertSingle(await _renewalService.RenewAsync(
                 new RenewalRequest(SiteName: SelectedSite, Force: true), null, token).ConfigureAwait(true));
-            ResultMessage = result.Message;
+            Report(result.Message);
             CertificatesChanged?.Invoke(null);
             if (!result.Succeeded) throw new InvalidOperationException(result.Message);
             await RefreshAsync(token).ConfigureAwait(true);
@@ -651,9 +656,25 @@ public partial class CertificateDetailsViewModel : ObservableObject
     /// <summary>Operations running now. Loading a certificate and a choice made meanwhile, such as a reminder, can overlap.</summary>
     private int _running;
 
+    /// <summary>
+    /// The certificate shown when the running operation started, as its selection token: an operation that finishes after
+    /// another certificate was chosen does not report on the new one. It flows into the operation's continuations.
+    /// </summary>
+    private static readonly AsyncLocal<CancellationToken> ShownWhenStarted = new();
+
+    /// <summary>True when another certificate was chosen since the running operation started.</summary>
+    private static bool Superseded => ShownWhenStarted.Value.IsCancellationRequested;
+
+    /// <summary>Shows the result of an operation, unless another certificate is shown now.</summary>
+    private void Report(string message)
+    {
+        if (!Superseded) ResultMessage = message;
+    }
+
     private async Task RunAsync(Func<CancellationToken, Task> action, CancellationToken cancellationToken)
     {
         _running++;
+        ShownWhenStarted.Value = _selection.Token;
         IsBusy = true; ErrorMessage = null;
         try { await action(cancellationToken).ConfigureAwait(true); }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -663,7 +684,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
         catch (Exception exception)
         {
             _logger.LogError(exception, "Certificate details operation failed");
-            ErrorMessage = exception.Message;
+            if (!Superseded) ErrorMessage = exception.Message;
         }
         finally { IsBusy = --_running > 0; }
     }
