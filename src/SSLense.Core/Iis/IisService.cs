@@ -599,10 +599,16 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
             (binding.SslFlags & SslFlags.Sni) == SslFlags.Sni);
     }
 
-    private static Site FindSite(ServerManager serverManager, string siteName) =>
-        serverManager.Sites.FirstOrDefault(site =>
-            string.Equals(site.Name, siteName, StringComparison.OrdinalIgnoreCase))
-        ?? throw new InvalidOperationException($"IIS site '{siteName}' was not found.");
+    /// <summary>
+    /// The IIS site of a certificate name: every method here takes the name of the certificate whose bindings change,
+    /// which for a second certificate on a site is "site/host" (docs/design/multiple-certificates-per-site.md).
+    /// </summary>
+    private static Site FindSite(ServerManager serverManager, string siteName)
+    {
+        var name = ManagedCertificateNames.IisSiteOf(siteName);
+        return serverManager.Sites.FirstOrDefault(site => string.Equals(site.Name, name, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"IIS site '{name}' was not found.");
+    }
 
     private static Binding? FindHttpsBinding(Site site, string host) =>
         site.Bindings.FirstOrDefault(binding =>

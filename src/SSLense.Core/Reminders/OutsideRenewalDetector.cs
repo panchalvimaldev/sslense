@@ -42,8 +42,7 @@ internal sealed class OutsideRenewalDetector(
             // Read again under the lock: the record and bindings seen before taking it may already be out of date.
             var record = (await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false))
                 .FirstOrDefault(value => string.Equals(value.SiteName, siteName, StringComparison.OrdinalIgnoreCase));
-            var site = (await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false))
-                .FirstOrDefault(value => string.Equals(value.Name, siteName, StringComparison.OrdinalIgnoreCase));
+            var site = (await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false)).FindSite(siteName);
             if (record is not { Source: CertificateSource.Imported } || site is null ||
                 await FindReplacementAsync(record, site, cancellationToken).ConfigureAwait(false) is not { } replacement)
             {

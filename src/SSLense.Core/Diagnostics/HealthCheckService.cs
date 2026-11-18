@@ -240,7 +240,7 @@ internal sealed class HealthCheckService(
             return [];
         }
 
-        var site = sites.FirstOrDefault(value => string.Equals(value.Name, certificate.SiteName, StringComparison.OrdinalIgnoreCase));
+        var site = sites.FindSite(certificate.SiteName);
         return site is null
             ? []
             : site.Bindings
@@ -261,7 +261,7 @@ internal sealed class HealthCheckService(
         Func<string, Func<Task<HealthCheckResult>>, Task> check,
         CancellationToken cancellationToken)
     {
-        if (!sites.Any(value => string.Equals(value.Name, target.SiteName, StringComparison.OrdinalIgnoreCase)))
+        if (sites.FindSite(target.SiteName) is null)
         {
             results.Add(new HealthCheckResult(
                 $"HTTPS bindings: {target.SiteName}",
@@ -290,7 +290,7 @@ internal sealed class HealthCheckService(
         CancellationToken cancellationToken)
     {
         var name = $"Served certificate: {certificate.SiteName}";
-        var site = sites.FirstOrDefault(value => string.Equals(value.Name, certificate.SiteName, StringComparison.OrdinalIgnoreCase));
+        var site = sites.FindSite(certificate.SiteName);
         if (site is null || site.State != Reminders.ServedCertificateCheck.StartedState)
         {
             return Pass(name, site is null ? "Not checked: the IIS site was not found." : $"Not checked: the IIS site is {site.State}.");
@@ -479,8 +479,7 @@ internal sealed class HealthCheckService(
     private static HealthCheckResult CheckBindings(ManagedCertificate certificate, IReadOnlyList<IisSite> sites)
     {
         var name = $"HTTPS bindings: {certificate.SiteName}";
-        var site = sites.FirstOrDefault(value =>
-            string.Equals(value.Name, certificate.SiteName, StringComparison.OrdinalIgnoreCase));
+        var site = sites.FindSite(certificate.SiteName);
         if (site is null)
         {
             return new HealthCheckResult(

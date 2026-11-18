@@ -571,12 +571,13 @@ static async Task<int> DiscoverAsync(IImportedCertificateService service, Cancel
                     ? "no certificate"
                     : $"{binding.Thumbprint}, issued by {binding.IssuerName ?? "unknown"}, expires {binding.NotAfter:yyyy-MM-dd}";
                 var host = binding.Host.Length == 0 ? "(no host name)" : binding.Host;
-                Console.WriteLine($"  {host}:{binding.Port}  {certificate}{(binding.IsManaged ? "  [managed]" : string.Empty)}");
+                Console.WriteLine($"  {host}:{binding.Port}  {certificate}{Managed(binding)}");
             }
         }
 
         Console.WriteLine();
-        Console.WriteLine("Start monitoring an unmanaged certificate with: SSLense.Cli adopt --site \"<site>\"");
+        Console.WriteLine("Start monitoring an unmanaged certificate with: SSLense.Cli adopt --site \"<site>\" --thumbprint <thumbprint>");
+        Console.WriteLine("Each certificate on a site is managed on its own; the second and later are named \"<site>/<host>\".");
         return 0;
     }
     catch (Exception exception)
@@ -584,6 +585,11 @@ static async Task<int> DiscoverAsync(IImportedCertificateService service, Cancel
         return ReportFailure(exception, "Discovery failed");
     }
 }
+
+static string Managed(DiscoveredBinding binding) =>
+    !binding.IsManaged ? string.Empty
+    : binding.ManagedAs is { } name && !string.Equals(name, binding.SiteName, StringComparison.OrdinalIgnoreCase) ? $"  [managed as {name}]"
+    : "  [managed]";
 
 static async Task<int> AdoptAsync(IImportedCertificateService service, string site, string? thumbprint, CancellationToken token)
 {

@@ -16,9 +16,10 @@ internal static class StateSchema
     /// older version would drop on its next save. Version 7 adds certificates with no IIS site, which
     /// 0.18 would try to bind to a site. Version 8 adds exportable keys and the export steps, which 0.19 would not
     /// know. Version 9 adds the key type, preferred chain, and profile, which 0.20 would
-    /// replace with the defaults at renewal. Version 10 adds reusing the key at renewal, which 0.21 would not do.
+    /// replace with the defaults at renewal. Version 10 adds reusing the key at renewal, which 0.21 would not do. Version 11 adds
+    /// further certificates on an IIS site, named "site/host", which 0.22 would report as sites that do not exist.
     /// </summary>
-    public const int ManagedCertificates = 10;
+    public const int ManagedCertificates = 11;
 
     /// <summary>
     /// Version 0 had no version field. Version 2 replaced the single SMTP server and generic webhook with

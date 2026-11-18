@@ -487,6 +487,41 @@ public sealed class AcmeServiceTests
     }
 
     [Fact]
+    public async Task IssueAsync_NoHostsGiven_LeavesOutTheHostNamesOfTheSitesOtherCertificates()
+    {
+        var harness = new DnsHarness(
+            new IisBinding("https", "*", 443, "a.example.com", "OLD", "My", true),
+            new IisBinding("https", "*", 443, "b.example.com", "BOUGHT", "My", true));
+        harness.SetManaged(new ManagedCertificate("My Site/b.example.com", ["b.example.com"], string.Empty, "BOUGHT",
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(300), Source: CertificateSource.Imported));
+        harness.Order.SetupGet(value => value.DnsChallenges).Returns([]);
+
+        await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", [], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider));
+
+        harness.Protocol.Verify(value => value.CreateDnsOrderAsync(
+            "admin@example.com",
+            It.Is<IReadOnlyList<string>>(names => names.SequenceEqual(new[] { "a.example.com" })),
+            It.IsAny<CertificateAuthority>(),
+            It.IsAny<CancellationToken>()));
+    }
+
+    [Fact]
+    public async Task IssueAsync_NoHostsGiven_AndOnlyOtherCertificatesHostNames_IsRefusedBeforeAnOrder()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "b.example.com", "BOUGHT", "My", true));
+        harness.SetManaged(new ManagedCertificate("My Site/b.example.com", ["b.example.com"], string.Empty, "BOUGHT",
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(300), Source: CertificateSource.Imported));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", [], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider)));
+
+        Assert.Empty(harness.Steps);
+        harness.Protocol.Verify(value => value.CreateDnsOrderAsync(
+            It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateAuthority>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task IssueAsync_Dns_AHostNotOnTheSite_IsRefusedBeforeAnOrder()
     {
         var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));

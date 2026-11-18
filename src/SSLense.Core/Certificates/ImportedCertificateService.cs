@@ -7,6 +7,7 @@ using SSLense.Core.Iis;
 namespace SSLense.Core.Certificates;
 
 /// <summary>An HTTPS binding in IIS and the certificate it uses, for choosing what to adopt.</summary>
+/// <param name="ManagedAs">The name SSLense manages the binding's certificate under, when it does.</param>
 public sealed record DiscoveredBinding(
     string SiteName,
     string Host,
@@ -14,7 +15,8 @@ public sealed record DiscoveredBinding(
     string? Thumbprint,
     string? IssuerName,
     DateTimeOffset? NotAfter,
-    bool IsManaged);
+    bool IsManaged,
+    string? ManagedAs = null);
 
 /// <param name="Notes">Things the administrator should know, such as a previous certificate left in the store.</param>
 public sealed record ImportResult(ManagedCertificate Certificate, IReadOnlyList<string> Notes);
@@ -90,6 +92,17 @@ internal sealed class ImportedCertificateService(
                     certificates[thumbprint] = certificate;
                 }
 
+                // Any certificate on the site, or shared with it, that this binding uses. Two on a site can use one wildcard
+                // or SAN certificate for different host names, so the one with this binding's host name is preferred.
+                var candidates = managed.Where(record =>
+                    !record.NoSite &&
+                    record.AllSiteNames().Any(name =>
+                        string.Equals(ManagedCertificateNames.IisSiteOf(name), site.Name, StringComparison.OrdinalIgnoreCase)) &&
+                    string.Equals(record.Thumbprint, binding.CertificateThumbprint, StringComparison.OrdinalIgnoreCase)).ToArray();
+                var owner = candidates.FirstOrDefault(record => record.AllTargets().Any(target =>
+                                string.Equals(ManagedCertificateNames.IisSiteOf(target.SiteName), site.Name, StringComparison.OrdinalIgnoreCase) &&
+                                target.Hosts.Contains(binding.HostName, StringComparer.OrdinalIgnoreCase)))
+                            ?? candidates.FirstOrDefault();
                 discovered.Add(new DiscoveredBinding(
                     site.Name,
                     binding.HostName,
@@ -97,9 +110,8 @@ internal sealed class ImportedCertificateService(
                     binding.CertificateThumbprint,
                     certificate?.IssuerName,
                     certificate?.NotAfter,
-                    managed.Any(record =>
-                        record.ManagesSite(site.Name) &&
-                        string.Equals(record.Thumbprint, binding.CertificateThumbprint, StringComparison.OrdinalIgnoreCase))));
+                    owner is not null,
+                    owner?.SiteName));
             }
         }
 
@@ -112,15 +124,8 @@ internal sealed class ImportedCertificateService(
         CancellationToken cancellationToken = default)
     {
         var site = await FindSiteAsync(siteName, cancellationToken).ConfigureAwait(false);
-        await ThrowIfSharedAsync(site.Name, cancellationToken).ConfigureAwait(false);
+        await ThrowIfSharedAsync(siteName.Trim(), cancellationToken).ConfigureAwait(false);
         await using var siteLock = await operationLock.AcquireAsync(site.Name, cancellationToken).ConfigureAwait(false);
-        await ThrowIfSharedAsync(site.Name, cancellationToken).ConfigureAwait(false);
-        if (await FindRecordAsync(site.Name, cancellationToken).ConfigureAwait(false) is { } existing)
-        {
-            throw new InvalidOperationException(
-                $"IIS site '{site.Name}' is already managed by SSLense (certificate {existing.Thumbprint}). " +
-                "Import a certificate or complete a request to replace it.");
-        }
 
         var bindings = site.Bindings
             .Where(binding => string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase) &&
@@ -152,7 +157,8 @@ internal sealed class ImportedCertificateService(
         {
             throw new InvalidOperationException(
                 $"IIS site '{site.Name}' uses several certificates ({string.Join(", ", thumbprints)}). " +
-                "Choose which one to adopt (--thumbprint in the CLI); SSLense manages one certificate per site.");
+                "Choose which one to adopt (--thumbprint in the CLI, or select its binding in the app); adopt each one to " +
+                "manage them all.");
         }
 
         var certificate = await certificateStore.FindByThumbprintAsync(thumbprints[0], cancellationToken).ConfigureAwait(false)
@@ -169,8 +175,21 @@ internal sealed class ImportedCertificateService(
                 $"The HTTPS bindings of IIS site '{site.Name}' have no host names. SSLense manages SNI bindings by host name.");
         }
 
+        // Each certificate on the site is managed on its own: the first under the site's name, others as "site/host".
+        var records = await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        var name = ManagedCertificateNames.Resolve(records, siteName, hosts);
+        await ThrowIfSharedAsync(name, cancellationToken).ConfigureAwait(false);
+        if (await FindRecordAsync(name, cancellationToken).ConfigureAwait(false) is { } existing)
+        {
+            throw new InvalidOperationException(
+                $"This certificate's host names on IIS site '{site.Name}' are already managed by SSLense as '{existing.SiteName}' " +
+                $"(certificate {existing.Thumbprint}). Import a certificate or complete a request to replace it.");
+        }
+
+        ManagedCertificateNames.ThrowIfHostsTaken(records, name, hosts);
+
         var record = new ManagedCertificate(
-            site.Name,
+            name,
             hosts,
             string.Empty,
             certificate.Thumbprint,
@@ -189,13 +208,20 @@ internal sealed class ImportedCertificateService(
         string keyType = PrivateKeyTypes.Default,
         CancellationToken cancellationToken = default)
     {
-        var site = await FindSiteAsync(siteName, cancellationToken).ConfigureAwait(false);
-        await ThrowIfSharedAsync(site.Name, cancellationToken).ConfigureAwait(false);
+        await FindSiteAsync(siteName, cancellationToken).ConfigureAwait(false);
         var normalizedHosts = NormalizeHosts(hosts);
         if (!PrivateKeyTypes.All.Contains(keyType))
         {
             throw new ArgumentException($"Unknown key type '{keyType}'. Use {string.Join(", ", PrivateKeyTypes.All)}.", nameof(keyType));
         }
+
+        // The site's lock comes first: an import or adoption running now may create the certificate these host names
+        // belong to, and the name is resolved after it. Held while saving, so a completion of the request being
+        // replaced cannot run at the same time.
+        await using var siteLock = await operationLock.AcquireAsync(siteName, cancellationToken).ConfigureAwait(false);
+
+        // The request belongs to the certificate on the site with these host names, or to a new one.
+        var name = await ResolveNameAsync(siteName, normalizedHosts, cancellationToken).ConfigureAwait(false);
 
         var keyName = $"SSLense-request-{Guid.NewGuid():N}";
         string csr;
@@ -212,13 +238,11 @@ internal sealed class ImportedCertificateService(
             }
         }
 
-        var request = new PendingCertificateRequest(site.Name, normalizedHosts, keyName, keyType, csr, DateTimeOffset.UtcNow);
-        // Held so a completion of the request being replaced cannot run at the same time.
-        IAsyncDisposable siteLock;
+        var request = new PendingCertificateRequest(name, normalizedHosts, keyName, keyType, csr, DateTimeOffset.UtcNow);
         PendingCertificateRequest? replaced;
         try
         {
-            siteLock = await operationLock.AcquireAsync(site.Name, cancellationToken).ConfigureAwait(false);
+            replaced = await pendingRequests.SaveAsync(request, CancellationToken.None).ConfigureAwait(false);
         }
         catch
         {
@@ -226,34 +250,21 @@ internal sealed class ImportedCertificateService(
             throw;
         }
 
-        await using (siteLock.ConfigureAwait(false))
+        if (replaced is not null)
         {
-            try
-            {
-                replaced = await pendingRequests.SaveAsync(request, CancellationToken.None).ConfigureAwait(false);
-            }
-            catch
-            {
-                DeleteKeyQuietly(keyName);
-                throw;
-            }
-
-            if (replaced is not null)
-            {
-                await ReleaseRequestKeyAsync(replaced, CancellationToken.None).ConfigureAwait(false);
-            }
+            await ReleaseRequestKeyAsync(replaced, CancellationToken.None).ConfigureAwait(false);
         }
 
         return request;
     }
 
     public Task<PendingCertificateRequest?> GetRequestAsync(string siteName, CancellationToken cancellationToken = default) =>
-        pendingRequests.GetAsync(siteName, cancellationToken);
+        FindRequestAsync(siteName, cancellationToken);
 
     public async Task CancelRequestAsync(string siteName, CancellationToken cancellationToken = default)
     {
         // Looked up first so a request can be cancelled even after its IIS site was deleted.
-        var found = await pendingRequests.GetAsync(siteName, cancellationToken).ConfigureAwait(false)
+        var found = await FindRequestAsync(siteName, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"IIS site '{siteName}' has no pending certificate request.");
         await using var siteLock = await operationLock.AcquireAsync(found.SiteName, cancellationToken).ConfigureAwait(false);
         var request = await pendingRequests.GetAsync(found.SiteName, cancellationToken).ConfigureAwait(false)
@@ -272,14 +283,17 @@ internal sealed class ImportedCertificateService(
     {
         ArgumentNullException.ThrowIfNull(certificateFile);
         var site = await FindSiteAsync(siteName, cancellationToken).ConfigureAwait(false);
-        await ThrowIfSharedAsync(site.Name, cancellationToken).ConfigureAwait(false);
+        var name = (await FindRequestAsync(siteName, cancellationToken).ConfigureAwait(false))?.SiteName ?? site.Name;
+        await ThrowIfSharedAsync(name, cancellationToken).ConfigureAwait(false);
 
         // Held for the whole completion, so the request and its key cannot be replaced or cancelled meanwhile.
-        await using var siteLock = await operationLock.AcquireAsync(site.Name, cancellationToken).ConfigureAwait(false);
-        await ThrowIfSharedAsync(site.Name, cancellationToken).ConfigureAwait(false);
-        var request = await pendingRequests.GetAsync(site.Name, cancellationToken).ConfigureAwait(false)
+        await using var siteLock = await operationLock.AcquireAsync(name, cancellationToken).ConfigureAwait(false);
+        await ThrowIfSharedAsync(name, cancellationToken).ConfigureAwait(false);
+        var request = await pendingRequests.GetAsync(name, cancellationToken).ConfigureAwait(false)
             ?? throw new InvalidOperationException(
                 $"IIS site '{siteName}' has no pending certificate request. Create one with 'csr', or use 'import' for a PFX file.");
+        ManagedCertificateNames.ThrowIfHostsTaken(
+            await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false), name, request.Hosts);
         var certificates = CertificateInspector.LoadCertificates(certificateFile).ToList();
         if (chainFile is not null)
         {
@@ -308,6 +322,7 @@ internal sealed class ImportedCertificateService(
                 _ => throw new InvalidOperationException("The pending request uses an unsupported key type.")
             };
             var result = await InstallAsync(
+                    name,
                     site,
                     request.Hosts,
                     leaf,
@@ -364,10 +379,7 @@ internal sealed class ImportedCertificateService(
             var dnsNames = CertificateInspector.GetDnsNames(leaf);
             var targetHosts = hosts.Count > 0
                 ? NormalizeHosts(hosts)
-                : site.Bindings.Select(binding => NormalizeHost(binding.HostName))
-                    .Where(host => host.Length > 0 && CertificateInspector.Covers(dnsNames, host))
-                    .Distinct()
-                    .ToArray();
+                : await InferHostsAsync(siteName, site, dnsNames, cancellationToken).ConfigureAwait(false);
             if (targetHosts.Count == 0)
             {
                 throw new InvalidOperationException(
@@ -376,10 +388,13 @@ internal sealed class ImportedCertificateService(
             }
 
             ThrowIfInvalid(leaf, targetHosts, intermediates);
-            await ThrowIfSharedAsync(site.Name, cancellationToken).ConfigureAwait(false);
+            await ThrowIfSharedAsync(siteName.Trim(), cancellationToken).ConfigureAwait(false);
             await using var siteLock = await operationLock.AcquireAsync(site.Name, cancellationToken).ConfigureAwait(false);
-            await ThrowIfSharedAsync(site.Name, cancellationToken).ConfigureAwait(false);
+
+            // The certificate on the site with these host names is replaced; host names no certificate has yet get a new one.
+            var name = await ResolveNameAsync(siteName, targetHosts, cancellationToken).ConfigureAwait(false);
             return await InstallAsync(
+                    name,
                     site,
                     targetHosts,
                     leaf,
@@ -405,6 +420,7 @@ internal sealed class ImportedCertificateService(
     /// The caller holds the site's operation lock.
     /// </summary>
     private async Task<ImportResult> InstallAsync(
+        string name,
         IisSite site,
         IReadOnlyList<string> hosts,
         X509Certificate2 leaf,
@@ -414,22 +430,22 @@ internal sealed class ImportedCertificateService(
         IProgress<ProgressEvent>? progress,
         CancellationToken cancellationToken)
     {
-        var existing = await FindRecordAsync(site.Name, cancellationToken).ConfigureAwait(false);
+        var existing = await FindRecordAsync(name, cancellationToken).ConfigureAwait(false);
         if (existing?.Source == CertificateSource.Acme && !force)
         {
             throw new InvalidOperationException(
-                $"IIS site '{site.Name}' has a certificate that SSLense renews automatically. Importing replaces it with " +
+                $"The certificate '{name}' is one SSLense renews automatically. Importing replaces it with " +
                 "one you must renew manually. Confirm the replacement to continue (--force in the CLI).");
         }
 
         var thumbprint = Normalize(leaf.Thumbprint);
         if (existing is not null && string.Equals(Normalize(existing.Thumbprint), thumbprint, StringComparison.Ordinal))
         {
-            throw new InvalidOperationException($"Certificate {thumbprint} is already installed and bound for IIS site '{site.Name}'.");
+            throw new InvalidOperationException($"Certificate {thumbprint} is already installed and bound for '{name}'.");
         }
 
         var record = new ManagedCertificate(
-            site.Name,
+            name,
             hosts,
             existing?.Email ?? string.Empty,
             thumbprint,
@@ -594,9 +610,9 @@ internal sealed class ImportedCertificateService(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(siteName);
         var sites = await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
-        return sites.FirstOrDefault(site => string.Equals(site.Name, siteName.Trim(), StringComparison.OrdinalIgnoreCase))
+        return sites.FindSite(siteName)
             ?? throw new InvalidOperationException(
-                $"IIS site '{siteName}' was not found. Run 'list-sites' to see the site names.");
+                $"IIS site '{ManagedCertificateNames.IisSiteOf(siteName)}' was not found. Run 'list-sites' to see the site names.");
     }
 
     /// <summary>
@@ -608,11 +624,93 @@ internal sealed class ImportedCertificateService(
         var records = await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
         ManagedCertificateTargets.ThrowIfAdditionalSite(records, siteName);
         ManagedCertificateTargets.ThrowIfSharedFirstSite(records, siteName);
+
+        // Phase 1 of docs/design/multiple-certificates-per-site.md: a site sharing a certificate has only that one.
+        if (ManagedCertificateNames.IsAdditional(siteName))
+        {
+            var site = ManagedCertificateNames.IisSiteOf(siteName);
+            if (records.FirstOrDefault(record => record.IsShared() && record.ManagesSite(site)) is { } shared)
+            {
+                throw new InvalidOperationException(
+                    $"IIS site '{site}' shares the certificate managed as '{shared.SiteName}', so it cannot have a second certificate " +
+                    "yet. Run 'SSLense.Cli share remove' first.");
+            }
+        }
     }
 
     private async Task<ManagedCertificate?> FindRecordAsync(string siteName, CancellationToken cancellationToken) =>
         (await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false))
         .FirstOrDefault(record => string.Equals(record.SiteName, siteName, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The host names a PFX is installed for when none are given: the site's bindings it covers. When it is for a
+    /// certificate managed under the name (it covers that one's host names), the host names of the site's other
+    /// certificates are left out, since one wildcard or SAN file can serve several certificates on a site. Otherwise
+    /// the host names decide which certificate it replaces.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> InferHostsAsync(
+        string siteName,
+        IisSite site,
+        IReadOnlyList<string> dnsNames,
+        CancellationToken cancellationToken)
+    {
+        var onSite = ManagedCertificateNames.OnSite(await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false), siteName);
+        var bound = site.Bindings.Select(binding => NormalizeHost(binding.HostName))
+            .Where(host => host.Length > 0 && CertificateInspector.Covers(dnsNames, host))
+            .Distinct()
+            .ToArray();
+        if (onSite.FirstOrDefault(record => string.Equals(record.SiteName, siteName.Trim(), StringComparison.OrdinalIgnoreCase)) is { } named)
+        {
+            if (named.Hosts.Any(host => CertificateInspector.Covers(dnsNames, NormalizeHost(host))))
+            {
+                var others = onSite.Where(record => !ReferenceEquals(record, named))
+                    .SelectMany(record => record.Hosts)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                return bound.Where(host => !others.Contains(host)).ToArray();
+            }
+        }
+
+        return bound;
+    }
+
+    /// <summary>The certificate on the site that these host names belong to, or a new one (docs/design/multiple-certificates-per-site.md).</summary>
+    private async Task<string> ResolveNameAsync(string siteName, IReadOnlyList<string> hosts, CancellationToken cancellationToken)
+    {
+        var records = await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
+        var name = ManagedCertificateNames.Resolve(records, siteName, hosts);
+        ManagedCertificateNames.ThrowIfHostsTaken(records, name, hosts);
+        await ThrowIfSharedAsync(name, cancellationToken).ConfigureAwait(false);
+        return name;
+    }
+
+    /// <summary>
+    /// The pending request for a certificate name, or, given just a site, the site's only pending request: a request
+    /// for a second certificate on a site is filed under "site/host".
+    /// </summary>
+    private async Task<PendingCertificateRequest?> FindRequestAsync(string name, CancellationToken cancellationToken)
+    {
+        if (await pendingRequests.GetAsync(name, cancellationToken).ConfigureAwait(false) is { } exact)
+        {
+            return exact;
+        }
+
+        if (ManagedCertificateNames.IsAdditional(name))
+        {
+            return null;
+        }
+
+        var onSite = (await pendingRequests.GetAllAsync(cancellationToken).ConfigureAwait(false))
+            .Where(request => string.Equals(ManagedCertificateNames.IisSiteOf(request.SiteName), name.Trim(), StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        return onSite.Length switch
+        {
+            0 => null,
+            1 => onSite[0],
+            _ => throw new InvalidOperationException(
+                $"IIS site '{name.Trim()}' has {onSite.Length} pending certificate requests " +
+                $"({string.Join(", ", onSite.Select(request => $"'{request.SiteName}'"))}). Choose one by its name (--site in the CLI).")
+        };
+    }
 
     private static IReadOnlyList<string> NormalizeHosts(IReadOnlyList<string> hosts)
     {

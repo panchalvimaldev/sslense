@@ -14,10 +14,14 @@ internal sealed class CertificateOperationLock(IFileSystem fileSystem) : ICertif
     public IAsyncDisposable? TryAcquire(string siteName) =>
         fileSystem.TryAcquireExclusiveFileLock(GetLockPath(siteName));
 
+    /// <summary>
+    /// One lock per IIS site: every certificate on a site changes that site's bindings, so they take turns
+    /// (docs/design/multiple-certificates-per-site.md).
+    /// </summary>
     private static string GetLockPath(string siteName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(siteName);
-        var normalizedName = siteName.Trim().ToUpperInvariant();
+        var normalizedName = ManagedCertificateNames.IisSiteOf(siteName).ToUpperInvariant();
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalizedName)));
         return Path.Combine(AppPaths.OperationLockDirectory, $"{hash}.lock");
     }
@@ -85,9 +89,11 @@ internal static class CertificateOperationLockExtensions
     }
 
     private static IEnumerable<string> InLockOrder(IEnumerable<string> siteNames) =>
+        // Two certificates on one site share its lock, which must be taken once.
         siteNames
+            .Select(ManagedCertificateNames.IisSiteOf)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(siteName => siteName.Trim().ToUpperInvariant(), StringComparer.Ordinal);
+            .OrderBy(siteName => siteName.ToUpperInvariant(), StringComparer.Ordinal);
 
     private sealed class AllLocks(List<IAsyncDisposable> held) : IAsyncDisposable
     {

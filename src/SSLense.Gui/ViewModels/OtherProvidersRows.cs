@@ -21,6 +21,9 @@ public sealed class DiscoveredBindingRowViewModel(DiscoveredBinding binding)
     public string Address => $"{(Binding.Host.Length == 0 ? "(no host name)" : Binding.Host)}:{Binding.Port}";
     public string Issuer => Binding.Thumbprint is null ? "No certificate" : Binding.IssuerName ?? "Unknown";
     public DateTime? Expires => Binding.NotAfter?.LocalDateTime;
-    public string Managed => Binding.IsManaged ? "Managed" : string.Empty;
+    /// <summary>"Managed", or the certificate's name when it is one of several on the site.</summary>
+    public string Managed => !Binding.IsManaged ? string.Empty
+        : Binding.ManagedAs is { } name && !string.Equals(name, Binding.SiteName, StringComparison.OrdinalIgnoreCase) ? $"Managed as {name}"
+        : "Managed";
     public bool CanAdopt => Binding.Thumbprint is not null && !Binding.IsManaged;
 }

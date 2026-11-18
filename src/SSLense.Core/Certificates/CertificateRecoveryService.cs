@@ -149,10 +149,7 @@ internal sealed class CertificateRecoveryService(
             return await RecoverSharedAsync(transaction, sites, recovered, cancellationToken).ConfigureAwait(false);
         }
 
-        var site = sites.SingleOrDefault(value => string.Equals(
-            value.Name,
-            certificate.SiteName,
-            StringComparison.OrdinalIgnoreCase));
+        var site = sites.FindSite(certificate.SiteName);
         if (site is null)
         {
             // Nothing can be bound any more; retrying on every start would never succeed.
@@ -192,7 +189,7 @@ internal sealed class CertificateRecoveryService(
         var targets = new List<CertificateTarget>();
         foreach (var target in certificate.AllTargets())
         {
-            var site = sites.FirstOrDefault(value => string.Equals(value.Name, target.SiteName, StringComparison.OrdinalIgnoreCase));
+            var site = sites.FindSite(target.SiteName);
             if (target.PendingSince is not null || site is null)
             {
                 targets.Add(target with { PendingSince = target.PendingSince ?? transaction.StartedAt });

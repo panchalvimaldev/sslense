@@ -97,7 +97,7 @@ internal sealed class RenewalReadinessCheck(
         var failed = new List<string>();
         foreach (var target in certificate.AllTargets())
         {
-            var site = sites.FirstOrDefault(value => string.Equals(value.Name, target.SiteName, StringComparison.OrdinalIgnoreCase));
+            var site = sites.FindSite(target.SiteName);
             if (site is null)
             {
                 failed.Add($"IIS site '{target.SiteName}' no longer exists, so it will be left out.");
