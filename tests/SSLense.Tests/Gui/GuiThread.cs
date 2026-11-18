@@ -12,14 +12,21 @@ internal static class GuiThread
 {
     private static readonly Lazy<Dispatcher> Dispatcher = new(Start);
 
+    // One test at a time: while a test waits on the UI thread, WPF would otherwise run another test's work in the
+    // middle of it, which can close its window or change what it shows.
+    private static readonly object OneAtATime = new();
+
     public static void Run(Action action)
     {
         ExceptionDispatchInfo? failure = null;
-        Dispatcher.Value.Invoke(() =>
+        lock (OneAtATime)
         {
-            try { action(); }
-            catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); }
-        });
+            Dispatcher.Value.Invoke(() =>
+            {
+                try { action(); }
+                catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); }
+            });
+        }
         failure?.Throw();
     }
 
@@ -32,7 +39,9 @@ internal static class GuiThread
             dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
             SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(dispatcher));
             // The app's own resources (styles, brushes), which the screens use.
-            new App().InitializeComponent();
+            // Kept running for every test: by default WPF shuts the app down when its last window closes, after which
+            // no screen can load, so whether a test passed would depend on which tests closed windows before it.
+            new App { ShutdownMode = System.Windows.ShutdownMode.OnExplicitShutdown }.InitializeComponent();
             ready.Set();
             System.Windows.Threading.Dispatcher.Run();
         })
