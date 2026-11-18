@@ -170,6 +170,14 @@ public partial class SettingsViewModel : ObservableObject
     public IReadOnlyList<HourOption> Hours { get; } = Enumerable.Range(0, 24).Select(hour => new HourOption(hour)).ToArray();
     public IReadOnlyList<string> WeeklySummaryOptions { get; } = ["Off", .. Enum.GetNames<DayOfWeek>()];
     public IAsyncRelayCommand SaveRemindersCommand { get; }
+
+    /// <summary>Shown under Start reminding, and asked about before saving, when the value is unusually long.</summary>
+    public string? LongStartWarning => new ReminderConfig { StartDays = ReminderStartDays }.LongStartWarning;
+
+    partial void OnReminderStartDaysChanged(int value) => OnPropertyChanged(nameof(LongStartWarning));
+
+    /// <summary>Asks the person a yes/no question; the view shows a dialog. Without a view, the answer is yes.</summary>
+    public Func<string, bool> Confirm { get; set; } = _ => true;
     public IAsyncRelayCommand SendSampleReminderCommand { get; }
     public IAsyncRelayCommand AddDnsProviderCommand { get; }
     public IAsyncRelayCommand TestDnsProviderCommand { get; }
@@ -530,6 +538,12 @@ public partial class SettingsViewModel : ObservableObject
 
     private Task SaveRemindersAsync(CancellationToken token) => RunAsync(async ct =>
     {
+        if (LongStartWarning is { } warning && !Confirm($"{warning}\n\nSave {ReminderStartDays} days anyway?"))
+        {
+            ResultMessage = "Reminder settings not saved.";
+            return;
+        }
+
         await _reminderService.SaveSettingsAsync(
                 new ReminderConfig
                 {

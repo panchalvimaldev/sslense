@@ -23,7 +23,12 @@ public partial class SettingsView : UserControl
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
         if (e.OldValue is SettingsViewModel oldViewModel) oldViewModel.PropertyChanged -= OnViewModelPropertyChanged;
-        if (e.NewValue is SettingsViewModel newViewModel) newViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        if (e.NewValue is SettingsViewModel newViewModel)
+        {
+            newViewModel.PropertyChanged += OnViewModelPropertyChanged;
+            newViewModel.Confirm = question =>
+                MessageBox.Show(question, "Start reminding", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+        }
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)

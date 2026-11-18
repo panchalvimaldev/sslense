@@ -1808,22 +1808,21 @@ static async Task<int> SetRemindersAsync(
     try
     {
         var current = (await reminders.GetOverviewAsync(token).ConfigureAwait(false)).Settings;
-        await reminders.SaveSettingsAsync(
-                current with
-                {
-                    StartDays = startDays ?? current.StartDays,
-                    RepeatDays = repeatDays ?? current.RepeatDays,
-                    SendAtHour = sendAt ?? current.SendAtHour,
-                    UpcomingRenewalNotices = notices is null ? current.UpcomingRenewalNotices : notices == "on",
-                    RepeatAutomaticReminders = repeatAutomatic is null ? current.RepeatAutomaticReminders : repeatAutomatic == "on",
-                    ProactiveChecks = checks is null ? current.ProactiveChecks : checks == "on",
-                    WeeklySummaryDay = weekly is null
-                        ? current.WeeklySummaryDay
-                        : weekly == "off" ? null : Enum.Parse<DayOfWeek>(weekly, ignoreCase: true)
-                },
-                token)
-            .ConfigureAwait(false);
+        var updated = current with
+        {
+            StartDays = startDays ?? current.StartDays,
+            RepeatDays = repeatDays ?? current.RepeatDays,
+            SendAtHour = sendAt ?? current.SendAtHour,
+            UpcomingRenewalNotices = notices is null ? current.UpcomingRenewalNotices : notices == "on",
+            RepeatAutomaticReminders = repeatAutomatic is null ? current.RepeatAutomaticReminders : repeatAutomatic == "on",
+            ProactiveChecks = checks is null ? current.ProactiveChecks : checks == "on",
+            WeeklySummaryDay = weekly is null
+                ? current.WeeklySummaryDay
+                : weekly == "off" ? null : Enum.Parse<DayOfWeek>(weekly, ignoreCase: true)
+        };
+        await reminders.SaveSettingsAsync(updated, token).ConfigureAwait(false);
         Console.WriteLine("Reminder settings saved. The service uses them from its next hourly check.");
+        if (updated.LongStartWarning is { } warning) Console.WriteLine($"Note: {warning}");
         return 0;
     }
     catch (Exception exception)

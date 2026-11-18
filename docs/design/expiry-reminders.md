@@ -25,7 +25,7 @@ Failure notifications for automatic renewal stay immediate, as today. They are f
 
 | Setting | Default | Range | Notes |
 |---|---|---|---|
-| Start reminding | 30 days before expiry | 1–365 | Replaces "Renewal threshold" in the GUI. The Let's Encrypt fallback keeps its own lifetime-relative rule. |
+| Start reminding | 30 days before expiry | 1–365 | Replaces "Renewal threshold" in the GUI. The Let's Encrypt fallback keeps its own lifetime-relative rule. Above 90 days the app says what it means (a certificate bought for a year listed for months of it) and asks before saving; `reminders set` prints the same note. |
 | Repeat every | 1 day | 1–30 days | In the last 7 days before expiry, reminders are daily whatever this says. |
 | Send at | 09:00 server local time | any hour | The digest is sent at the first hourly check at or after this time. |
 | Upcoming renewal notices | On | on/off | Section 4.2. |

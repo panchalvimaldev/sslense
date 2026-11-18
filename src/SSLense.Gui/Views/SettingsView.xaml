@@ -108,6 +108,7 @@
      <StackPanel Grid.Column="2" Margin="0,0,24,0"><TextBlock Text="Send at (server time)" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding Hours}" SelectedItem="{Binding ReminderSendAt}" Width="120" AutomationProperties.Name="Send at"/></StackPanel>
      <StackPanel Grid.Column="3"><TextBlock Text="Weekly summary" Style="{StaticResource FieldLabel}"/><ComboBox ItemsSource="{Binding WeeklySummaryOptions}" SelectedItem="{Binding WeeklySummary}" Width="160" HorizontalAlignment="Left" AutomationProperties.Name="Weekly summary day"/></StackPanel>
     </Grid>
+    <TextBlock Text="{Binding LongStartWarning}" Style="{StaticResource WhenSet}" Foreground="{StaticResource WarningBrush}" TextWrapping="Wrap" Margin="0,8,0,0" AutomationProperties.Name="Start reminding warning"/>
     <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,8,0,0"
                Text="Reminders are daily in the last 7 days whatever the repeat says. The weekly summary is sent on that day even when all is well, so silence means something is wrong."/>
     <CheckBox Content="Tell me once when a certificate is about to renew automatically" IsChecked="{Binding UpcomingRenewalNotices}" Margin="0,12,0,0"/>

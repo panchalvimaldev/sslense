@@ -279,7 +279,10 @@ public sealed class ReminderDigestBuilderTests
         Assert.Equal("SSLense: 1 certificate(s) need attention on SERVER01", message.Subject);
         Assert.StartsWith("SAMPLE:", message.Body, StringComparison.Ordinal);
         Assert.True(message.Body.IndexOf("Needs attention", StringComparison.Ordinal) < message.Body.IndexOf("Will renew automatically", StringComparison.Ordinal));
-        Assert.Contains("Order the renewal from Sectigo RSA DV", message.Body, StringComparison.Ordinal);
+        Assert.Contains("(Sectigo RSA DV", message.Body, StringComparison.Ordinal);
+        Assert.Contains("select the certificate in SSLense and use Install renewal", message.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain("Other Providers", message.Body, StringComparison.Ordinal);
+        Assert.EndsWith("select it in SSLense and open its Reminders tab.", message.Body, StringComparison.Ordinal);
         Assert.Contains("SSLense will renew it automatically around 02 Dec 2026", message.Body, StringComparison.Ordinal);
         Assert.Contains("off permanently", message.Body, StringComparison.Ordinal);
     }
