@@ -54,12 +54,12 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
             Save(window, folder, "01-certificates-summary");
 
             certificates.SelectedCertificate = certificates.Certificates.Single(row => row.Title == "www.domain3.co.uk");
-            Settle();
+            WaitForDetails(certificates.Details);
             Assert.Equal("Main/www.domain3.co.uk", certificates.Details.SelectedSite);
             Save(window, folder, "02-certificate-bought-due");
 
             certificates.SelectedCertificate = certificates.Certificates.Single(row => row.Title == "shop.example.com");
-            Settle();
+            WaitForDetails(certificates.Details);
             Save(window, folder, "03-certificate-renewal-failed");
 
             SelectSection(window, "Certificate");
@@ -69,11 +69,11 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
             SelectSection(window, "Reminders");
             Save(window, folder, "05b-reminders-section");
             ClickReminder(window, 3);
-            WaitFor(() => !certificates.Details.IsBusy);
+            WaitFor(() => !certificates.Details.IsBusy && ReminderList(window).SelectedIndex == 3 && certificates.Details.ReminderState.Contains("Off until", StringComparison.Ordinal));
             Assert.Equal(3, ReminderList(window).SelectedIndex);
             Assert.Contains("Off until", certificates.Details.ReminderState, StringComparison.Ordinal);
             ClickReminder(window, 1);
-            WaitFor(() => !certificates.Details.IsBusy);
+            WaitFor(() => !certificates.Details.IsBusy && ReminderList(window).SelectedIndex == 1 && certificates.Details.ReminderState.Contains("Snoozed until", StringComparison.Ordinal));
             Assert.Equal(1, ReminderList(window).SelectedIndex);
             Assert.Contains("Snoozed until", certificates.Details.ReminderState, StringComparison.Ordinal);
             Assert.Null(certificates.Details.ErrorMessage);
@@ -111,6 +111,10 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
             provider.GetRequiredService<SettingsViewModel>().ShowSection("Notifications");
             Settle();
             Save(window, folder, "07b-settings-notifications");
+            provider.GetRequiredService<SettingsViewModel>().ShowSection("Reminders");
+            Settle();
+            Assert.Null(provider.GetRequiredService<SettingsViewModel>().ErrorMessage);
+            Save(window, folder, "07e-settings-reminders");
             provider.GetRequiredService<SettingsViewModel>().ShowSection("Certificate authorities");
             Settle();
             Save(window, folder, "07c-settings-authorities");
@@ -158,6 +162,10 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
         });
         output.WriteLine($"Screens saved to {folder}");
     }
+
+    /// <summary>Waits until the selected certificate and its reminders have loaded, so an image shows them.</summary>
+    private static void WaitForDetails(CertificateDetailsViewModel details) =>
+        WaitFor(() => !details.IsBusy && !string.IsNullOrEmpty(details.ReminderState));
 
     private static ListBox ReminderList(Window window) =>
         Find<ListBox>(window).Single(list => list.IsVisible && System.Windows.Automation.AutomationProperties.GetName(list) == "Reminders for this certificate");
@@ -255,6 +263,8 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
         // Saves like the real store: the next overview shows the new setting.
         reminders.Setup(value => value.GetOverviewAsync(It.IsAny<CancellationToken>()))
             .Returns(async () => { await Task.Delay(40); return new ReminderOverview(new ReminderConfig(), records.ToArray(), null); });
+        reminders.Setup(value => value.GetOutlookAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new ReminderOutlook(Now.AddMinutes(-20), Now.Date.AddDays(1).AddHours(9), Now.Date.AddDays(1).AddHours(9), []));
         reminders.Setup(value => value.SetCertificateRemindersAsync(It.IsAny<string>(), It.IsAny<ReminderMode>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
             .Callback<string, ReminderMode, int?, CancellationToken>((name, mode, days, _) =>
             {
@@ -307,8 +317,15 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
         ]);
         services.AddSingleton(dns.Object);
         var settings = new Mock<ISettingsService> { DefaultValue = DefaultValue.Mock };
-        settings.Setup(value => value.GetAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new AppConfig());
+        settings.Setup(value => value.GetAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new AppConfig { DefaultEmail = "ops@example.com" });
         services.AddSingleton(settings.Object);
+        var notifications = new Mock<SSLense.Core.Notifications.INotificationSettingsService> { DefaultValue = DefaultValue.Mock };
+        notifications.Setup(value => value.GetOverviewAsync(It.IsAny<CancellationToken>())).ReturnsAsync(
+            new SSLense.Core.Notifications.NotificationOverview(
+                new SSLense.Core.Notifications.EmailOverview("smtp.example.com", 587, SmtpSecurity.StartTls, SmtpAuthentication.Password,
+                    "sslense@example.com", true, "sslense@example.com", ["ops@example.com"]),
+                [], null, true, false));
+        services.AddSingleton(notifications.Object);
         var health = new Mock<IHealthCheckService> { DefaultValue = DefaultValue.Mock };
         health.Setup(value => value.RunAsync(It.IsAny<IProgress<SSLense.Core.ProgressEvent>>(), It.IsAny<CancellationToken>())).ReturnsAsync(
         [
@@ -323,7 +340,7 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
         services.AddSingleton(deployment.Object);
         services.AddSingleton(health.Object);
 
-        var configured = new HashSet<Type> { typeof(IRenewalService), typeof(ICertificateManagementService), typeof(IReminderService), typeof(IDeploymentService), typeof(IHealthCheckService), typeof(ISettingsService), typeof(IImportedCertificateService), typeof(IPendingRequestStore), typeof(IIisService), typeof(SSLense.Core.Acme.ICertificateAuthorityService), typeof(SSLense.Core.DnsValidation.IDnsProviderService) };
+        var configured = new HashSet<Type> { typeof(IRenewalService), typeof(ICertificateManagementService), typeof(IReminderService), typeof(IDeploymentService), typeof(IHealthCheckService), typeof(ISettingsService), typeof(SSLense.Core.Notifications.INotificationSettingsService), typeof(IImportedCertificateService), typeof(IPendingRequestStore), typeof(IIisService), typeof(SSLense.Core.Acme.ICertificateAuthorityService), typeof(SSLense.Core.DnsValidation.IDnsProviderService) };
         var coreServices = typeof(MainViewModel).Assembly.GetTypes()
             .Where(type => type.Namespace == typeof(MainViewModel).Namespace && type.IsClass && !type.IsAbstract)
             .SelectMany(type => type.GetConstructors())

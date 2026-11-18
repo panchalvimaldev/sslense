@@ -28,7 +28,7 @@ SSLense is a Windows application for IIS administrators. It gets free Let's Encr
 1. Download the latest `SSLense-<version>-x64.msi` from [Releases](https://github.com/panchalvimaldev/sslense/releases) and run it on the IIS server. It installs the desktop app, the command line, and the renewal service. No separate .NET installation is needed. Releases are not code-signed yet, so Windows SmartScreen may warn; each release lists a SHA-256 checksum to verify the download.
 2. Open **SSLense** from the Start menu.
 3. Then either:
-   - **Let's Encrypt:** **Add certificate** → **Free and automatic**, choose the site and host names, run the pre-flight checks, and issue. Use staging first; production needs an explicit confirmation. With HTTP validation, the site needs a public DNS record and a port 80 binding. For a wildcard, or without port 80, choose DNS validation; see [DNS validation and wildcard certificates](#dns-validation-and-wildcard-certificates).
+   - **Let's Encrypt:** **Add certificate** → **Free and automatic**, choose the site and host names, choose **Check**, and issue. Use staging first; production needs an explicit confirmation. With HTTP validation, the site needs a public DNS record and a port 80 binding. For a wildcard, or without port 80, choose DNS validation; see [DNS validation and wildcard certificates](#dns-validation-and-wildcard-certificates).
    - **A certificate you bought:** **Add certificate** → **It's already installed in IIS** → tick its HTTPS binding → **Watch**. When it is due, select it and choose **Install renewal**.
 4. Under **Settings**, add an email or chat channel and click **Send test**, then check **Settings → Reminders**.
 
@@ -44,6 +44,10 @@ From then on the service renews Let's Encrypt certificates on its own, and the d
 **Add certificate:** first, where the certificate comes from: free and automatic, bought with its file, bought and the provider needs a request (CSR), or already installed in IIS.
 
 ![Add certificate: where the certificate comes from](docs/images/SSLense-OtherProviders.png)
+
+**Install renewal:** select a bought certificate that is due, choose its new PFX or the provider's certificate, and see what will change. Only that certificate's bindings change, even on a site with several certificates.
+
+![Install renewal: what will change before the certificate is replaced](docs/images/SSLense-InstallRenewal.png)
 
 **Settings → Reminders:** when the daily digest starts, how often it repeats, and when it is sent.
 
