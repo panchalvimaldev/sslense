@@ -101,11 +101,7 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
         CancellationToken cancellationToken)
     {
         var context = await OpenAccountAsync(email, authority, cancellationToken).ConfigureAwait(false);
-        var order = await (options.Profile is { } profile
-                ? context.NewOrderWithProfile(hosts.ToList(), profile)
-                : context.NewOrder(hosts.ToArray()))
-            .WaitAsync(cancellationToken)
-            .ConfigureAwait(false);
+        var order = await NewOrderAsync(context, hosts, options, cancellationToken).ConfigureAwait(false);
         var authorizations = await order.Authorizations().WaitAsync(cancellationToken).ConfigureAwait(false);
         var challenges = new List<CertesChallenge>(authorizations.Count());
         foreach (var authorization in authorizations)
@@ -138,11 +134,7 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
         CancellationToken cancellationToken)
     {
         var context = await OpenAccountAsync(email, authority, cancellationToken).ConfigureAwait(false);
-        var order = await (options.Profile is { } profile
-                ? context.NewOrderWithProfile(names.ToList(), profile)
-                : context.NewOrder(names.ToArray()))
-            .WaitAsync(cancellationToken)
-            .ConfigureAwait(false);
+        var order = await NewOrderAsync(context, names, options, cancellationToken).ConfigureAwait(false);
         var authorizations = await order.Authorizations().WaitAsync(cancellationToken).ConfigureAwait(false);
         var challenges = new List<CertesChallenge>(authorizations.Count());
         foreach (var authorization in authorizations)
@@ -211,6 +203,63 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
         // Once the CA accepts the new key, the old one no longer works, so the new key is saved before anything else.
         await context.ChangeKey(newKey).WaitAsync(cancellationToken).ConfigureAwait(false);
         await _accountStore.SaveKeyAsync(authority.Id, newKey.ToPem(), CancellationToken.None).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Creates the order, telling the CA which certificate it replaces when the options say (RFC 9773). That is only a
+    /// hint, so an order the CA refuses with it is created again without it.
+    /// </summary>
+    private static async Task<IOrderContext> NewOrderAsync(
+        IAcmeContext context,
+        IReadOnlyList<string> identifiers,
+        AcmeOrderOptions options,
+        CancellationToken cancellationToken)
+    {
+        if (options.Replaces is { } replaces)
+        {
+            try
+            {
+                return await (options.Profile is { } withProfile
+                        ? context.NewOrderWithProfile(identifiers.ToList(), withProfile, null, null, replaces)
+                        : NewOrderReplacingAsync(context, identifiers, replaces))
+                    .WaitAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is AcmeRequestException or ArgumentException or NotSupportedException)
+            {
+                // For example, the certificate was already replaced, or the CA does not support replaces.
+            }
+        }
+
+        return await (options.Profile is { } profile
+                ? context.NewOrderWithProfile(identifiers.ToList(), profile)
+                : context.NewOrder(identifiers.ToArray()))
+            .WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>A new order with <c>replaces</c> and no profile, which Certes has no method for.</summary>
+    private static async Task<IOrderContext> NewOrderReplacingAsync(IAcmeContext context, IReadOnlyList<string> identifiers, string replaces)
+    {
+        var directory = await context.GetDirectory().ConfigureAwait(false);
+        if (directory.RenewalInfo is null || directory.NewOrder is null)
+        {
+            throw new NotSupportedException("The CA does not support ACME Renewal Information.");
+        }
+
+        var order = new Certes.Acme.Resource.Order
+        {
+            Identifiers = [.. identifiers.Select(value => new Certes.Acme.Resource.Identifier { Type = Certes.Acme.Resource.IdentifierType.Dns, Value = value })],
+            Replaces = replaces
+        };
+        var payload = await context.Sign(order, directory.NewOrder).ConfigureAwait(false);
+        var response = await context.HttpClient.Post<Certes.Acme.Resource.Order>(directory.NewOrder, payload).ConfigureAwait(false);
+        if (response.Error is not null || response.Location is null)
+        {
+            throw new AcmeRequestException(response.Error?.Detail ?? "The CA did not create the order.", response.Error);
+        }
+
+        return context.Order(response.Location);
     }
 
     private async Task<AcmeContext> OpenAccountAsync(

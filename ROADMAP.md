@@ -82,7 +82,7 @@ These keep users' sites safe and make SSLense supportable without paid support. 
 
 ### 5.1 Remaining safety work
 
-- Send the ARI `replaces` field on renewal orders (Certes does not expose it yet).
+- ~~Send the ARI `replaces` field on renewal orders.~~ Done November 19, 2026 ([design](docs/design/ari-replaces.md)).
 - ~~Journal challenge files so an interrupted validation is cleaned up on recovery.~~ Done October 28, 2026.
 - Certificate private-key permissions for IIS application-pool identities (part of item 2 in section 4).
 - Configurable maintenance windows that can never let a certificate expire.

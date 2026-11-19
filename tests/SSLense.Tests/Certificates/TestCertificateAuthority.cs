@@ -15,11 +15,13 @@ internal sealed class TestCertificateAuthority : IDisposable
         var rootRequest = new CertificateRequest("CN=SSLense Test Root", _rootKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         rootRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
         rootRequest.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.KeyCertSign | X509KeyUsageFlags.CrlSign, true));
+        rootRequest.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(rootRequest.PublicKey, false));
         Root = rootRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddYears(-1), DateTimeOffset.UtcNow.AddYears(5));
 
         var intermediateRequest = new CertificateRequest("CN=SSLense Test Intermediate", _intermediateKey, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
         intermediateRequest.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
         intermediateRequest.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.KeyCertSign | X509KeyUsageFlags.CrlSign, true));
+        intermediateRequest.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(intermediateRequest.PublicKey, false));
         using var intermediate = intermediateRequest.Create(Root, DateTimeOffset.UtcNow.AddDays(-300), intermediateExpires ?? DateTimeOffset.UtcNow.AddYears(2), [1, 2, 3, 4]);
         Intermediate = intermediate.CopyWithPrivateKey(_intermediateKey);
     }
@@ -74,6 +76,8 @@ internal sealed class TestCertificateAuthority : IDisposable
     private X509Certificate2 Sign(CertificateRequest request, int validDays, bool serverAuth, DateTimeOffset? notBefore)
     {
         request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
+        // As real CAs do; ACME Renewal Information identifies a certificate by it.
+        request.CertificateExtensions.Add(X509AuthorityKeyIdentifierExtension.CreateFromCertificate(Intermediate, includeKeyIdentifier: true, includeIssuerAndSerial: false));
         if (!request.CertificateExtensions.OfType<X509EnhancedKeyUsageExtension>().Any())
         {
             request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(

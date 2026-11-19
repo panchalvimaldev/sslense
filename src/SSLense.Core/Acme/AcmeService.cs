@@ -228,7 +228,7 @@ internal sealed partial class AcmeService : IAcmeService
                 .ConfigureAwait(false);
         }
 
-        var orderOptions = request.OrderOptions;
+        var orderOptions = request.OrderOptions with { Replaces = await FindReplacedCertificateIdAsync(existingRecord, authority, cancellationToken).ConfigureAwait(false) };
         if (orderOptions.Profile is { } profile)
         {
             await ThrowIfProfileNotOfferedAsync(authority, profile, cancellationToken).ConfigureAwait(false);
@@ -492,6 +492,32 @@ internal sealed partial class AcmeService : IAcmeService
                 ?.Thumbprint;
         }
         catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The ARI identifier of the certificate this order renews (RFC 9773): one SSLense obtained from the same CA. Only a
+    /// hint to the CA, so anything that stops it being read means no hint.
+    /// </summary>
+    private async Task<string?> FindReplacedCertificateIdAsync(
+        ManagedCertificate? existing,
+        CertificateAuthority authority,
+        CancellationToken cancellationToken)
+    {
+        if (existing is not { Source: CertificateSource.Acme } ||
+            !string.Equals(existing.AuthorityId, authority.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var certificate = await _certificateStore.OpenAsync(existing.Thumbprint, cancellationToken).ConfigureAwait(false);
+            return certificate is null ? null : Renewal.AcmeRenewalInfoProvider.CreateCertificateId(certificate);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
             return null;
         }
