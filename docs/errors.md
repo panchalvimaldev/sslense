@@ -924,6 +924,12 @@ Renew it by hand first (Renew by hand, with a new key), then revoke the old cert
 
 SSLense connects to the host and port to read the certificate it serves. Check the name or address, the port, and that this server can reach it through any firewall.
 
+<a id="ssl4054"></a>
+
+### SSL4054: Certificate not removed
+
+Only a certificate that nothing uses, that SSLense does not manage, and that is expired, a test leftover or replaced is removed. List the candidates again.
+
 ## SSL5xxx: Renewal, reminders and the service
 
 <a id="ssl5001"></a>

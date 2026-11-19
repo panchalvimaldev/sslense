@@ -62,6 +62,7 @@ public static class DependencyInjection
         services.AddTransient<IIisService, IisService>();
         services.AddTransient<ICertificateSharingService, CertificateSharingService>();
         services.AddTransient<IRevocationService, RevocationService>();
+        services.AddTransient<ICertificateCleanupService, CertificateCleanupService>();
         services.AddTransient<IBulkService, BulkService>();
         services.AddSingleton<SSLense.Core.Diagnostics.IUpdateCheckService, SSLense.Core.Diagnostics.UpdateCheckService>();
         services.AddSingleton<IRemoteCertificateReader, RemoteCertificateReader>();

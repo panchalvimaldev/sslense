@@ -248,3 +248,4 @@ SSL1030 RedirectNeedsHttps
 SSL1031 RedirectBlocksValidation
 SSL6029 BulkFileInvalid
 SSL9007 UpdateAvailable
+SSL4054 CleanupRefused

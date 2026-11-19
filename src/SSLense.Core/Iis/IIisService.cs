@@ -62,6 +62,10 @@ public interface IIisService
     /// <summary>Adds or removes SSLense's HTTP-to-HTTPS rule in the site's configuration.</summary>
     Task SetHttpsRedirectAsync(string siteName, bool enabled, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("This IIS service cannot change redirects.");
+
+    /// <summary>Thumbprints HTTP.sys binds outside IIS, such as WinRM or ADFS, from "netsh http show sslcert".</summary>
+    Task<IReadOnlyList<string>> GetHttpSysCertificateThumbprintsAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<string>>([]);
 }
 
 public enum HttpsRedirectState

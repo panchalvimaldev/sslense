@@ -389,6 +389,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     rootCommand.Subcommands.Add(CreateWindowCommand(services));
     rootCommand.Subcommands.Add(CreateRevokeCommand(services));
     rootCommand.Subcommands.Add(CreateAccountCommand(services));
+    rootCommand.Subcommands.Add(CreateCleanupCommand(services));
     rootCommand.Subcommands.Add(CreateBulkCommand(services));
     rootCommand.Subcommands.Add(CreateVersionCommand(services));
     rootCommand.Subcommands.Add(CreateWatchCommand(services));
@@ -1829,6 +1830,65 @@ static Command CreateVersionCommand(IServiceProvider services)
             : "No newer release was found, or the check is off (Settings › General).");
         return 0;
     });
+    return command;
+}
+
+// Clean-up of unused certificates (docs/design/certificate-cleanup.md).
+static Command CreateCleanupCommand(IServiceProvider services)
+{
+    var command = new Command("cleanup", "Certificates in LocalMachine\\My that nothing uses and that are expired, test leftovers or replaced.");
+    var listCommand = new Command("list", "List the candidates. Nothing is removed.");
+    listCommand.SetAction(async (_, token) =>
+    {
+        try
+        {
+            var candidates = await services.GetRequiredService<ICertificateCleanupService>().FindAsync(token).ConfigureAwait(false);
+            foreach (var candidate in candidates)
+            {
+                Console.WriteLine($"{candidate.Thumbprint}  {candidate.Name}  ({candidate.Issuer}, expires {candidate.NotAfter:yyyy-MM-dd})");
+                Console.WriteLine($"    {candidate.Reason}");
+            }
+
+            Console.WriteLine(candidates.Count == 0
+                ? "No unused certificates to clean up."
+                : $"{candidates.Count} candidate(s). No IIS or HTTP.sys binding and no SSLense record uses them; check that no other service, such as SQL Server or Exchange, does before removing any.");
+            return 0;
+        }
+        catch (Exception exception)
+        {
+            WriteError(exception);
+            return 1;
+        }
+    });
+    command.Subcommands.Add(listCommand);
+
+    var thumbprintOption = new Option<string>("--thumbprint") { Required = true, Description = "Comma-separated thumbprints from 'cleanup list'." };
+    var yesOption = new Option<bool>("--yes") { Description = "Confirm: removed certificates cannot be restored unless you have a copy." };
+    var removeCommand = new Command("remove", "Remove the chosen candidates. Each is checked again first.");
+    removeCommand.Options.Add(thumbprintOption);
+    removeCommand.Options.Add(yesOption);
+    removeCommand.SetAction(async (parseResult, token) =>
+    {
+        if (!parseResult.GetValue(yesOption))
+        {
+            Console.Error.WriteLine("Error: --yes is required, because removed certificates cannot be restored without a copy.");
+            return 1;
+        }
+
+        try
+        {
+            var results = await services.GetRequiredService<ICertificateCleanupService>().RemoveAsync(
+                parseResult.GetRequiredValue(thumbprintOption).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), token).ConfigureAwait(false);
+            foreach (var result in results) Console.WriteLine(result);
+            return results.Any(result => result.StartsWith("SSL", StringComparison.Ordinal)) ? 1 : 0;
+        }
+        catch (Exception exception)
+        {
+            WriteError(exception);
+            return 1;
+        }
+    });
+    command.Subcommands.Add(removeCommand);
     return command;
 }
 
