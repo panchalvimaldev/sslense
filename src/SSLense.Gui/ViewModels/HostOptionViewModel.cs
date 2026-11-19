@@ -12,6 +12,12 @@ public partial class HostOptionViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(BindingStatus))]
     private bool usesDns;
 
+    /// <summary>SSLense answers HTTP-01 itself, so any binding for the host will do (docs/design/self-hosted-http-validation.md).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsReady))]
+    [NotifyPropertyChangedFor(nameof(BindingStatus))]
+    private bool selfHostedHttp;
+
     /// <param name="hasDnsBinding">It has an HTTP or HTTPS binding SSLense can manage; DNS validation needs nothing more.</param>
     public HostOptionViewModel(string host, bool hasHttpBinding, bool hasDnsBinding)
     {
@@ -34,9 +40,11 @@ public partial class HostOptionViewModel : ObservableObject
 
     public bool HasDnsBinding { get; }
 
-    public bool IsReady => UsesDns ? HasDnsBinding : HasHttpBinding;
+    public bool IsReady => UsesDns || SelfHostedHttp ? HasDnsBinding : HasHttpBinding;
 
-    public string BindingStatus => UsesDns
+    public string BindingStatus => SelfHostedHttp && !UsesDns
+        ? HasDnsBinding ? "Ready: SSLense answers on port 80" : "⚠ Needs a real host name binding"
+        : UsesDns
         ? HasDnsBinding ? "Ready for DNS validation" : "⚠ Needs a real host name binding"
         : HasHttpBinding ? "HTTP :80 ready" : "⚠ Missing HTTP :80 binding";
 }

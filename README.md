@@ -178,6 +178,17 @@ dotnet run --project .\src\SSLense.Cli -- renew --site "My IIS Site" --force
 
 SSLense removes an old certificate only after the replacement binding is confirmed and no other IIS binding references the old thumbprint, and, when the certificate has [deployment steps](#deployment-steps-remote-desktop-sql-server-exchange-and-more), after they succeed.
 
+### HTTP validation without a port 80 binding
+
+A site with only HTTPS bindings, or whose port 80 binding belongs to another site, can still use HTTP validation: SSLense answers the challenge itself. In the app, tick **SSLense answers the challenge itself** under HTTP validation; in the CLI, use `--validation http-self`:
+
+```powershell
+SSLense.Cli preflight --site "Shop" --hosts shop.example.com --validation http-self
+SSLense.Cli issue --site "Shop" --hosts shop.example.com --email ops@example.com --validation http-self
+```
+
+SSLense answers `/.well-known/acme-challenge/` on port 80 through HTTP.sys, beside IIS, only while a certificate is validated; IIS keeps serving everything else. The host needs an HTTP or HTTPS binding, and port 80 must still be reachable from the internet. Renewals keep the choice. It also works for a certificate with no IIS site (`--no-site <name> --hosts <host> --validation http-self`). Another program holding port 80 outside HTTP.sys, such as Apache or nginx, prevents it (SSL1028) ([design](docs/design/self-hosted-http-validation.md)).
+
 ### DNS validation and wildcard certificates
 
 Let's Encrypt only issues wildcard certificates through DNS validation. It also suits internal servers and sites that cannot open port 80. There are four ways to use it:

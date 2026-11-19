@@ -10,18 +10,31 @@ namespace SSLense.Core.Validation;
 internal sealed class PreflightService(
     IIisService iisService,
     IFileSystem fileSystem,
-    IDnsChallengeService dnsChallenges) : IPreflightService, IDisposable
+    IDnsChallengeService dnsChallenges,
+    ISelfHostedChallengeServer? selfHostedServer = null) : IPreflightService, IDisposable
 {
     private readonly HttpClient _httpClient = new(new HttpClientHandler { AllowAutoRedirect = false })
     {
         Timeout = TimeSpan.FromSeconds(10)
     };
 
+    public Task<IReadOnlyList<PreflightCheck>> CheckAsync(
+        string siteName,
+        IReadOnlyList<string> hosts,
+        CancellationToken cancellationToken = default) =>
+        CheckAsync(siteName, hosts, selfHosted: false, cancellationToken);
+
     public async Task<IReadOnlyList<PreflightCheck>> CheckAsync(
         string siteName,
         IReadOnlyList<string> hosts,
+        bool selfHosted,
         CancellationToken cancellationToken = default)
     {
+        if (selfHosted)
+        {
+            return await CheckSelfHostedAsync(siteName, hosts, cancellationToken).ConfigureAwait(false);
+        }
+
         ArgumentException.ThrowIfNullOrWhiteSpace(siteName);
         if (hosts.Count == 0)
         {
@@ -188,6 +201,92 @@ internal sealed class PreflightService(
         }
 
         results.Add(await CheckDnsRecordsAsync(request, names, cancellationToken).ConfigureAwait(false));
+        return results;
+    }
+
+    /// <summary>
+    /// SSLense answers the challenge: each host needs a binding SSLense manages, and SSLense must be able to answer on
+    /// port 80, which is tested by serving a test token and fetching it through each host name.
+    /// </summary>
+    private async Task<IReadOnlyList<PreflightCheck>> CheckSelfHostedAsync(
+        string siteName,
+        IReadOnlyList<string> hosts,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(siteName);
+        if (hosts.Count == 0)
+        {
+            throw new ArgumentException(ErrorCodes.NoHostNamesGiven.Format("Select at least one host name."), nameof(hosts));
+        }
+
+        var isAdministrator = WindowsElevation.IsAdministrator();
+        var results = new List<PreflightCheck>
+        {
+            new("Administrator", isAdministrator, isAdministrator ? "SSLense is elevated." : ErrorCodes.NotAdministrator.Format("Run SSLense as Administrator."))
+        };
+
+        var sites = await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
+        var site = sites.FindSite(siteName);
+        if (site is null)
+        {
+            results.Add(new PreflightCheck("IIS site", false, ErrorCodes.IisSiteNotFound.Format($"IIS site '{siteName}' was not found.")));
+            return results;
+        }
+
+        results.Add(new PreflightCheck("IIS site", true, $"IIS site '{site.Name}' was found."));
+        foreach (var host in hosts)
+        {
+            var hasBinding = site.Bindings.Any(binding =>
+                binding.Protocol is "http" or "https" && string.Equals(binding.HostName, host, StringComparison.OrdinalIgnoreCase));
+            results.Add(new PreflightCheck(
+                $"IIS binding: {host}",
+                hasBinding,
+                hasBinding ? "The binding exists. SSLense answers the challenge itself, so port 80 needs no binding." : ErrorCodes.HostHasNoBinding.Format("Add an IIS HTTP or HTTPS binding for this host.")));
+        }
+
+        if (selfHostedServer is null)
+        {
+            results.Add(new PreflightCheck("Port 80", false, ErrorCodes.SelfHostedPortUnavailable.Format("SSLense cannot answer on port 80 in this process.")));
+            return results;
+        }
+
+        var token = $"sslense-check-{Guid.NewGuid():N}";
+        var expected = Guid.NewGuid().ToString("N");
+        IAsyncDisposable serving;
+        try
+        {
+            serving = await selfHostedServer.ServeAsync(new Acme.AcmeHttpChallenge(hosts[0], token, expected), cancellationToken).ConfigureAwait(false);
+        }
+        catch (SslenseException exception)
+        {
+            results.Add(new PreflightCheck("Port 80", false, exception.Message));
+            return results;
+        }
+
+        await using (serving.ConfigureAwait(false))
+        {
+            results.Add(new PreflightCheck("Port 80", true, "SSLense can answer on port 80 through HTTP.sys, beside IIS."));
+            foreach (var host in hosts)
+            {
+                var name = $"HTTP reachability: {host}";
+                try
+                {
+                    var body = await _httpClient.GetStringAsync(new UriBuilder(Uri.UriSchemeHttp, host, 80, $"/.well-known/acme-challenge/{token}").Uri, cancellationToken)
+                        .ConfigureAwait(false);
+                    results.Add(body.Trim() == expected
+                        ? new PreflightCheck(name, true, "SSLense answered a test challenge through this host name.")
+                        : new PreflightCheck(name, false, ErrorCodes.ChallengeSelfCheckContent.Format("Another server answered for this host name on port 80. Check DNS, proxies and NAT.")));
+                }
+                catch (Exception exception) when (
+                    exception is HttpRequestException ||
+                    exception is TaskCanceledException && !cancellationToken.IsCancellationRequested)
+                {
+                    results.Add(new PreflightCheck(name, false,
+                        ErrorCodes.ChallengeSelfCheckUnreachable.Format("Could not reach the host on port 80. Check DNS, the firewall and NAT for inbound port 80.")));
+                }
+            }
+        }
+
         return results;
     }
 

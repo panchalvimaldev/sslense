@@ -100,6 +100,7 @@ internal sealed class RevocationService(
                         Profile: record.Profile,
                         // The old key may be the one that leaked, so the replacement never reuses it.
                         ReuseKey: false,
+                        SelfHostedHttp: record.SelfHostedHttp,
                         // Confirmed when the certificate was first issued from this CA.
                         AcceptProductionRisk: true),
                     progress,

@@ -87,6 +87,9 @@ public static class ErrorCodes
     public static readonly ErrorCode ServedCertificateExpired = new("SSL1027", nameof(ServedCertificateExpired), "Site serves an expired certificate",
         "The site serves the certificate SSLense expects, but it has expired. Renew it now.");
 
+    public static readonly ErrorCode SelfHostedPortUnavailable = new("SSL1028", nameof(SelfHostedPortUnavailable), "SSLense cannot answer on port 80",
+        "SSLense answers the challenge through HTTP.sys, which IIS also uses. Run SSLense as Administrator. If another program, such as Apache or nginx, holds port 80 outside HTTP.sys, stop it during validation or use DNS validation.");
+
     public static readonly ErrorCode ProductionNotConfirmed = new("SSL2001", nameof(ProductionNotConfirmed), "Production certificate authority not confirmed",
         "Try the site with Let's Encrypt staging first, then confirm production in the app or with --accept-production-risk.");
 
@@ -553,7 +556,7 @@ public static class ErrorCodes
         "Give the names the certificate covers, such as rdp.example.com.");
 
     public static readonly ErrorCode NoSiteNeedsDns = new("SSL6015", nameof(NoSiteNeedsDns), "Certificate with no IIS site needs DNS validation",
-        "HTTP validation needs a site to serve the file. Choose a DNS validation method.");
+        "HTTP validation needs a site to serve the file, unless SSLense answers the challenge itself. Choose a DNS validation method, or HTTP answered by SSLense.");
 
     public static readonly ErrorCode InvalidCertificateName = new("SSL6016", nameof(InvalidCertificateName), "Name not allowed",
         "Use letters, digits, spaces, dots, hyphens, underscores and brackets, up to 100 characters.");
@@ -753,6 +756,7 @@ public static class ErrorCodes
         ServedHostUnreachable,
         ChallengeFolderNotWritable,
         ServedCertificateExpired,
+        SelfHostedPortUnavailable,
         ProductionNotConfirmed,
         CertificateAuthorityUnreachable,
         AcmeUnexpectedChallenges,

@@ -51,6 +51,7 @@ public partial class IssueCertificateViewModel : ObservableObject
     [ObservableProperty] private string profile = string.Empty;
     [ObservableProperty] private bool reuseKey;
     [ObservableProperty] private string noSiteName = string.Empty;
+    [ObservableProperty] private bool selfHostedHttp;
 
     /// <summary>Which certificate the selected host names add or replace, on a site that already has certificates.</summary>
     [ObservableProperty]
@@ -337,7 +338,7 @@ public partial class IssueCertificateViewModel : ObservableObject
                 var dnsReady = !name.Contains('*') && value.Site.Bindings.Any(binding =>
                     binding.Protocol is "http" or "https" &&
                     string.Equals(binding.HostName, name, StringComparison.OrdinalIgnoreCase));
-                var option = new HostOptionViewModel(name, ready, dnsReady) { UsesDns = UsesDns };
+                var option = new HostOptionViewModel(name, ready, dnsReady) { UsesDns = UsesDns, SelfHostedHttp = SelfHostedHttp };
                 option.PropertyChanged += OnHostPropertyChanged;
                 Hosts.Add(option);
             }
@@ -401,6 +402,18 @@ public partial class IssueCertificateViewModel : ObservableObject
             Outcome = exception.Message;
             HasOutcomeProblem = true;
         }
+    }
+
+    partial void OnSelfHostedHttpChanged(bool value)
+    {
+        foreach (var host in Hosts)
+        {
+            host.SelfHostedHttp = value;
+        }
+
+        MarkOwners(resetSelection: true);
+        PreflightPassed = false;
+        NotifyCommands();
     }
 
     partial void OnSelectedValidationChanged(ValidationMethod value)
@@ -480,7 +493,9 @@ public partial class IssueCertificateViewModel : ObservableObject
                 ? await _preflightService.CheckDnsAsync(
                     new DnsPreflightRequest(CertificateName(), NoSite ? [] : SelectedHosts(), SelectedNames(), SelectedValidation, SelectedAuthorityId(), NoSite),
                     token).ConfigureAwait(true)
-                : await _preflightService.CheckAsync(SelectedSite!.Name, SelectedHosts(), token).ConfigureAwait(true);
+                : SelfHostedHttp
+                    ? await _preflightService.CheckAsync(SelectedSite!.Name, SelectedHosts(), selfHosted: true, token).ConfigureAwait(true)
+                    : await _preflightService.CheckAsync(SelectedSite!.Name, SelectedHosts(), token).ConfigureAwait(true);
             foreach (var check in checks)
             {
                 PreflightChecks.Add(new PreflightCheckViewModel(check));
@@ -516,7 +531,8 @@ public partial class IssueCertificateViewModel : ObservableObject
                     KeyType: _renewing?.KeyType ?? SelectedKeyType?.Type ?? CertificateKeyType.EcdsaP256,
                     PreferredChain: _renewing is not null ? _renewing.PreferredChain : PreferredChain,
                     Profile: _renewing is not null ? _renewing.Profile : Profile,
-                    ReuseKey: _renewing?.ReuseKey ?? ReuseKey),
+                    ReuseKey: _renewing?.ReuseKey ?? ReuseKey,
+                    SelfHostedHttp: !UsesDns && SelfHostedHttp),
                 new Progress<ProgressEvent>(value =>
                     ProgressLines.Add($"[{DateTime.Now:HH:mm:ss}] [{value.Step}] {value.Message}")),
                 token).ConfigureAwait(true);

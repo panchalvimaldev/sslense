@@ -238,3 +238,4 @@ SSL2030 RevocationFailed
 SSL2031 NoAcmeAccount
 SSL4051 RevokeBoughtCertificate
 SSL4052 RevokeManualDnsCertificate
+SSL1028 SelfHostedPortUnavailable

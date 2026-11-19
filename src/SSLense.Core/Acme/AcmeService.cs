@@ -18,6 +18,10 @@ internal sealed partial class AcmeService : IAcmeService
     private readonly IAcmeProtocolClient _protocolClient;
     private readonly IChallengeHandler _challengeHandler;
     private readonly IChallengeProbe _challengeProbe;
+    private readonly ISelfHostedChallengeServer _selfHosted;
+
+    /// <summary>One per process: HTTP.sys allows one registration of the challenge path.</summary>
+    private static readonly Lazy<ISelfHostedChallengeServer> DefaultSelfHosted = new(() => new SelfHostedChallengeServer());
     private readonly ICertificateArtifactStore _artifactStore;
     private readonly ICertificateStore _certificateStore;
     private readonly IManagedCertificateStore _managedCertificateStore;
@@ -43,8 +47,10 @@ internal sealed partial class AcmeService : IAcmeService
         IDnsChallengeService? dnsChallenges = null,
         ICertificateAuthorityLock? authorityLock = null,
         IDeploymentRunner? deployment = null,
-        IAcmeDirectoryReader? directoryReader = null)
+        IAcmeDirectoryReader? directoryReader = null,
+        ISelfHostedChallengeServer? selfHosted = null)
     {
+        _selfHosted = selfHosted ?? DefaultSelfHosted.Value;
         _directoryReader = directoryReader;
         _deployment = deployment;
         _authorityLock = authorityLock ?? NoOpCertificateAuthorityLock.Instance;
@@ -89,6 +95,8 @@ internal sealed partial class AcmeService : IAcmeService
 
         var environmentName = CertificateAuthorities.Label(authority.Id);
         var usesDns = request.ValidationMethod != ValidationMethod.Http01;
+        // SSLense answers HTTP-01 on port 80 itself, so the site needs any binding for the host, and no folder.
+        var selfHosted = !usesDns && request.SelfHostedHttp;
 
         progress?.Report(new ProgressEvent("preflight", usesDns
             ? "Checking the IIS site and its bindings."
@@ -138,19 +146,22 @@ internal sealed partial class AcmeService : IAcmeService
 
         // A deleted site does not hold back the others that share its certificate; the plan below leaves it out.
         site ??= new IisSite(0, sharedRecord!.SiteName, "Missing", null, []);
-        if (!usesDns && string.IsNullOrWhiteSpace(site.PhysicalPath))
+        if (!usesDns && !selfHosted && string.IsNullOrWhiteSpace(site.PhysicalPath))
         {
             throw new SslenseException(ErrorCodes.IisSiteNoPhysicalPath, $"IIS site '{site.Name}' has no physical root path.");
         }
 
         // DNS validation never reaches the site, so port 80 is needed only for HTTP-01.
-        bool IsUsableBinding(IisBinding binding) => usesDns
+        bool IsUsableBinding(IisBinding binding) => usesDns || selfHosted
             ? string.Equals(binding.Protocol, "http", StringComparison.OrdinalIgnoreCase) ||
               string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase)
             : string.Equals(binding.Protocol, "http", StringComparison.OrdinalIgnoreCase) && binding.Port == 80;
 
         // Without a site there are no bindings to take hosts from: the certificate covers the names given.
-        var requestedNames = NormalizeCertificateNames(request.NoSite ? request.CertificateNames ?? request.Hosts : request.CertificateNames, usesDns);
+        // Answered by SSLense, a certificate with no site covers real host names, checked as such: no wildcards.
+        var requestedNames = request.NoSite && selfHosted
+            ? NormalizeAndValidateHosts(request.CertificateNames ?? request.Hosts, "Give the host names the certificate covers, such as --names rdp.example.com.")
+            : NormalizeCertificateNames(request.NoSite ? request.CertificateNames ?? request.Hosts : request.CertificateNames, usesDns);
         if (request.NoSite && requestedNames is null)
         {
             throw new ArgumentException(ErrorCodes.NoSiteNamesMissing.Format("Give the names the certificate covers, such as --names rdp.example.com."), nameof(request));
@@ -174,7 +185,7 @@ internal sealed partial class AcmeService : IAcmeService
             requestedHosts,
             requestedNames is not null
                 ? $"No host names were supplied and the IIS site has no named HTTP or HTTPS bindings that {string.Join(", ", requestedNames)} covers."
-                : usesDns
+                : usesDns || selfHosted
                     ? "No host names were supplied and the IIS site has no named HTTP or HTTPS bindings."
                     : "No host names were supplied and the IIS site has no named HTTP bindings on port 80.");
         // The certificate these host names belong to: the one named, the one on the site that has them, or a new one.
@@ -201,7 +212,7 @@ internal sealed partial class AcmeService : IAcmeService
                 string.Equals(NormalizeHost(binding.HostName), host, StringComparison.OrdinalIgnoreCase));
             if (!hasBinding)
             {
-                throw new SslenseException(ErrorCodes.HostHasNoBinding, usesDns
+                throw new SslenseException(ErrorCodes.HostHasNoBinding, usesDns || selfHosted
                     ? $"Host name '{host}' does not have an HTTP or HTTPS binding for IIS site '{site.Name}'."
                     : $"Host name '{host}' does not have an HTTP binding on port 80 for IIS site '{site.Name}'.");
             }
@@ -264,7 +275,7 @@ internal sealed partial class AcmeService : IAcmeService
         }
         else
         {
-            await CompleteHttpChallengesAsync(order, site.Name, site.PhysicalPath!, hosts, environmentName, progress, cancellationToken)
+            await CompleteHttpChallengesAsync(order, site.Name, site.PhysicalPath ?? string.Empty, hosts, selfHosted, environmentName, progress, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -329,7 +340,7 @@ internal sealed partial class AcmeService : IAcmeService
                 preparedRecord = preparedRecord with { ExportableKey = true };
             }
 
-            preparedRecord = preparedRecord with { ReuseKey = request.ReuseKey };
+            preparedRecord = preparedRecord with { ReuseKey = request.ReuseKey, SelfHostedHttp = selfHosted };
             preparedRecord = preparedRecord with
             {
                 KeyType = orderOptions.KeyType,
@@ -583,6 +594,7 @@ internal sealed partial class AcmeService : IAcmeService
         string siteName,
         string sitePhysicalPath,
         IReadOnlyList<string> hosts,
+        bool selfHosted,
         string environmentName,
         IProgress<ProgressEvent>? progress,
         CancellationToken cancellationToken)
@@ -601,8 +613,9 @@ internal sealed partial class AcmeService : IAcmeService
             }
 
             progress?.Report(new ProgressEvent("challenge", $"Preparing HTTP-01 for {challenge.Host}."));
-            await using var cleanup = await _challengeHandler
-                .PrepareAsync(siteName, sitePhysicalPath, challenge, cancellationToken)
+            await using var cleanup = await (selfHosted
+                    ? _selfHosted.ServeAsync(challenge, cancellationToken)
+                    : _challengeHandler.PrepareAsync(siteName, sitePhysicalPath, challenge, cancellationToken))
                 .ConfigureAwait(false);
 
             progress?.Report(new ProgressEvent("self-check", $"Checking HTTP access for {challenge.Host}."));
@@ -1086,10 +1099,10 @@ internal sealed partial class AcmeService : IAcmeService
 
         if (request.NoSite)
         {
-            if (request.ValidationMethod == ValidationMethod.Http01)
+            if (request.ValidationMethod == ValidationMethod.Http01 && !request.SelfHostedHttp)
             {
                 throw new ArgumentException(
-                    ErrorCodes.NoSiteNeedsDns.Format("A certificate with no IIS site needs DNS validation: HTTP validation needs a site to serve the file."), nameof(request));
+                    ErrorCodes.NoSiteNeedsDns.Format("A certificate with no IIS site needs DNS validation, or HTTP validation answered by SSLense: there is no site to serve the file."), nameof(request));
             }
 
             if (!NoSiteName().IsMatch(request.SiteName.Trim()))

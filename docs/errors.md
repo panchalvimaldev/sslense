@@ -168,6 +168,12 @@ SSLense could not write to the site's .well-known\acme-challenge folder. Run SSL
 
 The site serves the certificate SSLense expects, but it has expired. Renew it now.
 
+<a id="ssl1028"></a>
+
+### SSL1028: SSLense cannot answer on port 80
+
+SSLense answers the challenge through HTTP.sys, which IIS also uses. Run SSLense as Administrator. If another program, such as Apache or nginx, holds port 80 outside HTTP.sys, stop it during validation or use DNS validation.
+
 ## SSL2xxx: ACME and certificate authorities
 
 <a id="ssl2001"></a>
@@ -1112,7 +1118,7 @@ Give the names the certificate covers, such as rdp.example.com.
 
 ### SSL6015: Certificate with no IIS site needs DNS validation
 
-HTTP validation needs a site to serve the file. Choose a DNS validation method.
+HTTP validation needs a site to serve the file, unless SSLense answers the challenge itself. Choose a DNS validation method, or HTTP answered by SSLense.
 
 <a id="ssl6016"></a>
 
