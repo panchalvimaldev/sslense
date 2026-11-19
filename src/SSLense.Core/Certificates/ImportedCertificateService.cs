@@ -548,7 +548,15 @@ internal sealed class ImportedCertificateService(
         var names = new SubjectAlternativeNameBuilder();
         foreach (var host in hosts)
         {
-            names.AddDnsName(host);
+            // An IP address goes in as one, not as a DNS name (RFC 8738).
+            if (Uri.CheckHostName(host) is UriHostNameType.IPv4 or UriHostNameType.IPv6 && System.Net.IPAddress.TryParse(host, out var address))
+            {
+                names.AddIpAddress(address);
+            }
+            else
+            {
+                names.AddDnsName(host);
+            }
         }
 
         request.CertificateExtensions.Add(names.Build());

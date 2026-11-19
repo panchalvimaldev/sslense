@@ -208,14 +208,15 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
                     var binding = FindHttpsBinding(site, host);
                     if (binding is null)
                     {
+                        // An IP address is bound by address, without SNI (docs/design/ip-certificates.md).
                         binding = site.Bindings.Add(
-                            $"*:443:{host}",
+                            IsIpAddress(host) ? $"{BindingAddress(host)}:443:" : $"*:443:{host}",
                             certificateHash,
                             certificateStoreName,
-                            SslFlags.Sni);
+                            IsIpAddress(host) ? SslFlags.None : SslFlags.Sni);
                         changes.Add(new HttpsBindingChange(host, WasAdded: true, binding.BindingInformation, null, null, (int)SslFlags.None));
                     }
-                    else if (!AlreadyUses(binding, certificateHash, certificateStoreName))
+                    else if (!AlreadyUses(binding, host, certificateHash, certificateStoreName))
                     {
                         changes.Add(new HttpsBindingChange(
                             host,
@@ -228,7 +229,9 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
                         binding.CertificateStoreName = certificateStoreName;
 
                         // Keep unrelated flags such as DisableHTTP2; SSLense binds from the store, not the CCS.
-                        binding.SslFlags = (binding.SslFlags | SslFlags.Sni) & ~SslFlags.CentralCertStore;
+                        binding.SslFlags = IsIpAddress(host)
+                            ? binding.SslFlags & ~SslFlags.Sni & ~SslFlags.CentralCertStore
+                            : (binding.SslFlags | SslFlags.Sni) & ~SslFlags.CentralCertStore;
                     }
 
                     probeTargets.Add((ParseBindingInformation(binding.BindingInformation).IpAddress, host));
@@ -251,7 +254,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
                 if (binding.CertificateHash is null ||
                     !binding.CertificateHash.SequenceEqual(certificateHash) ||
                     !string.Equals(binding.CertificateStoreName, certificateStoreName, StringComparison.OrdinalIgnoreCase) ||
-                    (binding.SslFlags & SslFlags.Sni) != SslFlags.Sni)
+                    ((binding.SslFlags & SslFlags.Sni) == SslFlags.Sni) == IsIpAddress(host))
                 {
                     throw new SslenseException(ErrorCodes.HttpsBindingNotRetained, 
                         $"HTTPS binding verification failed for '{host}': IIS did not retain the certificate and SNI settings.");
@@ -438,11 +441,11 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
         return null;
     }
 
-    private static bool AlreadyUses(Binding binding, byte[] certificateHash, string certificateStoreName) =>
+    private static bool AlreadyUses(Binding binding, string host, byte[] certificateHash, string certificateStoreName) =>
         binding.CertificateHash is { } hash &&
         hash.SequenceEqual(certificateHash) &&
         string.Equals(binding.CertificateStoreName, certificateStoreName, StringComparison.OrdinalIgnoreCase) &&
-        (binding.SslFlags & SslFlags.Sni) == SslFlags.Sni &&
+        ((binding.SslFlags & SslFlags.Sni) == SslFlags.Sni) != IsIpAddress(host) &&
         (binding.SslFlags & SslFlags.CentralCertStore) == 0;
 
     public Task RemoveHttpsBindingsAsync(
@@ -611,6 +614,11 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
             ?? throw new SslenseException(ErrorCodes.IisSiteNotFound, $"IIS site '{name}' was not found.");
     }
 
+    private static bool IsIpAddress(string host) => Uri.CheckHostName(host) is UriHostNameType.IPv4 or UriHostNameType.IPv6;
+
+    /// <summary>An address as IIS writes it in a binding: IPv6 in brackets.</summary>
+    private static string BindingAddress(string ip) => Uri.CheckHostName(ip) == UriHostNameType.IPv6 ? $"[{ip}]" : ip;
+
     private static Binding? FindHttpsBinding(Site site, string host) =>
         site.Bindings.FirstOrDefault(binding =>
         {
@@ -619,8 +627,10 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
                 return false;
             }
 
-            var (_, port, bindingHost) = ParseBindingInformation(binding.BindingInformation);
-            return port == 443 && string.Equals(bindingHost, host, StringComparison.OrdinalIgnoreCase);
+            var (address, port, bindingHost) = ParseBindingInformation(binding.BindingInformation);
+            return port == 443 && (IsIpAddress(host)
+                ? bindingHost.Length == 0 && System.Net.IPAddress.TryParse(address.Trim('[', ']'), out var bound) && bound.ToString() == host
+                : string.Equals(bindingHost, host, StringComparison.OrdinalIgnoreCase));
         });
 
     private static void RollBackBindings(string siteName, IReadOnlyList<HttpsBindingChange> changes)

@@ -249,7 +249,11 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
 
         var order = new Certes.Acme.Resource.Order
         {
-            Identifiers = [.. identifiers.Select(value => new Certes.Acme.Resource.Identifier { Type = Certes.Acme.Resource.IdentifierType.Dns, Value = value })],
+            Identifiers = [.. identifiers.Select(value => new Certes.Acme.Resource.Identifier
+            {
+                Type = Uri.CheckHostName(value) is UriHostNameType.IPv4 or UriHostNameType.IPv6 ? Certes.Acme.Resource.IdentifierType.Ip : Certes.Acme.Resource.IdentifierType.Dns,
+                Value = value
+            })],
             Replaces = replaces
         };
         var payload = await context.Sign(order, directory.NewOrder).ConfigureAwait(false);

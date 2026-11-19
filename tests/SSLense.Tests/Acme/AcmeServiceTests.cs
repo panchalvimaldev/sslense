@@ -1002,6 +1002,65 @@ public sealed class AcmeServiceTests
     }
 
     [Fact]
+    public async Task IssueAsync_AnIpAddress_NeedsHttpAnsweredBySslense()
+    {
+        // docs/design/ip-certificates.md
+        var iis = MockIis(new IisSite(1, "My Site", "Started", "C:\\inetpub\\site", [new IisBinding("http", "*", 80, "www.example.com", null, null, false)]));
+        var service = new AcmeService(iis.Object, new Mock<IAcmeProtocolClient>(MockBehavior.Strict).Object, Mock.Of<IChallengeHandler>(),
+            Mock.Of<IChallengeProbe>(), Mock.Of<ICertificateArtifactStore>(), Mock.Of<ICertificateStore>(), EmptyManagedStore());
+
+        var exception = await Assert.ThrowsAnyAsync<SSLense.Core.Errors.SslenseException>(() =>
+            service.IssueAsync(new AcmeIssueRequest("My Site", ["192.0.2.10"], "admin@example.com")));
+
+        Assert.Equal("SSL6027", exception.Code);
+    }
+
+    [Fact]
+    public async Task IssueAsync_AnIpAddressAnsweredBySslense_NeedsNoBinding_AndIsBoundByAddress()
+    {
+        var challenge = new AcmeHttpChallenge("2001:db8::10", "token", "key-authorization");
+        var iis = MockIis(new IisSite(1, "My Site", "Started", null, []));
+        IReadOnlyList<string>? bound = null;
+        iis.Setup(value => value.ConfigureHttpsBindingsAsync("My Site", It.IsAny<IReadOnlyList<string>>(), "AABBCC", "My", It.IsAny<CancellationToken>()))
+            .Callback<string, IReadOnlyList<string>, string, string, CancellationToken>((_, hosts, _, _, _) => bound = hosts)
+            .Returns(Task.CompletedTask);
+        var order = new Mock<IAcmeOrderSession>();
+        order.SetupGet(value => value.Challenges).Returns([challenge]);
+        order.Setup(value => value.FinalizeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(CreateBundle());
+        var protocol = new Mock<IAcmeProtocolClient>();
+        protocol.Setup(value => value.CreateOrderAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateAuthority>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order.Object);
+        var selfHosted = new Mock<ISelfHostedChallengeServer>();
+        selfHosted.Setup(value => value.ServeAsync(challenge, It.IsAny<CancellationToken>())).ReturnsAsync(new TrackingCleanup());
+        var store = new Mock<ICertificateStore>();
+        store.Setup(value => value.ImportPfxAsync(It.IsAny<byte[]>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new InstalledCertificate("AABBCC", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(6), true));
+        var artifacts = new Mock<ICertificateArtifactStore>();
+        artifacts.Setup(value => value.SaveAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateBundle>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AcmeIssueResult("certificate.pem", null, []));
+        var service = new AcmeService(iis.Object, protocol.Object, Mock.Of<IChallengeHandler>(), Mock.Of<IChallengeProbe>(),
+            artifacts.Object, store.Object, EmptyManagedStore(), selfHosted: selfHosted.Object);
+
+        await service.IssueAsync(new AcmeIssueRequest("My Site", ["[2001:DB8:0::10]"], "admin@example.com", SelfHostedHttp: true));
+
+        protocol.Verify(value => value.CreateOrderAsync(It.IsAny<string>(), It.Is<IReadOnlyList<string>>(hosts => hosts.SequenceEqual(new[] { "2001:db8::10" })),
+            It.IsAny<CertificateAuthority>(), It.IsAny<CancellationToken>()));
+        Assert.Equal(["2001:db8::10"], bound);
+    }
+
+    [Fact]
+    public void ARequestSslenseSigns_PutsAnIpAddressInAsOne()
+    {
+        using var key = System.Security.Cryptography.ECDsa.Create();
+        var request = ImportedCertificateService.BuildRequest(key, ["192.0.2.10", "www.example.com"]);
+
+        var names = new System.Security.Cryptography.X509Certificates.X509SubjectAlternativeNameExtension(request.CertificateExtensions.Single(extension => extension.Oid?.Value == "2.5.29.17").RawData);
+        Assert.Equal([System.Net.IPAddress.Parse("192.0.2.10")], names.EnumerateIPAddresses());
+        Assert.Equal(["www.example.com"], names.EnumerateDnsNames());
+    }
+
+    [Fact]
     public async Task IssueAsync_HostsOnly_RecordsNoCertificateNames()
     {
         var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));

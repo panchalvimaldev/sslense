@@ -591,6 +591,9 @@ public static class ErrorCodes
     public static readonly ErrorCode DataFolderPermissions = new("SSL6026", nameof(DataFolderPermissions), "Data folder permissions not safe",
         "SSLense's data folder should be limited to Administrators and SYSTEM. Run SSLense as Administrator once to restore them, or reinstall.");
 
+    public static readonly ErrorCode IpCertificateNeedsHttpSelf = new("SSL6027", nameof(IpCertificateNeedsHttpSelf), "IP address certificates need HTTP answered by SSLense",
+        "A certificate authority validates an IP address over HTTP (or TLS-ALPN), not DNS. Choose HTTP validation with SSLense answering the challenge itself (--validation http-self); Let's Encrypt also needs a short-lived profile, such as --profile shortlived.");
+
     public static readonly ErrorCode ChatRejected = new("SSL7001", nameof(ChatRejected), "Chat message rejected",
         "The chat service refused the message. Check the webhook URL still exists, and send a test.");
 
@@ -927,6 +930,7 @@ public static class ErrorCodes
         SecretUnreadable,
         ConfigurationUnreadable,
         DataFolderPermissions,
+        IpCertificateNeedsHttpSelf,
         ChatRejected,
         SmtpUsernameMissing,
         SmtpPasswordMissing,

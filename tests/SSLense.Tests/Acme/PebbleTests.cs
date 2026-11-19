@@ -407,6 +407,23 @@ public sealed class PebbleTests(PebbleServer pebble) : IClassFixture<PebbleServe
         }
     }
 
+    /// <summary>docs/design/ip-certificates.md: an IP address is ordered as an IP identifier and issued as an IP SAN.</summary>
+    [PebbleFact]
+    public async Task AnIpAddress_IsOrderedAndIssuedAsAnIpAddress()
+    {
+        var order = await Client(new MemoryAccountStore()).CreateOrderAsync(Email, ["192.0.2.10"], Authority(), CancellationToken.None);
+        foreach (var challenge in order.Challenges)
+        {
+            Assert.Equal("192.0.2.10", challenge.Host);
+            await order.ValidateAsync(challenge, CancellationToken.None);
+        }
+
+        using var certificate = X509Certificate2.CreateFromPem((await order.FinalizeAsync("192.0.2.10", "password", CancellationToken.None)).CertificatePem);
+        var names = certificate.Extensions.OfType<X509SubjectAlternativeNameExtension>().Single();
+        Assert.Equal([System.Net.IPAddress.Parse("192.0.2.10")], names.EnumerateIPAddresses());
+        Assert.Empty(names.EnumerateDnsNames());
+    }
+
     private static string[] DnsNames(CertificateBundle bundle)
     {
         using var certificate = X509Certificate2.CreateFromPem(bundle.CertificatePem);
