@@ -560,6 +560,23 @@ public sealed class SharedCertificateTests
         Assert.Equal(["Shop", "Blog"], harness.SavedRecord().AllSiteNames());
     }
 
+    [Theory]
+    [InlineData("Shop", "Blog")]
+    [InlineData("Blog", "Shop")]
+    public async Task Add_WithASiteThatHasSeveralCertificates_IsRefused_EitherWay(string from, string to)
+    {
+        // docs/design/multiple-certificates-per-site.md, section 9.5: Shop has two ACME certificates.
+        var second = SingleSite() with { SiteName = "Shop/www.example.com", Hosts = ["www.example.com"], Thumbprint = "SECOND" };
+        var harness = new SharingHarness([SingleSite(), second, SingleSite(site: "Blog")],
+            Site("Shop", "shop.example.com"), Site("Blog", "blog.example.com"));
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.AddSiteAsync(from, to, []));
+
+        Assert.Contains("'Shop/www.example.com'", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("Issue a certificate for the host names instead", exception.Message, StringComparison.Ordinal);
+        harness.VerifyNothingChanged();
+    }
+
     [Fact]
     public async Task Add_FromAnAdditionalSite_FindsTheSameCertificate()
     {

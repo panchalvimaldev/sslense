@@ -205,7 +205,7 @@ internal sealed class CertificateSharingService(
     private static ManagedCertificate FindOwner(IReadOnlyList<ManagedCertificate> records, string siteName) =>
         records.FirstOrDefault(record => record.ManagesSite(siteName)) ?? throw ManagedCertificateNotFound.Create(siteName, records);
 
-    /// <summary>Phase 1 of docs/design/multiple-certificates-per-site.md: a site with several certificates does not share.</summary>
+    /// <summary>A site with several certificates does not share (docs/design/multiple-certificates-per-site.md, section 9.5).</summary>
     private static void ThrowIfSeveralCertificates(IReadOnlyList<ManagedCertificate> records, string siteName)
     {
         var onSite = ManagedCertificateNames.OnSite(records, siteName);
@@ -213,7 +213,8 @@ internal sealed class CertificateSharingService(
         {
             throw new InvalidOperationException(
                 $"IIS site '{ManagedCertificateNames.IisSiteOf(siteName)}' has several certificates " +
-                $"({string.Join(", ", onSite.Select(record => $"'{record.SiteName}'"))}). Sharing a certificate with such a site is not supported yet.");
+                $"({string.Join(", ", onSite.Select(record => $"'{record.SiteName}'"))}). A site with several certificates cannot share one with other sites. " +
+                "Issue a certificate for the host names instead.");
         }
     }
 

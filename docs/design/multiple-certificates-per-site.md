@@ -76,7 +76,7 @@ SSLense.Cli status --site "Main/www.domain2.co.uk"
 
 ## 9. Phase 2: several ACME certificates on one site
 
-Status: **proposed** November 18, 2026, for the owner's review. Target release: 0.24. Branch: `feature/acme-several-certificates-per-site`.
+Status: **approved** November 19, 2026. Target release: 0.24. Branch: `feature/acme-several-certificates-per-site`.
 
 ### 9.1 What the administrator gets
 
@@ -127,6 +127,6 @@ Sharing (`share add`) moves whole IIS sites onto another site's certificate, wit
 | Step | Contents |
 |---|---|
 | 1 | This section |
-| 2 | Core: naming at issue, renewal of additional certificates, the refusals relaxed, the wildcard message. Unit tests for each item in 9.3, and an end-to-end test against Pebble in CI that issues and renews two certificates on one site |
+| 2 | Core: naming at issue, renewal of additional certificates, the refusals relaxed, the wildcard message. Unit tests for each item in 9.3, and an end-to-end test against Pebble in CI that issues and renews two certificates on one site. **Built** November 19, 2026: the issue path resolves the name as imports do and uses it for the record, its files, the certificate it replaces and its deployment steps; the pre-issue and daily readiness checks find a second certificate's site; the result gives the name. 10 more tests, including the Pebble test |
 | 3 | App and CLI as in 9.4; README, roadmap, website |
 | 4 | Acceptance on Let's Encrypt staging on a test server with two host names on one site: issue the second certificate, renew each, replace a bought one, remove one. Then release as 0.24 |

@@ -86,9 +86,19 @@ public sealed class DnsPreflightTests
         Assert.Equal("No DNS provider manages it.", check.Message);
     }
 
-    private async Task<IReadOnlyList<PreflightCheck>> Check(string[] hosts, string[]? names, ValidationMethod method)
+    [Fact]
+    public async Task ASecondCertificateOnTheSite_IsCheckedOnItsSite()
+    {
+        // Named "site/first host" (docs/design/multiple-certificates-per-site.md), as the daily readiness check passes it.
+        var results = await Check(["shop.example.com"], null, ValidationMethod.Dns01Provider, "Shop/shop.example.com");
+
+        Assert.True(Assert.Single(results, check => check.Name == "IIS site").Succeeded);
+        Assert.True(Assert.Single(results, check => check.Name == "IIS binding: shop.example.com").Succeeded);
+    }
+
+    private async Task<IReadOnlyList<PreflightCheck>> Check(string[] hosts, string[]? names, ValidationMethod method, string site = "Shop")
     {
         using var service = new PreflightService(_iis.Object, _files.Object, _dns);
-        return await service.CheckDnsAsync(new DnsPreflightRequest("Shop", hosts, names, method, CertificateAuthorities.LetsEncryptStagingId));
+        return await service.CheckDnsAsync(new DnsPreflightRequest(site, hosts, names, method, CertificateAuthorities.LetsEncryptStagingId));
     }
 }
