@@ -1113,9 +1113,10 @@ static Command CreateDnsCommand(IServiceProvider services)
     var providerOption = new Option<string>("--provider")
     {
         Required = true,
-        Description = "The DNS service: cloudflare; script, for your own PowerShell script that works with any DNS service; or acme-dns, for an account on an acme-dns server reached through one CNAME."
+        Description = "The DNS service: cloudflare, route53, azure, google, digitalocean or hetzner; script, for your own PowerShell script that works with any DNS service; or acme-dns, for an account on an acme-dns server reached through one CNAME."
     };
-    providerOption.AcceptOnlyFromAmong("cloudflare", "script", "acme-dns");
+    providerOption.AcceptOnlyFromAmong("cloudflare", "route53", "azure", "google", "digitalocean", "hetzner", "script", "acme-dns");
+    var keyFileOption = new Option<string?>("--key-file") { Description = "google only: the service account key's JSON file." };
     var addNameOption = new Option<string>("--name") { Required = true, Description = "A label for this provider." };
     var zoneOption = new Option<string?>("--zone") { Description = "Cloudflare and script: the DNS zone, such as example.com." };
     var domainOption = new Option<string?>("--domain")
@@ -1134,7 +1135,7 @@ static Command CreateDnsCommand(IServiceProvider services)
     {
         Description = "acme-dns only: use an account another tool registered. Prompts for its username, subdomain, and full domain, and its password without echo."
     };
-    var zoneIdOption = new Option<string>("--zone-id") { Description = "Cloudflare only: the zone ID, from the domain's Overview page." };
+    var zoneIdOption = new Option<string>("--zone-id") { Description = "cloudflare: the zone ID, from the domain's Overview page. route53: the hosted zone ID. azure: <subscription ID>/<resource group>. google: the managed zone's name." };
     var scriptOption = new Option<string>("--script")
     {
         Description = "Script only: your .ps1 file. SSLense runs its own copy, so later changes to this file need 'dns update-script'."
@@ -1157,6 +1158,7 @@ static Command CreateDnsCommand(IServiceProvider services)
     addCommand.Options.Add(scriptOption);
     addCommand.Options.Add(secretOption);
     addCommand.Options.Add(timeoutOption);
+    addCommand.Options.Add(keyFileOption);
     addCommand.SetAction((parseResult, token) => parseResult.GetRequiredValue(providerOption) == "acme-dns"
         ? AddAcmeDnsProviderAsync(
             Providers(),
@@ -1176,6 +1178,7 @@ static Command CreateDnsCommand(IServiceProvider services)
         parseResult.GetValue(scriptOption),
         parseResult.GetValue(secretOption),
         parseResult.GetValue(timeoutOption),
+        parseResult.GetValue(keyFileOption),
         token));
     command.Subcommands.Add(addCommand);
 
@@ -1319,11 +1322,20 @@ static async Task<int> AddDnsProviderAsync(
     string? script,
     bool promptForSecret,
     int? timeoutSeconds,
+    string? keyFile,
     CancellationToken token)
 {
     try
     {
-        var type = Enum.Parse<DnsProviderType>(provider, ignoreCase: true);
+        var type = provider switch
+        {
+            "route53" => DnsProviderType.Route53,
+            "azure" => DnsProviderType.AzureDns,
+            "google" => DnsProviderType.GoogleCloudDns,
+            "digitalocean" => DnsProviderType.DigitalOcean,
+            "hetzner" => DnsProviderType.Hetzner,
+            _ => Enum.Parse<DnsProviderType>(provider, ignoreCase: true)
+        };
         if (string.IsNullOrWhiteSpace(zone))
         {
             throw new ArgumentException("--zone is required, such as --zone example.com.");
@@ -1350,7 +1362,16 @@ static async Task<int> AddDnsProviderAsync(
             throw new ArgumentException("--script, --secret, and --timeout apply only to --provider script.");
         }
 
-        var apiToken = ReadHiddenValue("API token: ");
+        // Each service's credentials, as one secret (docs/design/dns-providers.md); secrets are read without echo.
+        var apiToken = type switch
+        {
+            DnsProviderType.Route53 => $"{ReadVisibleValue("Access key ID: ")}:{ReadHiddenValue("Secret access key: ")}",
+            DnsProviderType.AzureDns => $"{ReadVisibleValue("Tenant ID: ")}:{ReadVisibleValue("Client (application) ID: ")}:{ReadHiddenValue("Client secret: ")}",
+            DnsProviderType.GoogleCloudDns => keyFile is null
+                ? throw new ArgumentException("--key-file is required for google: the service account key's JSON file.")
+                : await File.ReadAllTextAsync(keyFile, token).ConfigureAwait(false),
+            _ => ReadHiddenValue("API token: ")
+        };
         await providers.AddAsync(new DnsProviderRequest(name, type, zone, zoneId, apiToken), token).ConfigureAwait(false);
         Console.WriteLine($"DNS provider '{name}' added. Run 'SSLense.Cli dns test --name \"{name}\"' to confirm the token can change the zone.");
         return 0;
@@ -2282,6 +2303,13 @@ static async Task<int> TestNotificationsAsync(INotifier notifier, CancellationTo
 /// Asks again when nothing is entered. A command pasted with its line break leaves an Enter waiting, which would
 /// otherwise answer the prompt before anything could be pasted.
 /// </summary>
+// A value that is not secret, such as an ID, typed with echo.
+static string ReadVisibleValue(string prompt)
+{
+    Console.Write(prompt);
+    return Console.ReadLine()?.Trim() ?? string.Empty;
+}
+
 static string ReadHiddenValue(string prompt)
 {
     if (Console.IsInputRedirected)

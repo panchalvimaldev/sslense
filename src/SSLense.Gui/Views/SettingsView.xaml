@@ -244,7 +244,7 @@
       <TextBlock Text="Acme-DNS server" Style="{StaticResource FieldLabel}"/>
       <TextBox Text="{Binding NewAcmeDnsServer}" AutomationProperties.Name="acme-dns server" ToolTip="Such as https://auth.acme-dns.io, the free public server, or your own."/>
      </StackPanel>
-     <StackPanel Grid.Column="3" Margin="0,0,8,0" Visibility="{Binding NewDnsIsCloudflare, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="Cloudflare zone ID" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewDnsZoneId}" AutomationProperties.Name="Cloudflare zone ID"/></StackPanel>
+     <StackPanel Grid.Column="3" Margin="0,0,8,0" Visibility="{Binding NewDnsNeedsZoneId, Converter={StaticResource BooleanToVisibilityConverter}}"><TextBlock Text="{Binding NewDnsZoneIdLabel}" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding NewDnsZoneId}" AutomationProperties.Name="Zone ID"/></StackPanel>
      <StackPanel Grid.Column="3" Margin="0,0,8,0" Visibility="{Binding NewDnsIsScript, Converter={StaticResource BooleanToVisibilityConverter}}">
       <TextBlock Text="Script" Style="{StaticResource FieldLabel}"/>
       <DockPanel>
@@ -253,7 +253,7 @@
       </DockPanel>
      </StackPanel>
      <StackPanel Grid.Column="4" Margin="0,0,8,0" Visibility="{Binding NewDnsUsesZone, Converter={StaticResource BooleanToVisibilityConverter}}">
-      <TextBlock Text="API token" Style="{StaticResource FieldLabel}" Visibility="{Binding NewDnsIsCloudflare, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+      <TextBlock Text="{Binding NewDnsTokenLabel}" Style="{StaticResource FieldLabel}" Visibility="{Binding NewDnsIsBuiltIn, Converter={StaticResource BooleanToVisibilityConverter}}"/>
       <TextBlock Text="Secret (optional)" Style="{StaticResource FieldLabel}" Visibility="{Binding NewDnsIsScript, Converter={StaticResource BooleanToVisibilityConverter}}"/>
       <PasswordBox x:Name="DnsTokenBox" PasswordChanged="OnDnsTokenChanged" AutomationProperties.Name="DNS API token or script secret"/>
      </StackPanel>
@@ -279,8 +279,8 @@
      <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,0"
                 Text="acme-dns needs one CNAME, created once at any DNS host, even one without an API, and stores a credential that can change only the validation record. Add provider registers an account and shows the CNAME to create; then use Test selected. The free public server, https://auth.acme-dns.io, is run by volunteers with no promise of uptime; for an important domain, run your own."/>
     </StackPanel>
-    <TextBlock Text="The zone ID is on the domain's Overview page in Cloudflare. The token is encrypted on this server and is never shown again." Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,0"
-               Visibility="{Binding NewDnsIsCloudflare, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+    <TextBlock Text="{Binding NewDnsHint}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,0"
+               Visibility="{Binding NewDnsIsBuiltIn, Converter={StaticResource BooleanToVisibilityConverter}}"/>
     <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,0"
                Visibility="{Binding NewDnsIsScript, Converter={StaticResource BooleanToVisibilityConverter}}"
                Text="Read a script before adding it: the renewal service runs it as SYSTEM. SSLense keeps its own copy where only administrators can change it, so after you change the original, use Update script. The secret is encrypted and given to the script in SSLENSE_DNS_SECRET. Examples are in C:\Program Files\SSLense\dns-scripts."/>

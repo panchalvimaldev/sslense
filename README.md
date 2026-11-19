@@ -14,7 +14,7 @@ SSLense is a Windows application for IIS administrators. It gets free Let's Encr
 
 - **A failed renewal never takes a site down.** After every change, SSLense connects to the site over HTTPS to check the new certificate is really served. If it isn't, the previous binding is restored automatically.
 - **One certificate across several IIS sites.** A DNS-validated certificate, such as `*.example.com`, can serve several sites that renew together. If one site has a problem, the others are protected.
-- **Wildcard certificates and sites without port 80.** DNS validation issues `*.example.com`, and works for internal servers and sites that cannot open port 80. It renews automatically through Cloudflare, through acme-dns with one CNAME at any DNS host, through your own PowerShell script for any DNS service with an API, or through a CNAME from any DNS service to a domain on Cloudflare.
+- **Wildcard certificates and sites without port 80.** DNS validation issues `*.example.com`, and works for internal servers and sites that cannot open port 80. It renews automatically through Cloudflare, Amazon Route 53, Azure DNS, Google Cloud DNS, DigitalOcean or Hetzner, through acme-dns with one CNAME at any DNS host, through your own PowerShell script for any DNS service with an API, or through a CNAME from any DNS service to a domain on Cloudflare.
 - **Certificates for more than IIS.** After every renewal, SSLense can give an application pool or service access to the private key, restart a service, or run a script, with ready-made scripts for Remote Desktop, SQL Server, and Exchange. A certificate only for such a service needs no IIS site. With an exportable key, it can also be written to PFX or PEM files, or to the IIS Central Certificate Store for web farms.
 - **Any ACME certificate authority, not only Let's Encrypt.** ZeroSSL, Google Trust Services, SSL.com, Sectigo, or your own internal CA, with External Account Binding, renewed automatically like Let's Encrypt.
 - **Certificates from any provider.** For one bought without ACME, it creates the certificate request with a private key that never leaves the server, installs what the provider issues with the same safety checks, or simply starts watching a certificate that is already in IIS.
@@ -195,7 +195,7 @@ Let's Encrypt only issues wildcard certificates through DNS validation. It also 
 
 | Method | Works with | Renewal |
 |---|---|---|
-| **DNS provider** | Cloudflare | Automatic |
+| **DNS provider** | Cloudflare, Amazon Route 53, Azure DNS, Google Cloud DNS, DigitalOcean, Hetzner (the last five not yet tested on a real account) | Automatic |
 | **acme-dns** | Any DNS host, even one without an API, with one CNAME created once | Automatic |
 | **Script** | Any DNS service with an API, through your PowerShell script | Automatic |
 | **CNAME delegation** | Any DNS service, plus a domain on Cloudflare or one your script can change | Automatic |
@@ -209,6 +209,16 @@ SSLense.Cli dns test --name "Main"     # adds and removes a TXT record at _sslen
 SSLense.Cli dns list
 SSLense.Cli dns update-token --name "Main"   # for a token that expired or was rotated
 SSLense.Cli dns remove --name "Main"   # refused while a certificate renews through it
+```
+
+**Other built-in services** need their own credentials, prompted for and encrypted the same way ([details and least-privilege permissions](docs/design/dns-providers.md)):
+
+```powershell
+SSLense.Cli dns add --provider route53 --name "AWS" --zone example.com --zone-id Z0123456789ABCDEFGHIJ   # access key ID, then secret access key
+SSLense.Cli dns add --provider azure --name "Azure" --zone example.com --zone-id <subscription ID>/<resource group>   # tenant ID, client ID, client secret
+SSLense.Cli dns add --provider google --name "GCP" --zone example.com --zone-id example-com --key-file .dns-key.json
+SSLense.Cli dns add --provider digitalocean --name "DO" --zone example.com
+SSLense.Cli dns add --provider hetzner --name "Hetzner" --zone example.com
 ```
 
 **Issue a certificate.** `--names` lists what the certificate covers, and `--hosts` lists the real IIS bindings to manage. Without `--names`, the certificate covers the hosts. A wildcard covers one level and does not include the base name, so list both if you need both:

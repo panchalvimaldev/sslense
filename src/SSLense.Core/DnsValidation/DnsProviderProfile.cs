@@ -8,7 +8,22 @@ public enum DnsProviderType
     Script = 1,
 
     /// <summary>An account on an acme-dns server, reached through one CNAME (docs/design/acme-dns.md).</summary>
-    AcmeDns = 2
+    AcmeDns = 2,
+
+    /// <summary>Amazon Route 53: an access key, and the hosted zone ID (docs/design/dns-providers.md).</summary>
+    Route53 = 3,
+
+    /// <summary>Azure DNS: an app registration's client secret, and the zone's subscription and resource group.</summary>
+    AzureDns = 4,
+
+    /// <summary>Google Cloud DNS: a service account key, and the managed zone's name.</summary>
+    GoogleCloudDns = 5,
+
+    /// <summary>DigitalOcean: an API token.</summary>
+    DigitalOcean = 6,
+
+    /// <summary>Hetzner DNS, through the Hetzner Cloud API: an API token.</summary>
+    Hetzner = 7
 }
 
 /// <summary>Credentials for changing one DNS zone. The name identifies the profile.</summary>

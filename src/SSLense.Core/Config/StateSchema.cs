@@ -19,9 +19,10 @@ internal static class StateSchema
     /// 0.18 would try to bind to a site. Version 8 adds exportable keys and the export steps, which 0.19 would not
     /// know. Version 9 adds the key type, preferred chain, and profile, which 0.20 would
     /// replace with the defaults at renewal. Version 10 adds reusing the key at renewal, which 0.21 would not do. Version 11 adds
-    /// further certificates on an IIS site, named "site/host", which 0.22 would report as sites that do not exist.
+    /// further certificates on an IIS site, named "site/host", which 0.22 would report as sites that do not exist. Version 12
+    /// adds HTTP validation answered by SSLense, which 0.23 would drop on its next save.
     /// </summary>
-    public const int ManagedCertificates = 11;
+    public const int ManagedCertificates = 12;
 
     /// <summary>
     /// Version 0 had no version field. Version 2 replaced the single SMTP server and generic webhook with
@@ -30,9 +31,10 @@ internal static class StateSchema
     /// the proactive-checks and repeat-automatic-reminders settings, which also default when absent. Version 6 adds
     /// DNS providers, which default to none. Version 7 adds script DNS providers with their script hash and timeout,
     /// which an older version would not recognize. Version 8 adds acme-dns providers with their server, account, and
-    /// domain, which 0.16 would not recognize either.
+    /// domain, which 0.16 would not recognize either. Version 9 adds the maintenance window and the built-in Amazon Route 53,
+    /// Azure DNS, Google Cloud DNS, DigitalOcean and Hetzner providers, which 0.23 would not recognize.
     /// </summary>
-    public const int Config = 8;
+    public const int Config = 9;
 
     /// <summary>Version 2 stores the certificate snapshot in managed-certificate schema 2. Version 3 can list several sites, which an older version would only partly recover.</summary>
     public const int Transactions = 3;

@@ -125,6 +125,8 @@ internal sealed class DnsProviderService(
             throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format("Enter the Cloudflare zone ID: 32 hexadecimal characters, shown on the domain's Overview page."));
         }
 
+        ValidateBuiltInDetails(request.Provider, zoneId, request.Token);
+
         if (request.Provider == DnsProviderType.AcmeDns)
         {
             throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format("An acme-dns account is added with its domain and server ('dns add --provider acme-dns --domain ... --server ...')."));
@@ -555,6 +557,40 @@ internal sealed class DnsProviderService(
                 return config with { DnsProviders = config.DnsProviders.Select(value => value.Name == name ? changed : value).ToArray() };
             },
             cancellationToken);
+
+    /// <summary>What each built-in provider needs, checked before anything is saved (docs/design/dns-providers.md).</summary>
+    private static void ValidateBuiltInDetails(DnsProviderType provider, string? zoneId, string? token)
+    {
+        token = token?.Trim() ?? string.Empty;
+        string? problem = provider switch
+        {
+            DnsProviderType.Route53 when zoneId is not { Length: >= 5 and <= 40 } || !zoneId.Replace("/hostedzone/", string.Empty, StringComparison.OrdinalIgnoreCase).All(char.IsAsciiLetterOrDigit) =>
+                "Enter the Route 53 hosted zone ID, such as Z0123456789ABCDEFGHIJ, shown in the Route 53 console.",
+            DnsProviderType.Route53 when token.Length > 0 && token.IndexOf(':', StringComparison.Ordinal) <= 0 =>
+                "Enter the access key ID and the secret access key.",
+            DnsProviderType.AzureDns when zoneId?.Split('/', StringSplitOptions.RemoveEmptyEntries) is not { Length: 2 } location || !Guid.TryParse(location[0], out _) =>
+                "Enter the zone's subscription ID and resource group, as <subscription ID>/<resource group>.",
+            DnsProviderType.AzureDns when token.Length > 0 && !IsAzureSecret(token) =>
+                "Enter the tenant ID, the client (application) ID and a client secret of the app registration.",
+            DnsProviderType.GoogleCloudDns when zoneId is not { Length: > 0 } || !zoneId.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c) || c == '-') =>
+                "Enter the managed zone's name, such as example-com, as the Cloud DNS console shows it.",
+            DnsProviderType.GoogleCloudDns when token.Length > 0 && !(token.Contains("\"client_email\"", StringComparison.Ordinal) && token.Contains("\"private_key\"", StringComparison.Ordinal)) =>
+                "Use the service account key's JSON file, as Google Cloud gives it.",
+            DnsProviderType.DigitalOcean or DnsProviderType.Hetzner when !string.IsNullOrWhiteSpace(zoneId) =>
+                "DigitalOcean and Hetzner need no zone ID: the zone name is enough.",
+            _ => null
+        };
+        if (problem is not null)
+        {
+            throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format(problem));
+        }
+    }
+
+    private static bool IsAzureSecret(string token)
+    {
+        var parts = token.Split(':', 3);
+        return parts.Length == 3 && Guid.TryParse(parts[0], out _) && Guid.TryParse(parts[1], out _) && parts[2].Length > 0;
+    }
 
     private IDnsProvider GetProvider(DnsProviderProfile profile) =>
         providers.FirstOrDefault(provider => provider.Type == profile.Provider)
