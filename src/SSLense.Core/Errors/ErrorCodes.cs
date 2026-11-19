@@ -450,6 +450,9 @@ public static class ErrorCodes
     public static readonly ErrorCode RevokeManualDnsCertificate = new("SSL4052", nameof(RevokeManualDnsCertificate), "Manual DNS certificate cannot be replaced automatically",
         "Renew it by hand first (Renew by hand, with a new key), then revoke the old certificate: 'SSLense.Cli revoke --file <old certificate> --ca <id>'.");
 
+    public static readonly ErrorCode RemoteUnreachable = new("SSL4053", nameof(RemoteUnreachable), "Certificate on another machine could not be read",
+        "SSLense connects to the host and port to read the certificate it serves. Check the name or address, the port, and that this server can reach it through any firewall.");
+
     public static readonly ErrorCode JournalEntryMissing = new("SSL5001", nameof(JournalEntryMissing), "Operation record missing",
         "An operation record disappeared while it was in use. Check the log, and run the health check.");
 
@@ -593,6 +596,9 @@ public static class ErrorCodes
 
     public static readonly ErrorCode IpCertificateNeedsHttpSelf = new("SSL6027", nameof(IpCertificateNeedsHttpSelf), "IP address certificates need HTTP answered by SSLense",
         "A certificate authority validates an IP address over HTTP (or TLS-ALPN), not DNS. Choose HTTP validation with SSLense answering the challenge itself (--validation http-self); Let's Encrypt also needs a short-lived profile, such as --profile shortlived.");
+
+    public static readonly ErrorCode RemoteNameTaken = new("SSL6028", nameof(RemoteNameTaken), "Name already used",
+        "A certificate on another machine needs a name that no other certificate or IIS site has.");
 
     public static readonly ErrorCode ChatRejected = new("SSL7001", nameof(ChatRejected), "Chat message rejected",
         "The chat service refused the message. Check the webhook URL still exists, and send a test.");
@@ -883,6 +889,7 @@ public static class ErrorCodes
         CertificateWithoutKey,
         RevokeBoughtCertificate,
         RevokeManualDnsCertificate,
+        RemoteUnreachable,
         JournalEntryMissing,
         RenewedWithoutThumbprint,
         ServiceDidNotStart,
@@ -931,6 +938,7 @@ public static class ErrorCodes
         ConfigurationUnreadable,
         DataFolderPermissions,
         IpCertificateNeedsHttpSelf,
+        RemoteNameTaken,
         ChatRejected,
         SmtpUsernameMissing,
         SmtpPasswordMissing,

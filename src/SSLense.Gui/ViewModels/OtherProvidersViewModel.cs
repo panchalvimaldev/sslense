@@ -52,8 +52,11 @@ public partial class OtherProvidersViewModel : ObservableObject
         IImportedCertificateService service,
         IPendingRequestStore pendingStore,
         IIisService iisService,
-        ILogger<OtherProvidersViewModel> logger)
+        ILogger<OtherProvidersViewModel> logger,
+        IRemoteCertificateService? remote = null)
     {
+        _remote = remote;
+        _watchRemoteCommand = new AsyncRelayCommand(WatchRemoteAsync, () => !IsBusy && _remote is not null && RemoteName.Trim().Length > 0 && RemoteHost.Trim().Length > 0);
         _service = service;
         _pendingStore = pendingStore;
         _iisService = iisService;
@@ -78,6 +81,31 @@ public partial class OtherProvidersViewModel : ObservableObject
 
     /// <summary>Starts watching every ticked binding's certificate, without changing IIS.</summary>
     public IAsyncRelayCommand AdoptCheckedCommand => _adoptCheckedCommand;
+
+    // A certificate on another machine (docs/design/remote-certificates.md).
+    private readonly IRemoteCertificateService? _remote;
+    private readonly AsyncRelayCommand _watchRemoteCommand;
+    [ObservableProperty] [NotifyCanExecuteChangedFor(nameof(WatchRemoteCommand))] private string remoteName = string.Empty;
+    [ObservableProperty] [NotifyCanExecuteChangedFor(nameof(WatchRemoteCommand))] private string remoteHost = string.Empty;
+    [ObservableProperty] private string remotePort = "443";
+
+    public IAsyncRelayCommand WatchRemoteCommand => _watchRemoteCommand;
+
+    private Task WatchRemoteAsync(CancellationToken cancellationToken) => RunAsync(async token =>
+    {
+        if (!int.TryParse(RemotePort.Trim(), out var port))
+        {
+            ErrorMessage = "Enter the port as a number, such as 443.";
+            return;
+        }
+
+        var record = await _remote!.WatchAsync(RemoteName, RemoteHost, port, token).ConfigureAwait(true);
+        _logger.LogInformation("Watching the certificate on {Host}:{Port} as {Name}", record.Hosts[0], port, record.SiteName);
+        ResultMessage = $"Now watching '{record.SiteName}' on {record.Hosts[0]}:{port}: {record.Issuer}, expires {record.NotAfter.ToLocalTime():dd MMM yyyy}. SSLense reads it every day and reminds you before it expires.";
+        RemoteName = string.Empty;
+        RemoteHost = string.Empty;
+        RemotePort = "443";
+    }, cancellationToken);
 
     public int CheckedCount => Bindings.Count(row => row.IsChecked && row.CanAdopt);
 
@@ -357,6 +385,7 @@ public partial class OtherProvidersViewModel : ObservableObject
     private void NotifyCommands()
     {
         _refreshCommand.NotifyCanExecuteChanged();
+        _watchRemoteCommand.NotifyCanExecuteChanged();
         _createRequestCommand.NotifyCanExecuteChanged();
         _completeCommand.NotifyCanExecuteChanged();
         _cancelRequestCommand.NotifyCanExecuteChanged();

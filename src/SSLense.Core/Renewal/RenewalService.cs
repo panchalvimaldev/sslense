@@ -104,7 +104,8 @@ internal sealed class RenewalService : IRenewalService
                 value.KeyType,
                 value.PreferredChain,
                 value.Profile,
-                value.ReuseKey));
+                value.ReuseKey,
+                value.RemotePort));
         }
 
         return statuses;
@@ -138,6 +139,18 @@ internal sealed class RenewalService : IRenewalService
         {
             cancellationToken.ThrowIfCancellationRequested();
             await CatchUpSitesLeftBehindAsync(certificate, progress, cancellationToken).ConfigureAwait(false);
+
+            // A certificate on another machine is renewed there; SSLense only watches it (docs/design/remote-certificates.md).
+            if (certificate.Source == CertificateSource.Remote)
+            {
+                results.Add(new RenewalResult(
+                    certificate.SiteName,
+                    false,
+                    true,
+                    $"Skipped: served by {certificate.Hosts[0]}:{certificate.RemotePort ?? 443}, another machine, where it is renewed. SSLense watches it and reminds you.",
+                    certificate.Thumbprint));
+                continue;
+            }
 
             // No CA renews an imported certificate for SSLense; the reminder digest reminds the administrator instead.
             if (certificate.Source == CertificateSource.Imported)

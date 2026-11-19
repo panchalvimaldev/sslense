@@ -20,7 +20,8 @@ internal sealed class OutsideRenewalDetector(
     IIisService iisService,
     ICertificateStore certificateStore,
     INotifier notifier,
-    ICertificateOperationLock operationLock) : IOutsideRenewalDetector
+    ICertificateOperationLock operationLock,
+    IRemoteCertificateReader? remoteReader = null) : IOutsideRenewalDetector
 {
     public async Task<IReadOnlyList<string>> DetectAsync(CancellationToken cancellationToken = default)
     {
@@ -80,6 +81,7 @@ internal sealed class OutsideRenewalDetector(
             }
         }
 
+        await DetectRemoteAsync(changes, cancellationToken).ConfigureAwait(false);
         return changes;
     }
 
@@ -118,5 +120,67 @@ internal sealed class OutsideRenewalDetector(
                record.Hosts.All(host => CertificateInspector.Covers(names, host))
             ? candidate
             : null;
+    }
+
+    /// <summary>
+    /// Certificates on other machines (docs/design/remote-certificates.md): each is read where it is served, and a new
+    /// one replaces the record, so reminders about the old one stop. One that cannot be read is reported.
+    /// </summary>
+    private async Task DetectRemoteAsync(List<string> changes, CancellationToken cancellationToken)
+    {
+        if (remoteReader is null)
+        {
+            return;
+        }
+
+        foreach (var record in (await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false)).Where(value => value.Source == CertificateSource.Remote))
+        {
+            var host = record.Hosts[0];
+            var port = record.RemotePort ?? 443;
+            System.Security.Cryptography.X509Certificates.X509Certificate2 served;
+            try
+            {
+                served = await remoteReader.ReadAsync(host, port, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Errors.SslenseException exception)
+            {
+                changes.Add($"'{record.SiteName}': {exception.Message}");
+                continue;
+            }
+
+            using (served)
+            {
+                if (string.Equals(served.Thumbprint, record.Thumbprint, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                // Upsert resets the reminders for the new certificate, unless they are off permanently.
+                var updated = record with
+                {
+                    Thumbprint = served.Thumbprint,
+                    NotBefore = served.NotBefore.ToUniversalTime(),
+                    NotAfter = served.NotAfter.ToUniversalTime(),
+                    Issuer = served.GetNameInfo(System.Security.Cryptography.X509Certificates.X509NameType.SimpleName, forIssuer: true),
+                    LastRenewalAttempt = DateTimeOffset.UtcNow,
+                    LastRenewalSucceeded = true,
+                    LastRenewalMessage = $"Replaced on {host}:{port}; the new certificate is now watched."
+                };
+                await managedStore.UpsertAsync(updated, CancellationToken.None).ConfigureAwait(false);
+                var change = $"The certificate on {host}:{port} ('{record.SiteName}') was replaced. SSLense now watches the new one, which expires {updated.NotAfter:yyyy-MM-dd}.";
+                changes.Add(change);
+                try
+                {
+                    await notifier.NotifyAsync(
+                            new NotificationMessage(NotificationKind.RenewalSuccess, $"SSLense: certificate replaced on {host}", change),
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    changes.Add($"Could not send the replacement notice for '{record.SiteName}': {exception.Message}");
+                }
+            }
+        }
     }
 }

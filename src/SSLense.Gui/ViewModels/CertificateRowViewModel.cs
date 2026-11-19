@@ -21,12 +21,13 @@ public sealed class CertificateRowViewModel
         Title = status.Hosts.Count > 0 ? status.Hosts[0] : status.SiteName;
         IsNoSite = status.NoSite;
         IisSite = status.NoSite ? status.SiteName : ManagedCertificateNames.IisSiteOf(status.SiteName);
-        GroupName = status.NoSite ? "Not on an IIS site" : $"IIS site · {IisSite}";
+        IsRemote = status.Source == CertificateSource.Remote;
+        GroupName = IsRemote ? "On other machines" : status.NoSite ? "Not on an IIS site" : $"IIS site · {IisSite}";
         Expiry = status.NotAfter;
         DaysRemaining = status.DaysRemaining;
         Thumbprint = status.Thumbprint;
         IsImported = status.Source == CertificateSource.Imported;
-        IsManualDns = !IsImported && status.ValidationMethod == ValidationMethod.Dns01Manual;
+        IsManualDns = !IsImported && !IsRemote && status.ValidationMethod == ValidationMethod.Dns01Manual;
         Reminders = status.Reminders switch
         {
             ReminderMode.Snoozed when status.SnoozedUntil is { } until && until > DateTimeOffset.UtcNow => $"Snoozed to {until.ToLocalTime():dd MMM}",
@@ -35,19 +36,26 @@ public sealed class CertificateRowViewModel
             ReminderMode.Off => "Off",
             _ => "On"
         };
-        Environment = IsImported
+        Environment = IsRemote
+            ? "Watched"
+            : IsImported
             ? "Imported"
             : CertificateAuthorities.IsBuiltIn(status.AuthorityId)
                 ? status.IsTestAuthority ? "Staging" : "Production"
                 : status.AuthorityName;
-        SourceTag = IsImported ? "Bought" : IsManualDns ? "By hand" : "Automatic";
+        SourceTag = IsRemote ? "Elsewhere" : IsImported ? "Bought" : IsManualDns ? "By hand" : "Automatic";
         var where = status.NoSite ? "Not on an IIS site" : $"IIS site {IisSite}";
-        Subtitle = IsImported
+        var endpoint = $"{status.Hosts.FirstOrDefault()}:{status.RemotePort ?? 443}";
+        Subtitle = IsRemote
+            ? $"{endpoint} · on another machine · renewed there"
+            : IsImported
             ? $"{where} · from another provider · you install renewals"
             : IsManualDns
                 ? $"{where} · {status.AuthorityName} · manual DNS, renewed by hand"
                 : $"{where} · {status.AuthorityName} · renews automatically";
-        RenewalText = IsImported
+        RenewalText = IsRemote
+            ? $"On {endpoint}, where it is renewed. SSLense reads it every day and reminds you before it expires."
+            : IsImported
             ? "You install it. SSLense reminds you before it expires."
             : IsManualDns
                 ? "By hand, with new DNS records each time."
@@ -67,7 +75,9 @@ public sealed class CertificateRowViewModel
             Status = "Expired";
             StatusKey = "Red";
             StatusHead = "Expired";
-            StatusText = IsImported
+            StatusText = IsRemote
+                ? $"Visitors of {endpoint} see a warning. Renew it on that machine now."
+                : IsImported
                 ? "Visitors see a warning. Install the renewed certificate from your provider now."
                 : "Visitors see a warning. Renew it now.";
         }
@@ -81,10 +91,12 @@ public sealed class CertificateRowViewModel
         else if (status.DaysRemaining <= 30)
         {
             // SSLense cannot renew an imported certificate; the administrator orders the next one.
-            Status = IsImported ? "Order renewal" : IsManualDns ? "Renew by hand" : "Renew soon";
+            Status = IsRemote ? "Renew there" : IsImported ? "Order renewal" : IsManualDns ? "Renew by hand" : "Renew soon";
             StatusKey = "Amber";
             StatusHead = $"Expires in {days}";
-            StatusText = IsImported
+            StatusText = IsRemote
+                ? $"Renew it on {endpoint}, the machine that serves it. SSLense notices the new certificate at its next daily check."
+                : IsImported
                 ? "Get the renewed certificate from your provider, then choose Install renewal. Only this certificate's bindings change."
                 : IsManualDns
                     ? "It uses manual DNS validation, so it is renewed by hand. Choose Renew by hand, then create the DNS records it shows."
@@ -95,7 +107,9 @@ public sealed class CertificateRowViewModel
             Status = "Healthy";
             StatusKey = "Green";
             StatusHead = "All good";
-            StatusText = IsImported
+            StatusText = IsRemote
+                ? $"SSLense reads it on {endpoint} every day and reminds you before it expires."
+                : IsImported
                 ? "SSLense reminds you before it expires. Then get the renewal from your provider and choose Install renewal."
                 : IsManualDns
                     ? "SSLense reminds you before it expires. Then choose Renew by hand."
@@ -152,8 +166,11 @@ public sealed class CertificateRowViewModel
 
     public bool IsManualDns { get; }
 
+    /// <summary>On another machine: watched only (docs/design/remote-certificates.md).</summary>
+    public bool IsRemote { get; }
+
     /// <summary>Renewed by SSLense on its own: issued here, without manual DNS.</summary>
-    public bool IsAutomatic => !IsImported && !IsManualDns;
+    public bool IsAutomatic => !IsImported && !IsManualDns && !IsRemote;
 
     public string Reminders { get; }
 

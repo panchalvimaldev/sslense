@@ -37,4 +37,5 @@ public sealed record ManagedCertificateStatus(
     CertificateKeyType KeyType = CertificateKeyType.EcdsaP256,
     string? PreferredChain = null,
     string? Profile = null,
-    bool ReuseKey = false);
+    bool ReuseKey = false,
+    int? RemotePort = null);

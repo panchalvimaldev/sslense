@@ -389,6 +389,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     rootCommand.Subcommands.Add(CreateWindowCommand(services));
     rootCommand.Subcommands.Add(CreateRevokeCommand(services));
     rootCommand.Subcommands.Add(CreateAccountCommand(services));
+    rootCommand.Subcommands.Add(CreateWatchCommand(services));
     AddImportedCertificateCommands(rootCommand, services);
 
     return rootCommand;
@@ -1698,6 +1699,34 @@ static Command CreateNotificationsCommand(IServiceProvider services)
     clearCommand.SetAction((_, token) => RunNotificationChangeAsync(
         () => Settings().ClearAsync(token), "All notification channels were removed. The Windows Event Log stays on."));
     command.Subcommands.Add(clearCommand);
+    return command;
+}
+
+// Certificates on other machines (docs/design/remote-certificates.md).
+static Command CreateWatchCommand(IServiceProvider services)
+{
+    var nameOption = new Option<string>("--name") { Required = true, Description = "How SSLense lists it, such as 'Load balancer'." };
+    var hostOption = new Option<string>("--host") { Required = true, Description = "The host name or address that serves it." };
+    var portOption = new Option<int>("--port") { Description = "The port, 443 by default.", DefaultValueFactory = _ => 443 };
+    var command = new Command("watch", "Watch a certificate served by another machine, such as a load balancer: SSLense reads it every day and reminds you before it expires. It changes nothing there.");
+    command.Options.Add(nameOption);
+    command.Options.Add(hostOption);
+    command.Options.Add(portOption);
+    command.SetAction(async (parseResult, token) =>
+    {
+        try
+        {
+            var record = await services.GetRequiredService<IRemoteCertificateService>().WatchAsync(
+                parseResult.GetRequiredValue(nameOption), parseResult.GetRequiredValue(hostOption), parseResult.GetValue(portOption), token).ConfigureAwait(false);
+            Console.WriteLine($"Watching '{record.SiteName}': {record.Issuer}, expires {record.NotAfter:yyyy-MM-dd}. Remove it with 'SSLense.Cli remove --site \"{record.SiteName}\" --yes'.");
+            return 0;
+        }
+        catch (Exception exception)
+        {
+            WriteError(exception);
+            return 1;
+        }
+    });
     return command;
 }
 

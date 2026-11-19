@@ -900,6 +900,12 @@ Ask your provider to revoke it (most have a button for a compromised key), get a
 
 Renew it by hand first (Renew by hand, with a new key), then revoke the old certificate: 'SSLense.Cli revoke --file <old certificate> --ca <id>'.
 
+<a id="ssl4053"></a>
+
+### SSL4053: Certificate on another machine could not be read
+
+SSLense connects to the host and port to read the certificate it serves. Check the name or address, the port, and that this server can reach it through any firewall.
+
 ## SSL5xxx: Renewal, reminders and the service
 
 <a id="ssl5001"></a>
@@ -1191,6 +1197,12 @@ SSLense's data folder should be limited to Administrators and SYSTEM. Run SSLens
 ### SSL6027: IP address certificates need HTTP answered by SSLense
 
 A certificate authority validates an IP address over HTTP (or TLS-ALPN), not DNS. Choose HTTP validation with SSLense answering the challenge itself (--validation http-self); Let's Encrypt also needs a short-lived profile, such as --profile shortlived.
+
+<a id="ssl6028"></a>
+
+### SSL6028: Name already used
+
+A certificate on another machine needs a name that no other certificate or IIS site has.
 
 ## SSL7xxx: Notifications
 
