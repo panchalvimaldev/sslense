@@ -1,8 +1,9 @@
+using SSLense.Core.Acme;
+using SSLense.Core.Config;
+using SSLense.Core.Errors;
 using System.Net.Mail;
 using System.Security.Cryptography;
 using System.Text;
-using SSLense.Core.Acme;
-using SSLense.Core.Config;
 
 namespace SSLense.Core.Notifications;
 
@@ -33,14 +34,14 @@ internal sealed class NotificationSettingsService(
         ArgumentException.ThrowIfNullOrWhiteSpace(request.Host);
         if (request.Port is < 1 or > 65535)
         {
-            throw new ArgumentException("The SMTP port must be between 1 and 65535.");
+            throw new ArgumentException(ErrorCodes.NotificationSettingsInvalid.Format("The SMTP port must be between 1 and 65535."));
         }
 
         ValidateEmail(request.From, "The sender address");
         var recipients = request.To.Select(value => value.Trim()).Where(value => value.Length > 0).ToArray();
         if (recipients.Length == 0)
         {
-            throw new ArgumentException("Add at least one recipient address.");
+            throw new ArgumentException(ErrorCodes.NotificationSettingsInvalid.Format("Add at least one recipient address."));
         }
 
         foreach (var recipient in recipients)
@@ -54,7 +55,7 @@ internal sealed class NotificationSettingsService(
             if (request.Security == SmtpSecurity.None)
             {
                 throw new ArgumentException(
-                    "A password would be sent unencrypted. Choose STARTTLS or TLS on connect, or a relay without sign-in.");
+                    ErrorCodes.NotificationSettingsInvalid.Format("A password would be sent unencrypted. Choose STARTTLS or TLS on connect, or a relay without sign-in."));
             }
         }
 
@@ -67,7 +68,7 @@ internal sealed class NotificationSettingsService(
                 : existing?.Authentication == SmtpAuthentication.Password &&
                   string.Equals(existing.Username, request.Username?.Trim(), StringComparison.OrdinalIgnoreCase)
                     ? existing.ProtectedPassword
-                    : throw new ArgumentException("Enter the SMTP password.");
+                    : throw new ArgumentException(ErrorCodes.NotificationSettingsInvalid.Format("Enter the SMTP password."));
             return notifications with
             {
                 Email = new EmailNotificationConfig(
@@ -104,7 +105,7 @@ internal sealed class NotificationSettingsService(
             if (number < 1 || number > notifications.Chat.Count)
             {
                 throw new ArgumentException(
-                    $"There is no chat channel {number}. Run 'notifications show' to see the configured channels.");
+                    ErrorCodes.NotificationSettingsInvalid.Format($"There is no chat channel {number}. Run 'notifications show' to see the configured channels."));
             }
 
             return notifications with { Chat = notifications.Chat.Where((_, index) => index != number - 1).ToArray() };
@@ -118,7 +119,7 @@ internal sealed class NotificationSettingsService(
             var uri = ParseUrl(url, "The heartbeat URL");
             if (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp)
             {
-                throw new ArgumentException("The heartbeat URL must start with https:// or http://.");
+                throw new ArgumentException(ErrorCodes.NotificationSettingsInvalid.Format("The heartbeat URL must start with https:// or http://."));
             }
 
             heartbeat = new HeartbeatNotificationConfig(Protect(uri.AbsoluteUri));
@@ -145,7 +146,7 @@ internal sealed class NotificationSettingsService(
     private static Uri ParseUrl(string value, string label) =>
         Uri.TryCreate(value?.Trim(), UriKind.Absolute, out var uri)
             ? uri
-            : throw new ArgumentException($"{label} is not a valid absolute URL.");
+            : throw new ArgumentException(ErrorCodes.NotificationSettingsInvalid.Format($"{label} is not a valid absolute URL."));
 
     /// <summary>Only the host is shown, because chat and heartbeat URLs carry their credential in the path.</summary>
     private string GetHost(string protectedUrl)
@@ -189,7 +190,7 @@ internal sealed class NotificationSettingsService(
         }
         catch (Exception exception) when (exception is ArgumentException or FormatException)
         {
-            throw new ArgumentException($"{label} is not a valid email address.", exception);
+            throw new ArgumentException(ErrorCodes.InvalidEmail.Format($"{label} is not a valid email address."), exception);
         }
     }
 }

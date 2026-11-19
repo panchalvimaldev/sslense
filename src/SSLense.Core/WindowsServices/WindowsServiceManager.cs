@@ -1,5 +1,6 @@
-using System.Diagnostics;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
+using System.Diagnostics;
 
 namespace SSLense.Core.WindowsServices;
 
@@ -42,7 +43,7 @@ internal sealed class WindowsServiceManager(IFileSystem fileSystem) : IWindowsSe
         if (!fileSystem.FileExists(fullPath))
         {
             throw new FileNotFoundException(
-                "The SSLense service executable was not found. Publish SSLense.Service first, then pass its path with --service-path.",
+                ErrorCodes.ServiceExecutableMissing.Format("The SSLense service executable was not found. Publish SSLense.Service first, then pass its path with --service-path."),
                 fullPath);
         }
 
@@ -64,7 +65,7 @@ internal sealed class WindowsServiceManager(IFileSystem fileSystem) : IWindowsSe
         var start = await RunScAsync(["start", ServiceName], cancellationToken).ConfigureAwait(false);
         if (start.ExitCode != 0 && !start.Output.Contains("1056", StringComparison.Ordinal))
         {
-            throw new InvalidOperationException($"The service was installed but could not be started. {start.Output}".Trim());
+            throw new SslenseException(ErrorCodes.ServiceDidNotStart, $"The service was installed but could not be started. {start.Output}".Trim());
         }
     }
 
@@ -85,7 +86,7 @@ internal sealed class WindowsServiceManager(IFileSystem fileSystem) : IWindowsSe
         var status = await GetStatusAsync(cancellationToken).ConfigureAwait(false);
         if (status == WindowsServiceStatus.NotInstalled)
         {
-            throw new InvalidOperationException("The SSLense service is not installed.");
+            throw new SslenseException(ErrorCodes.ServiceNotInstalled, "The SSLense service is not installed.");
         }
 
         if (status != WindowsServiceStatus.Running)
@@ -112,7 +113,7 @@ internal sealed class WindowsServiceManager(IFileSystem fileSystem) : IWindowsSe
         var result = await RunScAsync(arguments, cancellationToken).ConfigureAwait(false);
         if (result.ExitCode != 0)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.ServiceCommandFailed, 
                 $"Windows service command failed. Run SSLense as Administrator. {result.Output}".Trim());
         }
     }
@@ -135,7 +136,7 @@ internal sealed class WindowsServiceManager(IFileSystem fileSystem) : IWindowsSe
         }
 
         using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("Could not start the Windows Service Control command.");
+            ?? throw new SslenseException(ErrorCodes.ServiceControlUnavailable, "Could not start the Windows Service Control command.");
         var standardOutput = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var standardError = process.StandardError.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);

@@ -1,5 +1,6 @@
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
 using SSLense.Core.Iis;
 
 namespace SSLense.Core.Reminders;
@@ -230,7 +231,7 @@ internal sealed class ServedCertificateCheck(
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
-            return $"{host} did not answer on port 443 ({exception.Message}).";
+            return ErrorCodes.ServedHostUnreachable.Format($"{host} did not answer on port 443 ({exception.Message}).");
         }
 
         var expected = Normalize(certificate.Thumbprint);
@@ -238,7 +239,7 @@ internal sealed class ServedCertificateCheck(
         {
             // The probe accepts invalid certificates so it can read them, so a match alone does not mean all is well.
             return certificate.NotAfter <= DateTimeOffset.UtcNow
-                ? $"{host} serves the expected certificate, but it expired on {certificate.NotAfter:yyyy-MM-dd}."
+                ? ErrorCodes.ServedCertificateExpired.Format($"{host} serves the expected certificate, but it expired on {certificate.NotAfter:yyyy-MM-dd}.")
                 : null;
         }
 
@@ -248,7 +249,7 @@ internal sealed class ServedCertificateCheck(
             : installed.NotAfter <= DateTimeOffset.UtcNow
                 ? $"It expired on {installed.NotAfter:yyyy-MM-dd}."
                 : $"It expires on {installed.NotAfter:yyyy-MM-dd}.";
-        return $"{host} serves a different certificate from the one SSLense expects: expected {Short(expected)}, served {Short(served)}. {expiry}";
+        return ErrorCodes.ServedCertificateMismatch.Format($"{host} serves a different certificate from the one SSLense expects: expected {Short(expected)}, served {Short(served)}. {expiry}");
     }
 
     private static string Normalize(string thumbprint) => thumbprint.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant();

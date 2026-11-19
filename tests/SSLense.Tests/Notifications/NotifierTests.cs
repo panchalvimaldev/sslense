@@ -119,7 +119,7 @@ public sealed class NotifierTests
     {
         var notifier = CreateNotifier(new NotificationConfig { EventLogEnabled = false });
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => notifier.TestAsync());
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => notifier.TestAsync());
 
         Assert.Contains("No notification channels", exception.Message, StringComparison.Ordinal);
     }

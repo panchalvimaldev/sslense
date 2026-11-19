@@ -1,6 +1,7 @@
 using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
 using SSLense.Core.Validation;
 
 namespace SSLense.Core.DnsValidation;
@@ -82,7 +83,7 @@ internal sealed class DnsChallengeService(
         // An acme-dns account keeps only its two newest values, so a third would push out the first before validation.
         foreach (var (account, count) in acmeDnsValues.Where(value => value.Value > 2))
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.AcmeDnsTooManyValues, 
                 $"The acme-dns account '{account}' would need {count} values at once, and it keeps only two: enough for a name and its " +
                 "wildcard. Give each other name its own acme-dns account, with its own CNAME.");
         }
@@ -109,7 +110,7 @@ internal sealed class DnsChallengeService(
         {
             if ((await lookup.GetAuthoritativeServersAsync(recordName, cancellationToken).ConfigureAwait(false)).Count == 0)
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.NoPublicNameServers, 
                     $"No public name servers were found for '{recordName}'. A public certificate authority can only validate names in public DNS.");
             }
         }
@@ -133,7 +134,7 @@ internal sealed class DnsChallengeService(
                 {
                     if (CaaPolicy.FindProblem(name, current, records, caDomains) is { } problem)
                     {
-                        throw new InvalidOperationException(problem);
+                        throw new SslenseException(ErrorCodes.DnsRecordNotVisible, problem);
                     }
 
                     return;
@@ -176,7 +177,7 @@ internal sealed class DnsChallengeService(
                 if (confirmManual is null ||
                     !await confirmManual(records, cancellationToken).ConfigureAwait(false))
                 {
-                    throw new InvalidOperationException("The DNS records were not confirmed, so the certificate was not requested.");
+                    throw new SslenseException(ErrorCodes.ManualDnsNotConfirmed, "The DNS records were not confirmed, so the certificate was not requested.");
                 }
             }
             else
@@ -311,20 +312,20 @@ internal sealed class DnsChallengeService(
             DnsNames.ChallengeRecord(domain) == DnsNames.Normalize(record));
         if (account is not null && DnsNames.Normalize(target) != DnsNames.Normalize(account.ZoneName))
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.AcmeDnsCnameMissing, 
                 $"'{record}' does not point to the acme-dns account '{account.Name}'. Create this record at your DNS host: {account.AcmeDnsCname}");
         }
     }
 
     private static DnsProviderProfile SelectProfile(IReadOnlyList<DnsProviderProfile> profiles, string recordName) =>
         DnsNames.SelectProfile(profiles, recordName)
-        ?? throw new InvalidOperationException(
+        ?? throw new SslenseException(ErrorCodes.NoDnsProvider, 
             $"No DNS provider manages '{recordName}'. Add one in Settings or with 'SSLense.Cli dns add', delegate the record with a CNAME, " +
             "or use manual DNS validation.");
 
     private IDnsProvider GetProvider(DnsProviderProfile profile) =>
         providers.FirstOrDefault(provider => provider.Type == profile.Provider)
-        ?? throw new InvalidOperationException($"DNS provider type '{profile.Provider}' is not supported by this SSLense version.");
+        ?? throw new SslenseException(ErrorCodes.DnsProviderTypeUnsupported, $"DNS provider type '{profile.Provider}' is not supported by this SSLense version.");
 
     private sealed class PublishedRecords(
         DnsChallengeService owner,

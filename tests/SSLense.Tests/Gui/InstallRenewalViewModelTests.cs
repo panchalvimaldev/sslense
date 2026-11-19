@@ -98,7 +98,7 @@ public sealed class InstallRenewalViewModelTests : IDisposable
     {
         _service.Setup(value => value.ImportPfxAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<byte[]>(), It.IsAny<string>(), false,
                 It.IsAny<IProgress<ProgressEvent>>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException("The PFX password is wrong."));
+            .ThrowsAsync(new SSLense.Core.Errors.SslenseException(SSLense.Core.Errors.ErrorCodes.PfxImportFailed, "The PFX password is wrong."));
         var dialog = Dialog();
         var installed = 0;
         dialog.Installed += () => installed++;
@@ -108,7 +108,7 @@ public sealed class InstallRenewalViewModelTests : IDisposable
 
         await dialog.InstallCommand.ExecuteAsync(null);
 
-        Assert.Equal("The PFX password is wrong.", dialog.ErrorMessage);
+        Assert.Equal("SSL4020: The PFX password is wrong.", dialog.ErrorMessage);
         Assert.Equal(InstallRenewalViewModel.ConfirmStep, dialog.Step);
         Assert.Equal(0, installed);
     }

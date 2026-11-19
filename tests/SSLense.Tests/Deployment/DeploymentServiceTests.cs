@@ -84,7 +84,7 @@ public sealed class DeploymentServiceTests : IDisposable
             _service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.RestartService, "SSLense")));
         await Assert.ThrowsAsync<ArgumentException>(() =>
             _service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.RestartService, "W3SVC", 60)));
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             _service.AddAsync(new DeploymentStepRequest("Nowhere", DeploymentStepKind.RestartService, "W3SVC")));
         Assert.Empty((await _service.ListAsync("Shop")).Steps);
     }

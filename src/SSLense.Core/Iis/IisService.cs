@@ -1,6 +1,7 @@
-using System.Diagnostics;
 using Microsoft.Web.Administration;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
+using System.Diagnostics;
 
 namespace SSLense.Core.Iis;
 
@@ -39,13 +40,13 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
         }
         catch (UnauthorizedAccessException exception)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.IisConfigurationUnreadable, 
                 "IIS configuration could not be read. Run SSLense from an Administrator terminal.",
                 exception);
         }
         catch (FileNotFoundException exception)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.IisManagementMissing, 
                 "IIS management components were not found. Install IIS Management Scripts and Tools.",
                 exception);
         }
@@ -148,7 +149,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
         }
 
         using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("netsh could not be started.");
+            ?? throw new SslenseException(ErrorCodes.NetshUnavailable, "netsh could not be started.");
         var output = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
         var errors = process.StandardError.ReadToEndAsync(CancellationToken.None);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -165,7 +166,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
                 throw;
             }
 
-            throw new TimeoutException($"netsh did not finish within {TrialTimeout.TotalSeconds:0} seconds.");
+            throw new TimeoutException(ErrorCodes.NetshTimeout.Format($"netsh did not finish within {TrialTimeout.TotalSeconds:0} seconds."));
         }
 
         var text = string.Join(' ', (await output.ConfigureAwait(false) + " " + await errors.ConfigureAwait(false))
@@ -245,14 +246,14 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
             foreach (var host in hosts)
             {
                 var binding = FindHttpsBinding(verificationSite, host)
-                    ?? throw new InvalidOperationException(
+                    ?? throw new SslenseException(ErrorCodes.HttpsBindingNotFound, 
                         $"HTTPS binding verification failed for '{host}': the binding was not found.");
                 if (binding.CertificateHash is null ||
                     !binding.CertificateHash.SequenceEqual(certificateHash) ||
                     !string.Equals(binding.CertificateStoreName, certificateStoreName, StringComparison.OrdinalIgnoreCase) ||
                     (binding.SslFlags & SslFlags.Sni) != SslFlags.Sni)
                 {
-                    throw new InvalidOperationException(
+                    throw new SslenseException(ErrorCodes.HttpsBindingNotRetained, 
                         $"HTTPS binding verification failed for '{host}': IIS did not retain the certificate and SNI settings.");
                 }
             }
@@ -377,7 +378,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
         problem = await FindRestoreProblemAsync(undo).ConfigureAwait(false);
         if (problem is not null)
         {
-            throw new InvalidOperationException(problem);
+            throw new SslenseException(ErrorCodes.HttpsBindingChangeFailed, problem);
         }
     }
 
@@ -466,7 +467,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
 
                 if (binding.CertificateHash is null || !binding.CertificateHash.SequenceEqual(expectedHash))
                 {
-                    throw new InvalidOperationException(
+                    throw new SslenseException(ErrorCodes.HttpsBindingUsesOtherCertificate, 
                         $"The HTTPS binding for '{host}' uses a different certificate and was not removed.");
                 }
 
@@ -482,7 +483,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
                 var binding = FindHttpsBinding(verificationSite, host);
                 if (binding?.CertificateHash is { } hash && hash.SequenceEqual(expectedHash))
                 {
-                    throw new InvalidOperationException(
+                    throw new SslenseException(ErrorCodes.HttpsBindingRemovalUnverified, 
                         $"HTTPS binding removal verification failed for '{host}'. The certificate was not removed from the store.");
                 }
             }
@@ -491,7 +492,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
         }
         catch (UnauthorizedAccessException exception)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.HttpsBindingRemovalFailed, 
                 "IIS bindings could not be removed. Run SSLense as Administrator.",
                 exception);
         }
@@ -531,7 +532,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
             // HTTP.sys applies configuration changes asynchronously after CommitChanges.
             if (DateTimeOffset.UtcNow >= deadline)
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.HttpsCertificateNotServed, 
                     $"HTTPS verification failed for '{host}': {ipAddress}:443 did not serve certificate " +
                     $"{expected} within {LiveVerificationTimeout.TotalSeconds:0} seconds (last result: {observed}).");
             }
@@ -607,7 +608,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
     {
         var name = ManagedCertificateNames.IisSiteOf(siteName);
         return serverManager.Sites.FirstOrDefault(site => string.Equals(site.Name, name, StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException($"IIS site '{name}' was not found.");
+            ?? throw new SslenseException(ErrorCodes.IisSiteNotFound, $"IIS site '{name}' was not found.");
     }
 
     private static Binding? FindHttpsBinding(Site site, string host) =>
@@ -641,7 +642,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
 
             if (binding is null)
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.PreviousBindingGone, 
                     $"Cannot restore the previous HTTPS binding for '{change.Host}' because it no longer exists.");
             }
 
@@ -688,7 +689,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
         if (portSeparator < 0 || hostSeparator < 0 ||
             !int.TryParse(value.AsSpan(portSeparator + 1, hostSeparator - portSeparator - 1), out var port))
         {
-            throw new InvalidDataException($"IIS returned an invalid binding: '{value}'.");
+            throw new InvalidDataException(ErrorCodes.IisBindingUnreadable.Format($"IIS returned an invalid binding: '{value}'."));
         }
 
         return (value[..portSeparator], port, value[(hostSeparator + 1)..]);

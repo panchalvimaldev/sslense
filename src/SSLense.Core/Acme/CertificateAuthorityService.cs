@@ -1,7 +1,8 @@
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.RegularExpressions;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
+using System.Security.Cryptography;
+using System.Text.RegularExpressions;
+using System.Text;
 
 namespace SSLense.Core.Acme;
 
@@ -77,8 +78,8 @@ internal sealed partial class CertificateAuthorityService(
         {
             var preset = CertificateAuthorities.Presets.FirstOrDefault(value => string.Equals(value.Id, presetId.Trim(), StringComparison.OrdinalIgnoreCase))
                 ?? throw new ArgumentException(
-                    $"There is no preset named '{presetId}'. Presets: {string.Join(", ", CertificateAuthorities.Presets.Select(value => value.Id))}. " +
-                    "For any other CA, give its name and directory URL.");
+                    ErrorCodes.CertificateAuthorityDetailsInvalid.Format($"There is no preset named '{presetId}'. Presets: {string.Join(", ", CertificateAuthorities.Presets.Select(value => value.Id))}. " +
+                    "For any other CA, give its name and directory URL."));
             id = request.Id?.Trim() ?? preset.Id;
             name = string.IsNullOrWhiteSpace(request.Name) ? preset.Name : request.Name.Trim();
             directory = preset.DirectoryUri;
@@ -89,12 +90,12 @@ internal sealed partial class CertificateAuthorityService(
             name = request.Name?.Trim() ?? string.Empty;
             if (name.Length == 0)
             {
-                throw new ArgumentException("Enter a name for the certificate authority, or choose a preset.");
+                throw new ArgumentException(ErrorCodes.CertificateAuthorityDetailsInvalid.Format("Enter a name for the certificate authority, or choose a preset."));
             }
 
             if (!Uri.TryCreate(request.DirectoryUrl?.Trim(), UriKind.Absolute, out var parsed) || parsed.Scheme != Uri.UriSchemeHttps)
             {
-                throw new ArgumentException("Enter the CA's ACME directory URL, starting with https://.");
+                throw new ArgumentException(ErrorCodes.CertificateAuthorityDetailsInvalid.Format("Enter the CA's ACME directory URL, starting with https://."));
             }
 
             id = request.Id?.Trim() ?? Slug(name);
@@ -105,38 +106,38 @@ internal sealed partial class CertificateAuthorityService(
         id = id.ToLowerInvariant();
         if (!CertificateAuthorities.IsValidId(id))
         {
-            throw new ArgumentException($"'{id}' cannot be a certificate authority ID. Use lowercase letters, digits, and hyphens, up to 40 characters.");
+            throw new ArgumentException(ErrorCodes.CertificateAuthorityDetailsInvalid.Format($"'{id}' cannot be a certificate authority ID. Use lowercase letters, digits, and hyphens, up to 40 characters."));
         }
 
         if (CertificateAuthorities.IsBuiltIn(id))
         {
-            throw new ArgumentException($"'{id}' is built in. Let's Encrypt needs no setup.");
+            throw new ArgumentException(ErrorCodes.CertificateAuthorityBuiltIn.Format($"'{id}' is built in. Let's Encrypt needs no setup."));
         }
 
         var keyId = request.EabKeyId?.Trim() ?? string.Empty;
         var hmac = NormalizeHmacKey(request.EabHmacKey);
         if ((keyId.Length == 0) != (hmac.Length == 0))
         {
-            throw new ArgumentException("External Account Binding needs both the key ID and the HMAC key.");
+            throw new ArgumentException(ErrorCodes.EabMissing.Format("External Account Binding needs both the key ID and the HMAC key."));
         }
 
         var caaOverride = request.CaaDomain?.Trim().TrimEnd('.').ToLowerInvariant();
         if (!string.IsNullOrEmpty(caaOverride) && Uri.CheckHostName(caaOverride) != UriHostNameType.Dns)
         {
-            throw new ArgumentException($"'{request.CaaDomain}' is not a domain name, such as ca.example.com.");
+            throw new ArgumentException(ErrorCodes.CertificateAuthorityDetailsInvalid.Format($"'{request.CaaDomain}' is not a domain name, such as ca.example.com."));
         }
 
         if ((await registry.GetAllAsync(cancellationToken).ConfigureAwait(false)).Any(value => value.Id == id))
         {
-            throw new InvalidOperationException($"A certificate authority with the ID '{id}' already exists. Remove it first, or give another ID.");
+            throw new SslenseException(ErrorCodes.CertificateAuthorityExists, $"A certificate authority with the ID '{id}' already exists. Remove it first, or give another ID.");
         }
 
         var info = await directoryReader.ReadAsync(directory, cancellationToken).ConfigureAwait(false);
         if (info.ExternalAccountRequired && keyId.Length == 0)
         {
             throw new ArgumentException(
-                $"{name} requires External Account Binding. Get an EAB key ID and HMAC key from your {name} account, " +
-                "then add it again with them (--eab in the CLI).");
+                ErrorCodes.EabMissing.Format($"{name} requires External Account Binding. Get an EAB key ID and HMAC key from your {name} account, " +
+                "then add it again with them (--eab in the CLI)."));
         }
 
         var authority = new CertificateAuthority(
@@ -149,7 +150,7 @@ internal sealed partial class CertificateAuthorityService(
             CaaIdentities: string.IsNullOrEmpty(caaOverride) ? info.CaaIdentities : [caaOverride]);
         await configStore.UpdateAsync(
                 config => config.CertificateAuthorities.Any(value => value.Id == id)
-                    ? throw new InvalidOperationException($"A certificate authority with the ID '{id}' was added while this one was being checked.")
+                    ? throw new SslenseException(ErrorCodes.CertificateAuthorityExists, $"A certificate authority with the ID '{id}' was added while this one was being checked.")
                     : config with { CertificateAuthorities = [.. config.CertificateAuthorities, authority] },
                 cancellationToken)
             .ConfigureAwait(false);
@@ -162,7 +163,7 @@ internal sealed partial class CertificateAuthorityService(
         var info = await directoryReader.ReadAsync(authority.DirectoryUri, cancellationToken).ConfigureAwait(false);
         if (info.ExternalAccountRequired && !authority.HasExternalAccountBinding)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.EabNowRequired, 
                 $"{authority.Name} now requires External Account Binding, and none is saved for it. " +
                 $"Remove it and add it again with EAB credentials from your {authority.Name} account.");
         }
@@ -195,20 +196,20 @@ internal sealed partial class CertificateAuthorityService(
         var trimmed = id?.Trim().ToLowerInvariant() ?? string.Empty;
         if (CertificateAuthorities.IsBuiltIn(trimmed))
         {
-            throw new InvalidOperationException($"'{trimmed}' is built in and cannot be removed.");
+            throw new SslenseException(ErrorCodes.CertificateAuthorityBuiltIn, $"'{trimmed}' is built in and cannot be removed.");
         }
 
         await using var removal = await _authorityLock.AcquireRemovalAsync(trimmed, cancellationToken).ConfigureAwait(false);
         var authority = await registry.GetAsync(trimmed, cancellationToken).ConfigureAwait(false);
         if (authority.IsBuiltIn)
         {
-            throw new InvalidOperationException($"'{authority.Id}' is built in and cannot be removed.");
+            throw new SslenseException(ErrorCodes.CertificateAuthorityBuiltIn, $"'{authority.Id}' is built in and cannot be removed.");
         }
 
         var users = UsedBy(authority.Id, await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false));
         if (users.Count > 0)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.CertificateAuthorityInUse, 
                 $"{authority.Name} cannot be removed, because these certificates renew with it: {string.Join(", ", users)}. " +
                 "Move them to another CA with 'SSLense.Cli issue --ca <id> --force', or remove them, first.");
         }
@@ -239,7 +240,7 @@ internal sealed partial class CertificateAuthorityService(
         }
         catch (FormatException)
         {
-            throw new ArgumentException("The EAB HMAC key is not valid Base64url. Copy it again from the CA's account page.");
+            throw new ArgumentException(ErrorCodes.EabKeyInvalid.Format("The EAB HMAC key is not valid Base64url. Copy it again from the CA's account page."));
         }
 
         return normalized;

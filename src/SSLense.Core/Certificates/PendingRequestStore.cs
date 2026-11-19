@@ -1,5 +1,6 @@
-using System.Text.Json;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
+using System.Text.Json;
 
 namespace SSLense.Core.Certificates;
 
@@ -94,13 +95,13 @@ internal sealed class JsonPendingRequestStore : IPendingRequestStore
             var document = JsonSerializer.Deserialize<Document>(
                     await _fileSystem.ReadAllTextAsync(_path, cancellationToken).ConfigureAwait(false),
                     SerializerOptions)
-                ?? throw new InvalidDataException($"Pending requests file '{_path}' is empty.");
+                ?? throw new InvalidDataException(ErrorCodes.DataFileDamaged.Format($"Pending requests file '{_path}' is empty."));
             StateSchema.EnsureSupported(document.SchemaVersion, StateSchema.PendingRequests, _path);
             return document.Requests ?? [];
         }
         catch (JsonException exception)
         {
-            throw new InvalidDataException($"Pending requests file '{_path}' contains invalid JSON.", exception);
+            throw new InvalidDataException(ErrorCodes.DataFileDamaged.Format($"Pending requests file '{_path}' contains invalid JSON."), exception);
         }
     }
 

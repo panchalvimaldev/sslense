@@ -1,3 +1,4 @@
+using SSLense.Core.Errors;
 using System.Security.Cryptography;
 
 namespace SSLense.Core.Certificates;
@@ -52,7 +53,7 @@ internal sealed class CngPrivateKeyStore(bool machineScope = true) : IPrivateKey
                 return new ECDsaCng(CngKey.Create(CngAlgorithm.ECDsaP256, keyName, parameters));
             default:
                 throw new ArgumentException(
-                    $"Unknown key type '{keyType}'. Use {string.Join(", ", PrivateKeyTypes.All)}.", nameof(keyType));
+                    ErrorCodes.InvalidKeyType.Format($"Unknown key type '{keyType}'. Use {string.Join(", ", PrivateKeyTypes.All)}."), nameof(keyType));
         }
     }
 

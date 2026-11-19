@@ -1,3 +1,4 @@
+using SSLense.Core.Errors;
 using SSLense.Core.Iis;
 
 namespace SSLense.Core.Config;
@@ -56,7 +57,7 @@ public static class ManagedCertificateNames
             .ToArray();
         if (owners.Length > 1)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.HostsOfSeveralCertificates, 
                 $"The host names {string.Join(", ", hosts)} belong to {owners.Length} certificates on IIS site '{siteName.Trim()}' " +
                 $"({string.Join(", ", owners.Select(owner => $"'{owner.SiteName}': {string.Join(", ", owner.Hosts)}"))}). " +
                 "Choose the host names of one certificate.");
@@ -77,7 +78,7 @@ public static class ManagedCertificateNames
         if (onSite.Any(record => string.Equals(record.SiteName, name, StringComparison.OrdinalIgnoreCase)))
         {
             // The certificate first named after this host has moved to other host names.
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.CertificateNameTaken, 
                 $"IIS site '{site}' already has a certificate named '{name}', for other host names. Replace that certificate " +
                 $"with --site \"{name}\", or choose the host names in another order.");
         }
@@ -96,7 +97,7 @@ public static class ManagedCertificateNames
             var taken = other.Hosts.Where(host => hosts.Contains(host, StringComparer.OrdinalIgnoreCase)).ToArray();
             if (taken.Length > 0)
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.HostsTaken, 
                     $"{string.Join(", ", taken)} on IIS site '{IisSiteOf(name)}' already use{(taken.Length == 1 ? "s" : string.Empty)} the certificate " +
                     $"managed as '{other.SiteName}'. Each host name on a site has one certificate; replace that one instead.");
             }

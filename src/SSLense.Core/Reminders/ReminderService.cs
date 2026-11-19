@@ -1,5 +1,6 @@
 using SSLense.Core.Config;
 using SSLense.Core.Diagnostics;
+using SSLense.Core.Errors;
 using SSLense.Core.Notifications;
 using SSLense.Core.Renewal;
 
@@ -326,7 +327,7 @@ internal sealed class ReminderService(
         {
             if (snoozeDays is not (>= 1 and <= MaximumSnoozeDays))
             {
-                throw new ArgumentOutOfRangeException(nameof(snoozeDays), $"Snooze for 1 to {MaximumSnoozeDays} days.");
+                throw new ArgumentOutOfRangeException(nameof(snoozeDays), ErrorCodes.SettingOutOfRange.Format($"Snooze for 1 to {MaximumSnoozeDays} days."));
             }
 
             until = _time.GetUtcNow().AddDays(snoozeDays.Value);
@@ -334,7 +335,7 @@ internal sealed class ReminderService(
 
         if (!await managedStore.SetReminderModeAsync(siteName, mode, until, cancellationToken).ConfigureAwait(false))
         {
-            throw new InvalidOperationException($"IIS site '{siteName}' is not managed by SSLense.");
+            throw new SslenseException(ErrorCodes.NotManaged, $"IIS site '{siteName}' is not managed by SSLense.");
         }
     }
 

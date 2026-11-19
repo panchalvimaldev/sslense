@@ -39,7 +39,7 @@ public sealed class StopManagingViewModelTests
     public async Task StopManaging_WhenCoreRefuses_KeepsTheCertificate_AndShowsWhy()
     {
         _management.Setup(value => value.StopManagingAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException("Use share remove."));
+            .ThrowsAsync(new SSLense.Core.Errors.SslenseException(SSLense.Core.Errors.ErrorCodes.SiteSharesCertificate, "Use share remove."));
         var details = Details();
         var changed = false;
         details.CertificatesChanged += _ => changed = true;
@@ -47,7 +47,7 @@ public sealed class StopManagingViewModelTests
 
         await details.UnmanageCommand.ExecuteAsync(null);
 
-        Assert.Equal("Use share remove.", details.ErrorMessage);
+        Assert.Equal("SSL4039: Use share remove.", details.ErrorMessage);
         Assert.Equal("Main/www.domain3.co.uk", details.SelectedSite);
         Assert.False(changed);
     }

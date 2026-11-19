@@ -1,3 +1,4 @@
+using SSLense.Core.Errors;
 using System.Text;
 
 namespace SSLense.Core.Config;
@@ -105,7 +106,7 @@ internal sealed class PhysicalFileSystem : IFileSystem
             }
             catch (UnauthorizedAccessException exception)
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.StateAccessDenied, 
                     $"Access to SSLense state at '{path}' was denied. Run SSLense as Administrator.",
                     exception);
             }
@@ -133,7 +134,7 @@ internal sealed class PhysicalFileSystem : IFileSystem
         }
         catch (UnauthorizedAccessException exception)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.StateAccessDenied, 
                 $"Access to SSLense state at '{path}' was denied. Run SSLense as Administrator.",
                 exception);
         }

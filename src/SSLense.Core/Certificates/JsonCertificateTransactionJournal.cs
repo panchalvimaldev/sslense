@@ -1,6 +1,7 @@
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
+using System.Text.Json.Nodes;
+using System.Text.Json;
 
 namespace SSLense.Core.Certificates;
 
@@ -46,7 +47,7 @@ internal sealed class JsonCertificateTransactionJournal : ICertificateTransactio
         CancellationToken cancellationToken = default)
     {
         var transaction = await GetAsync(id, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"Certificate transaction '{id}' was not found.");
+            ?? throw new SslenseException(ErrorCodes.JournalEntryMissing, $"Certificate transaction '{id}' was not found.");
         await WriteAsync(transaction with { Stage = stage }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -57,7 +58,7 @@ internal sealed class JsonCertificateTransactionJournal : ICertificateTransactio
     {
         ArgumentNullException.ThrowIfNull(certificate);
         var transaction = await GetAsync(id, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"Certificate transaction '{id}' was not found.");
+            ?? throw new SslenseException(ErrorCodes.JournalEntryMissing, $"Certificate transaction '{id}' was not found.");
         await WriteAsync(transaction with { Certificate = certificate }, cancellationToken).ConfigureAwait(false);
     }
 
@@ -113,7 +114,7 @@ internal sealed class JsonCertificateTransactionJournal : ICertificateTransactio
         try
         {
             var node = JsonNode.Parse(json) as JsonObject
-                ?? throw new InvalidDataException($"Certificate transaction '{path}' is empty.");
+                ?? throw new InvalidDataException(ErrorCodes.DataFileDamaged.Format($"Certificate transaction '{path}' is empty."));
 
             // Entries written before schema 2 hold a schema 1 certificate snapshot. Upgrading it here keeps an
             // interrupted production operation from being recovered as staging after an upgrade.
@@ -124,12 +125,12 @@ internal sealed class JsonCertificateTransactionJournal : ICertificateTransactio
             }
 
             return node.Deserialize<CertificateTransaction>(SerializerOptions)
-                ?? throw new InvalidDataException($"Certificate transaction '{path}' is empty.");
+                ?? throw new InvalidDataException(ErrorCodes.DataFileDamaged.Format($"Certificate transaction '{path}' is empty."));
         }
         catch (JsonException exception)
         {
             throw new InvalidDataException(
-                $"Certificate transaction '{path}' contains invalid JSON.",
+                ErrorCodes.DataFileDamaged.Format($"Certificate transaction '{path}' contains invalid JSON."),
                 exception);
         }
     }

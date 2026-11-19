@@ -1,7 +1,8 @@
 using SSLense.Core.Acme;
-using System.Text;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
 using SSLense.Core.Iis;
+using System.Text;
 
 namespace SSLense.Core.Validation;
 
@@ -149,7 +150,7 @@ internal sealed class Http01Handler : IChallengeHandler
             token.Contains(Path.DirectorySeparatorChar) ||
             token.Contains(Path.AltDirectorySeparatorChar))
         {
-            throw new InvalidDataException("The ACME server returned an invalid HTTP-01 token.");
+            throw new InvalidDataException(ErrorCodes.AcmeUnexpectedChallenges.Format("The ACME server returned an invalid HTTP-01 token."));
         }
     }
 

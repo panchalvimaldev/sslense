@@ -1,3 +1,4 @@
+using SSLense.Core.Errors;
 using System.Security.AccessControl;
 using System.Security.Principal;
 
@@ -44,10 +45,10 @@ public static class LogFileLock
                 () =>
                 {
                     var mutex = Shared.Value
-                        ?? throw new InvalidOperationException("The SSLense log lock is not available to this account.");
+                        ?? throw new SslenseException(ErrorCodes.LogLockUnavailable, "The SSLense log lock is not available to this account.");
                     if (!Wait(mutex, timeout))
                     {
-                        throw new TimeoutException("Another SSLense process is writing to the log. Try again in a moment.");
+                        throw new TimeoutException(ErrorCodes.LogBusy.Format("Another SSLense process is writing to the log. Try again in a moment."));
                     }
 
                     try

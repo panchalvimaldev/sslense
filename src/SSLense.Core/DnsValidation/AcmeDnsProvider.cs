@@ -1,6 +1,7 @@
+using SSLense.Core.Acme;
+using SSLense.Core.Errors;
 using System.Security.Cryptography;
 using System.Text;
-using SSLense.Core.Acme;
 
 namespace SSLense.Core.DnsValidation;
 
@@ -21,7 +22,7 @@ internal sealed class AcmeDnsProvider(IAcmeDnsClient client, ISecretProtector pr
         // Selection already led here through the CNAME, so the record is the account's own name.
         if (!string.Equals(DnsNames.Normalize(name), DnsNames.Normalize(profile.ZoneName), StringComparison.Ordinal))
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.AcmeDnsWrongName, 
                 $"The acme-dns account '{profile.Name}' can only set '{profile.ZoneName}', not '{name}'.");
         }
 
@@ -59,7 +60,7 @@ internal sealed class AcmeDnsProvider(IAcmeDnsClient client, ISecretProtector pr
         }
         catch (Exception exception) when (exception is FormatException or CryptographicException or System.ComponentModel.Win32Exception)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.DnsSecretUnreadable, 
                 $"The password for acme-dns account '{profile.Name}' cannot be decrypted on this server. Import the account again.",
                 exception);
         }

@@ -1,3 +1,4 @@
+using SSLense.Core.Errors;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -54,7 +55,7 @@ internal sealed class DpapiSecretProtector : ISecretProtector
             if (!succeeded)
             {
                 throw new CryptographicException(
-                    protect ? "Could not encrypt an SSLense secret." : "Could not decrypt an SSLense secret.",
+                    ErrorCodes.SecretUnreadable.Format(protect ? "Could not encrypt an SSLense secret." : "Could not decrypt an SSLense secret."),
                     new Win32Exception(Marshal.GetLastWin32Error()));
             }
 

@@ -62,7 +62,7 @@ public sealed class DnsScriptTests : IDisposable
         var sha256 = await _store.SaveAsync("Registrar", Original(), CancellationToken.None);
         File.AppendAllText(_store.GetVerifiedPath("Registrar", sha256), "\nStart-Process calc");
 
-        var message = Assert.Throws<InvalidOperationException>(() => _store.GetVerifiedPath("Registrar", sha256)).Message;
+        var message = Assert.ThrowsAny<InvalidOperationException>(() => _store.GetVerifiedPath("Registrar", sha256)).Message;
 
         Assert.Contains("was changed", message, StringComparison.Ordinal);
         Assert.Contains("dns update-script --name \"Registrar\"", message, StringComparison.Ordinal);
@@ -74,7 +74,7 @@ public sealed class DnsScriptTests : IDisposable
         var sha256 = await _store.SaveAsync("Registrar", Original(), CancellationToken.None);
         File.Delete(_store.GetVerifiedPath("Registrar", sha256));
 
-        Assert.Contains("missing", Assert.Throws<InvalidOperationException>(() => _store.GetVerifiedPath("Registrar", sha256)).Message, StringComparison.Ordinal);
+        Assert.Contains("missing", Assert.ThrowsAny<InvalidOperationException>(() => _store.GetVerifiedPath("Registrar", sha256)).Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -261,7 +261,7 @@ public sealed class DnsScriptTests : IDisposable
         var profile = await ProfileAsync();
         _runner.Next = new ScriptRunResult(2, "starting\nusing key:topsecret-value\ntopsecret-value alone\nAPI said 403\n", false, TimeSpan.Zero);
 
-        var message = (await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var message = (await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             Provider().AddTxtRecordAsync(profile, "_acme-challenge.example.com", "value", CancellationToken.None))).Message;
 
         Assert.Contains("exit code 2", message, StringComparison.Ordinal);
@@ -303,7 +303,7 @@ public sealed class DnsScriptTests : IDisposable
         var profile = await ProfileAsync();
         File.AppendAllText(_store.GetVerifiedPath("Registrar", profile.ScriptSha256!), "\n'changed'");
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             Provider().AddTxtRecordAsync(profile, "_acme-challenge.example.com", "value", CancellationToken.None));
 
         Assert.Empty(_runner.Calls);
@@ -358,7 +358,7 @@ public sealed class DnsScriptTests : IDisposable
     {
         _runner.Next = new ScriptRunResult(1, "no access", false, TimeSpan.Zero);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().AddAsync(ScriptRequest(Original(), "")));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().AddAsync(ScriptRequest(Original(), "")));
 
         Assert.Empty(_config.Config.DnsProviders);
         Assert.Empty(Directory.GetFiles(Copies));
@@ -383,7 +383,7 @@ public sealed class DnsScriptTests : IDisposable
         var before = _config.Config.DnsProviders.Single().ScriptSha256!;
         _runner.Next = new ScriptRunResult(1, "broken", false, TimeSpan.Zero);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().UpdateScriptAsync("Registrar", Original("'new'", "new.ps1")));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().UpdateScriptAsync("Registrar", Original("'new'", "new.ps1")));
 
         Assert.Equal(before, _config.Config.DnsProviders.Single().ScriptSha256);
         Assert.Equal("'old'", File.ReadAllText(_store.GetVerifiedPath("Registrar", before)));
@@ -442,7 +442,7 @@ public sealed class DnsScriptTests : IDisposable
         var other = await _store.SaveAsync("Registrar", Original("'other'", "other.ps1"), CancellationToken.None);
         _runner.During = () => ChangeSavedProvider(profile => profile with { ScriptSha256 = other });
 
-        var message = (await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var message = (await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             Service().UpdateScriptAsync("Registrar", Original("'mine'", "mine.ps1")))).Message;
 
         Assert.Contains("replaced by another update", message, StringComparison.Ordinal);
@@ -463,7 +463,7 @@ public sealed class DnsScriptTests : IDisposable
             ChangeSavedProvider(profile => profile with { ScriptSha256 = winner });
         };
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().UpdateScriptAsync("Registrar", newScript));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().UpdateScriptAsync("Registrar", newScript));
 
         Assert.Equal(winner, _config.Config.DnsProviders.Single().ScriptSha256);
         Assert.Empty(_store.Inspect("Registrar", winner!));
@@ -477,7 +477,7 @@ public sealed class DnsScriptTests : IDisposable
         var newScript = Original("'new'", "new.ps1");
         _runner.During = () => File.Delete(Directory.GetFiles(Copies).Single(path => !path.Contains(before[..16], StringComparison.OrdinalIgnoreCase)));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().UpdateScriptAsync("Registrar", newScript));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().UpdateScriptAsync("Registrar", newScript));
 
         Assert.Equal(before, _config.Config.DnsProviders.Single().ScriptSha256);
         Assert.Empty(_store.Inspect("Registrar", before));
@@ -515,7 +515,7 @@ public sealed class DnsScriptTests : IDisposable
         await Service().AddAsync(ScriptRequest(Original(), ""));
         _lookup.Unavailable = true;
 
-        var message = (await Assert.ThrowsAsync<InvalidOperationException>(() => Service().TestAsync("Registrar"))).Message;
+        var message = (await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().TestAsync("Registrar"))).Message;
 
         Assert.Contains("could not check that the record exists", message, StringComparison.Ordinal);
         Assert.DoesNotContain("every authoritative name server returned it", message, StringComparison.Ordinal);

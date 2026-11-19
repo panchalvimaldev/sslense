@@ -51,7 +51,7 @@ public sealed class CertificateAuthorityServiceTests
     [InlineData("""{"hello":"world"}""")]
     [InlineData("<html>not json</html>")]
     public void Directory_SomethingElse_IsRefusedWithAClearMessage(string json) =>
-        Assert.Contains("ACME directory", Assert.Throws<InvalidOperationException>(() =>
+        Assert.Contains("ACME directory", Assert.ThrowsAny<InvalidOperationException>(() =>
             AcmeDirectoryReader.Parse(json, new Uri("https://ca.example/directory"))).Message, StringComparison.Ordinal);
 
     // ---- Adding ----
@@ -130,7 +130,7 @@ public sealed class CertificateAuthorityServiceTests
         _directory.Info = new AcmeDirectoryInfo(false, ["ssl.com"], true, null);
         await Service().AddAsync(new CertificateAuthorityRequest("sslcom"));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().AddAsync(new CertificateAuthorityRequest("sslcom")));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().AddAsync(new CertificateAuthorityRequest("sslcom")));
         Assert.Single(_config.Config.CertificateAuthorities);
     }
 
@@ -164,7 +164,7 @@ public sealed class CertificateAuthorityServiceTests
         await Service().AddAsync(new CertificateAuthorityRequest("sslcom"));
         _directory.Info = new AcmeDirectoryInfo(true, ["ssl.com"], true, null);
 
-        Assert.Contains("now requires External Account Binding", (await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        Assert.Contains("now requires External Account Binding", (await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             Service().TestAsync("sslcom"))).Message, StringComparison.Ordinal);
     }
 
@@ -177,7 +177,7 @@ public sealed class CertificateAuthorityServiceTests
             new ManagedCertificate("Shop", ["shop.example.com"], "a@example.com", "AA", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(60), AuthorityId: "sslcom")
         ]);
 
-        Assert.Contains("Shop", (await Assert.ThrowsAsync<InvalidOperationException>(() => Service().RemoveAsync("sslcom"))).Message, StringComparison.Ordinal);
+        Assert.Contains("Shop", (await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().RemoveAsync("sslcom"))).Message, StringComparison.Ordinal);
         Assert.Single(_config.Config.CertificateAuthorities);
         Assert.Equal(["Shop"], (await Service().ListAsync()).Single(value => value.Id == "sslcom").UsedBy);
     }
@@ -191,7 +191,7 @@ public sealed class CertificateAuthorityServiceTests
         await Service().RemoveAsync("sslcom");
 
         Assert.Empty(_config.Config.CertificateAuthorities);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().RemoveAsync("letsencrypt"));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().RemoveAsync("letsencrypt"));
     }
 
     [Fact]

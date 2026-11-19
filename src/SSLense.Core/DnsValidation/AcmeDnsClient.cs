@@ -1,7 +1,8 @@
-using System.Net;
-using System.Net.Http.Json;
-using System.Text.Json;
 using SSLense.Core.Acme;
+using SSLense.Core.Errors;
+using System.Net.Http.Json;
+using System.Net;
+using System.Text.Json;
 
 namespace SSLense.Core.DnsValidation;
 
@@ -49,7 +50,7 @@ internal sealed class AcmeDnsClient(HttpClient httpClient) : IAcmeDnsClient
         }
         catch (Exception exception) when (exception is JsonException or FormatException or KeyNotFoundException or InvalidOperationException)
         {
-            throw new InvalidOperationException($"The acme-dns server at {server} did not return an account. Check that it is an acme-dns server.", exception);
+            throw new SslenseException(ErrorCodes.AcmeDnsNoAccount, $"The acme-dns server at {server} did not return an account. Check that it is an acme-dns server.", exception);
         }
     }
 
@@ -84,11 +85,11 @@ internal sealed class AcmeDnsClient(HttpClient httpClient) : IAcmeDnsClient
         }
         catch (HttpRequestException exception)
         {
-            throw new InvalidOperationException($"The acme-dns server at {server} could not be reached to {purpose}: {exception.Message}", exception);
+            throw new SslenseException(ErrorCodes.AcmeDnsUnreachable, $"The acme-dns server at {server} could not be reached to {purpose}: {exception.Message}", exception);
         }
         catch (TaskCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new InvalidOperationException($"The acme-dns server at {server} did not {purpose} within {Timeout.TotalSeconds:0} seconds.", exception);
+            throw new SslenseException(ErrorCodes.AcmeDnsTimeout, $"The acme-dns server at {server} did not {purpose} within {Timeout.TotalSeconds:0} seconds.", exception);
         }
 
         using (response)
@@ -99,7 +100,7 @@ internal sealed class AcmeDnsClient(HttpClient httpClient) : IAcmeDnsClient
                 return body;
             }
 
-            throw new InvalidOperationException(response.StatusCode switch
+            throw new SslenseException(ErrorCodes.AcmeDnsRefused, response.StatusCode switch
             {
                 HttpStatusCode.Unauthorized =>
                     $"The acme-dns server at {server} refused the account's username or password. Remove the provider and register or import the account again.",

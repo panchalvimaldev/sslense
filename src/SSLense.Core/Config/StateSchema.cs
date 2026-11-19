@@ -1,3 +1,5 @@
+using SSLense.Core.Errors;
+
 namespace SSLense.Core.Config;
 
 /// <summary>
@@ -49,8 +51,8 @@ internal static class StateSchema
         if (version > supportedVersion)
         {
             throw new InvalidDataException(
-                $"'{path}' uses state schema version {version}, but this SSLense version supports up to " +
-                $"version {supportedVersion}. Install the newer SSLense version that created it. The file was not changed.");
+                ErrorCodes.DataFromNewerVersion.Format($"'{path}' uses state schema version {version}, but this SSLense version supports up to " +
+                $"version {supportedVersion}. Install the newer SSLense version that created it. The file was not changed."));
         }
     }
 

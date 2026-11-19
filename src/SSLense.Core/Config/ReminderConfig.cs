@@ -1,3 +1,5 @@
+using SSLense.Core.Errors;
+
 namespace SSLense.Core.Config;
 
 /// <summary>When SSLense reminds about certificates that are close to expiry (docs/design/expiry-reminders.md).</summary>
@@ -42,17 +44,17 @@ public sealed record ReminderConfig
     {
         if (StartDays is < 1 or > MaximumStartDays)
         {
-            throw new ArgumentOutOfRangeException(nameof(StartDays), $"Start reminding must be between 1 and {MaximumStartDays} days before expiry.");
+            throw new ArgumentOutOfRangeException(nameof(StartDays), ErrorCodes.SettingOutOfRange.Format($"Start reminding must be between 1 and {MaximumStartDays} days before expiry."));
         }
 
         if (RepeatDays is < 1 or > MaximumRepeatDays)
         {
-            throw new ArgumentOutOfRangeException(nameof(RepeatDays), $"Repeat every must be between 1 and {MaximumRepeatDays} days.");
+            throw new ArgumentOutOfRangeException(nameof(RepeatDays), ErrorCodes.SettingOutOfRange.Format($"Repeat every must be between 1 and {MaximumRepeatDays} days."));
         }
 
         if (SendAtHour is < 0 or > 23)
         {
-            throw new ArgumentOutOfRangeException(nameof(SendAtHour), "Send at must be an hour from 0 to 23.");
+            throw new ArgumentOutOfRangeException(nameof(SendAtHour), ErrorCodes.SettingOutOfRange.Format("Send at must be an hour from 0 to 23."));
         }
     }
 }

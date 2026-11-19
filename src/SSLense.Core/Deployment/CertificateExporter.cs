@@ -1,9 +1,10 @@
+using SSLense.Core.Certificates;
+using SSLense.Core.Errors;
 using System.Security.AccessControl;
-using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Text;
-using SSLense.Core.Certificates;
 
 namespace SSLense.Core.Deployment;
 
@@ -87,7 +88,7 @@ internal sealed class CertificateExporter(ICertificateStore certificateStore) : 
             var chainPem = string.Concat(chain.Select(certificate => certificate.ExportCertificatePem() + "\n"));
             char[] keyPem;
             using (AsymmetricAlgorithm key = (AsymmetricAlgorithm?)leaf.GetRSAPrivateKey() ?? leaf.GetECDsaPrivateKey()
-                       ?? throw new InvalidOperationException("The certificate's key is neither RSA nor ECDSA."))
+                       ?? throw new SslenseException(ErrorCodes.ExportKeyUnsupported, "The certificate's key is neither RSA nor ECDSA."))
             {
                 keyPem = key.ExportPkcs8PrivateKeyPem().ToCharArray();
             }
@@ -122,10 +123,10 @@ internal sealed class CertificateExporter(ICertificateStore certificateStore) : 
     private async Task<byte[]> ExportPkcs12Async(string thumbprint, string password, CancellationToken cancellationToken)
     {
         using var certificate = await certificateStore.OpenAsync(thumbprint, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"The certificate {thumbprint} is not installed in LocalMachine\\My.");
+            ?? throw new SslenseException(ErrorCodes.CertificateNotInStore, $"The certificate {thumbprint} is not installed in LocalMachine\\My.");
         if (!certificate.HasPrivateKey)
         {
-            throw new InvalidOperationException($"The certificate {thumbprint} has no private key to export.");
+            throw new SslenseException(ErrorCodes.ExportNoPrivateKey, $"The certificate {thumbprint} has no private key to export.");
         }
 
         var collection = new X509Certificate2Collection(certificate);
@@ -134,11 +135,11 @@ internal sealed class CertificateExporter(ICertificateStore certificateStore) : 
         try
         {
             return collection.Export(X509ContentType.Pkcs12, password)
-                ?? throw new InvalidOperationException("The certificate could not be exported.");
+                ?? throw new SslenseException(ErrorCodes.ExportFailed, "The certificate could not be exported.");
         }
         catch (CryptographicException exception)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.KeyNotExportable, 
                 $"The private key of certificate {thumbprint} cannot be exported. Issue the certificate again with an exportable key " +
                 "('issue --exportable-key', or Exportable private key in the app).",
                 exception);
@@ -179,7 +180,7 @@ internal sealed class CertificateExporter(ICertificateStore certificateStore) : 
     /// </summary>
     internal static void WriteAtomically(string path, byte[] content, bool restricted)
     {
-        var directory = Path.GetDirectoryName(path) ?? throw new ArgumentException($"'{path}' has no folder.");
+        var directory = Path.GetDirectoryName(path) ?? throw new ArgumentException(ErrorCodes.DeploymentStepInvalid.Format($"'{path}' has no folder."));
         Directory.CreateDirectory(directory);
         var temporary = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
         try

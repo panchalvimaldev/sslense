@@ -38,7 +38,7 @@ public sealed class ManagedCertificateNamesTests
     [Fact]
     public void Resolve_HostsOfTwoCertificates_AreRefused()
     {
-        var exception = Assert.Throws<InvalidOperationException>(() =>
+        var exception = Assert.ThrowsAny<InvalidOperationException>(() =>
             ManagedCertificateNames.Resolve([First, Second], "Main", ["www.domain1.co.uk", "www.domain2.co.uk"]));
 
         Assert.Contains("'Main/www.domain2.co.uk'", exception.Message, StringComparison.Ordinal);
@@ -55,7 +55,7 @@ public sealed class ManagedCertificateNamesTests
     [Fact]
     public void HostsOfAnotherCertificateOnTheSite_AreTaken()
     {
-        var exception = Assert.Throws<InvalidOperationException>(() =>
+        var exception = Assert.ThrowsAny<InvalidOperationException>(() =>
             ManagedCertificateNames.ThrowIfHostsTaken([First, Second], "Main", ["www.domain1.co.uk", "www.domain2.co.uk"]));
 
         Assert.Contains("'Main/www.domain2.co.uk'", exception.Message, StringComparison.Ordinal);
@@ -110,7 +110,7 @@ public sealed class ManagedCertificateNamesTests
         Assert.Equal("Main/www.domain2.co.uk", AcmeService.ResolveName(Request("Main"), ["www.domain2.co.uk"], [First, Second]));
         Assert.Equal("Main", AcmeService.ResolveName(Request("Main"), ["www.domain1.co.uk", "domain1.co.uk"], [First, Second]));
 
-        var exception = Assert.Throws<InvalidOperationException>(() =>
+        var exception = Assert.ThrowsAny<InvalidOperationException>(() =>
             AcmeService.ResolveName(Request("Main"), ["www.domain1.co.uk", "www.domain2.co.uk"], [First, Second]));
         Assert.Contains("belong to 2 certificates", exception.Message, StringComparison.Ordinal);
     }
@@ -118,7 +118,7 @@ public sealed class ManagedCertificateNamesTests
     [Fact]
     public void Issue_ForHostsOfAnotherCertificate_UnderANamedCertificate_IsRefused()
     {
-        var exception = Assert.Throws<InvalidOperationException>(() =>
+        var exception = Assert.ThrowsAny<InvalidOperationException>(() =>
             AcmeService.ResolveName(Request("Main/www.domain2.co.uk"), ["www.domain2.co.uk", "www.domain1.co.uk"], [First, Second]));
 
         Assert.Contains("'Main'", exception.Message, StringComparison.Ordinal);
@@ -129,7 +129,7 @@ public sealed class ManagedCertificateNamesTests
     {
         var shared = First with { AdditionalTargets = [new CertificateTarget("Blog", ["blog.example.com"])] };
 
-        var exception = Assert.Throws<InvalidOperationException>(() =>
+        var exception = Assert.ThrowsAny<InvalidOperationException>(() =>
             AcmeService.ResolveName(Request("Main"), ["www.domain3.co.uk"], [shared]));
 
         Assert.Contains("share remove", exception.Message, StringComparison.Ordinal);
@@ -141,7 +141,7 @@ public sealed class ManagedCertificateNamesTests
     {
         var request = Request("Mail/SMTP", "mail.example.com") with { NoSite = true };
 
-        Assert.Throws<InvalidOperationException>(() => AcmeService.ThrowIfSlashInNoSiteName(request, null));
+        Assert.ThrowsAny<InvalidOperationException>(() => AcmeService.ThrowIfSlashInNoSiteName(request, null));
         AcmeService.ThrowIfSlashInNoSiteName(request, Record("Mail/SMTP", "mail.example.com") with { NoSite = true });
     }
 

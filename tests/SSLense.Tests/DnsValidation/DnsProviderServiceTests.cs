@@ -38,7 +38,7 @@ public sealed class DnsProviderServiceTests
     {
         _provider.FailVerify = new InvalidOperationException("rejected");
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().AddAsync(Request()));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().AddAsync(Request()));
 
         Assert.Empty(_config.Config.DnsProviders);
     }
@@ -62,8 +62,8 @@ public sealed class DnsProviderServiceTests
     {
         await Service().AddAsync(Request());
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().AddAsync(Request() with { ZoneName = "other.net" }));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().AddAsync(Request() with { Name = "Other" }));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().AddAsync(Request() with { ZoneName = "other.net" }));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().AddAsync(Request() with { Name = "Other" }));
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public sealed class DnsProviderServiceTests
     {
         await Service().AddAsync(Request());
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => Service().TestAsync("Nope"));
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().TestAsync("Nope"));
 
         Assert.Contains("Available: Main", exception.Message, StringComparison.Ordinal);
     }
@@ -124,7 +124,7 @@ public sealed class DnsProviderServiceTests
         var before = Assert.Single(_config.Config.DnsProviders);
         _provider.FailVerify = new InvalidOperationException("rejected");
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().UpdateTokenAsync("Main", "bad-token"));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().UpdateTokenAsync("Main", "bad-token"));
 
         Assert.Equal(before, Assert.Single(_config.Config.DnsProviders));
     }
@@ -158,7 +158,7 @@ public sealed class DnsProviderServiceTests
     {
         await Service().AddAsync(Request());
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => Service().UpdateTokenAsync("Nope", "new-token"));
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().UpdateTokenAsync("Nope", "new-token"));
 
         Assert.Contains("Available: Main", exception.Message, StringComparison.Ordinal);
     }
@@ -179,7 +179,7 @@ public sealed class DnsProviderServiceTests
         await Service().AddAsync(Request());
         Managed(Certificate(ValidationMethod.Dns01Provider));
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => Service().RemoveAsync("Main"));
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().RemoveAsync("Main"));
 
         Assert.Contains("Shop", exception.Message, StringComparison.Ordinal);
         Assert.Single(_config.Config.DnsProviders);
@@ -192,7 +192,7 @@ public sealed class DnsProviderServiceTests
         _lookup.Cnames["_acme-challenge.shop.other.net"] = "shop.acme.example.com";
         Managed(Certificate(ValidationMethod.Dns01Provider) with { Hosts = ["shop.other.net"] });
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().RemoveAsync("Main"));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().RemoveAsync("Main"));
     }
 
     [Theory]

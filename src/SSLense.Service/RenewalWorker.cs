@@ -162,7 +162,7 @@ internal sealed class RenewalWorker(
         catch (Exception exception)
         {
             logger.LogError(exception, "Certificate reminder check failed");
-            return $"Reminder check failed: {exception.Message}";
+            return $"Reminder check failed: {SSLense.Core.Errors.ErrorCode.Describe(exception)}";
         }
     }
 
@@ -215,7 +215,7 @@ internal sealed class RenewalWorker(
         catch (Exception exception)
         {
             logger.LogError(exception, "Scheduled certificate renewal check failed");
-            return $"Renewal check failed: {exception.Message}";
+            return $"Renewal check failed: {SSLense.Core.Errors.ErrorCode.Describe(exception)}";
         }
     }
     /// <summary>Retries deployment steps that failed after an install or renewal.</summary>
@@ -249,7 +249,7 @@ internal sealed class RenewalWorker(
         catch (Exception exception)
         {
             logger.LogError(exception, "Running pending deployment steps failed");
-            return $"Deployment step check failed: {exception.Message}";
+            return $"Deployment step check failed: {SSLense.Core.Errors.ErrorCode.Describe(exception)}";
         }
     }
 }

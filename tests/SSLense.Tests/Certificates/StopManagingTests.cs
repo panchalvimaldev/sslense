@@ -72,7 +72,7 @@ public sealed class StopManagingTests
     {
         var service = Service(Record(others: new CertificateTarget("Blog", ["blog.example.com"])));
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.StopManagingAsync("Blog"));
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.StopManagingAsync("Blog"));
 
         Assert.Contains("share remove --site \"Blog\"", exception.Message, StringComparison.Ordinal);
         Assert.Contains("unmanage --site \"Shop\"", exception.Message, StringComparison.Ordinal);

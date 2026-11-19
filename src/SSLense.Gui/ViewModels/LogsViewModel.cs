@@ -146,7 +146,7 @@ public partial class LogsViewModel : ObservableObject, IDisposable
         catch (Exception exception)
         {
             _logger.LogError(exception, "Could not refresh the GUI log viewer");
-            ErrorMessage = exception.Message;
+            ErrorMessage = SSLense.Core.Errors.ErrorCode.Describe(exception);
         }
         finally
         {
@@ -207,7 +207,7 @@ public partial class LogsViewModel : ObservableObject, IDisposable
         catch (Exception exception)
         {
             _logger.LogError(exception, "Could not save a copy of the log");
-            ErrorMessage = exception.Message;
+            ErrorMessage = SSLense.Core.Errors.ErrorCode.Describe(exception);
         }
     }
 
@@ -241,7 +241,7 @@ public partial class LogsViewModel : ObservableObject, IDisposable
         catch (Exception exception)
         {
             _logger.LogError(exception, "Could not clear the log");
-            ErrorMessage = exception.Message;
+            ErrorMessage = SSLense.Core.Errors.ErrorCode.Describe(exception);
         }
     }
 

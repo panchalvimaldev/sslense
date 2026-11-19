@@ -1,8 +1,9 @@
-using System.Security.Cryptography;
-using System.Text;
 using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace SSLense.Core.DnsValidation;
 
@@ -108,32 +109,32 @@ internal sealed class DnsProviderService(
         var name = request.Name?.Trim() ?? string.Empty;
         if (name.Length == 0)
         {
-            throw new ArgumentException("Enter a name for this DNS provider.");
+            throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format("Enter a name for this DNS provider."));
         }
 
         var zone = DnsNames.Normalize(request.ZoneName ?? string.Empty);
         if (!zone.Contains('.') || zone.Contains('*') || Uri.CheckHostName(zone) != UriHostNameType.Dns)
         {
-            throw new ArgumentException($"'{request.ZoneName}' is not a valid DNS zone name, such as example.com.");
+            throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format($"'{request.ZoneName}' is not a valid DNS zone name, such as example.com."));
         }
 
         var zoneId = request.ZoneId?.Trim();
         if (request.Provider == DnsProviderType.Cloudflare &&
             (zoneId is not { Length: 32 } || !zoneId.All(Uri.IsHexDigit)))
         {
-            throw new ArgumentException("Enter the Cloudflare zone ID: 32 hexadecimal characters, shown on the domain's Overview page.");
+            throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format("Enter the Cloudflare zone ID: 32 hexadecimal characters, shown on the domain's Overview page."));
         }
 
         if (request.Provider == DnsProviderType.AcmeDns)
         {
-            throw new ArgumentException("An acme-dns account is added with its domain and server ('dns add --provider acme-dns --domain ... --server ...').");
+            throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format("An acme-dns account is added with its domain and server ('dns add --provider acme-dns --domain ... --server ...')."));
         }
 
         var token = request.Token?.Trim() ?? string.Empty;
         var isScript = request.Provider == DnsProviderType.Script;
         if (token.Length == 0 && !isScript)
         {
-            throw new ArgumentException("Enter the API token.");
+            throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format("Enter the API token."));
         }
 
         if (isScript)
@@ -141,24 +142,24 @@ internal sealed class DnsProviderService(
             DnsScriptStore.ValidateName(name);
             if (string.IsNullOrWhiteSpace(request.ScriptPath))
             {
-                throw new ArgumentException("Enter the path of the PowerShell script (--script in the CLI).");
+                throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format("Enter the path of the PowerShell script (--script in the CLI)."));
             }
 
             if (request.ScriptTimeoutSeconds is { } seconds and (< MinScriptTimeoutSeconds or > MaxScriptTimeoutSeconds))
             {
-                throw new ArgumentException($"The script timeout must be between {MinScriptTimeoutSeconds} and {MaxScriptTimeoutSeconds} seconds.");
+                throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format($"The script timeout must be between {MinScriptTimeoutSeconds} and {MaxScriptTimeoutSeconds} seconds."));
             }
         }
 
         var config = await configStore.LoadAsync(cancellationToken).ConfigureAwait(false);
         if (config.DnsProviders.Any(profile => string.Equals(profile.Name, name, StringComparison.OrdinalIgnoreCase)))
         {
-            throw new InvalidOperationException($"A DNS provider named '{name}' already exists. Remove it first, or choose another name.");
+            throw new SslenseException(ErrorCodes.DnsProviderNameExists, $"A DNS provider named '{name}' already exists. Remove it first, or choose another name.");
         }
 
         if (config.DnsProviders.Any(profile => DnsNames.Normalize(profile.ZoneName) == zone))
         {
-            throw new InvalidOperationException($"A DNS provider for the zone '{zone}' already exists. Remove it first to replace it.");
+            throw new SslenseException(ErrorCodes.DnsProviderZoneExists, $"A DNS provider for the zone '{zone}' already exists. Remove it first to replace it.");
         }
 
         var profile = new DnsProviderProfile(name, request.Provider, zone, isScript ? null : zoneId, token.Length == 0 ? string.Empty : Protect(token));
@@ -179,7 +180,7 @@ internal sealed class DnsProviderService(
                         if (current.DnsProviders.Any(value =>
                                 string.Equals(value.Name, name, StringComparison.OrdinalIgnoreCase) || DnsNames.Normalize(value.ZoneName) == zone))
                         {
-                            throw new InvalidOperationException($"A DNS provider named '{name}' or for the zone '{zone}' was added while this one was being checked.");
+                            throw new SslenseException(ErrorCodes.DnsProviderAddedMeanwhile, $"A DNS provider named '{name}' or for the zone '{zone}' was added while this one was being checked.");
                         }
 
                         RequireCopy(profile);
@@ -198,11 +199,11 @@ internal sealed class DnsProviderService(
     public async Task<DnsProviderOverview> AddAcmeDnsAsync(AcmeDnsProviderRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var client = acmeDns ?? throw new InvalidOperationException("acme-dns is not available in this SSLense process.");
+        var client = acmeDns ?? throw new SslenseException(ErrorCodes.AcmeDnsUnavailable, "acme-dns is not available in this SSLense process.");
         var name = request.Name?.Trim() ?? string.Empty;
         if (name.Length == 0)
         {
-            throw new ArgumentException("Enter a name for this DNS provider.");
+            throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format("Enter a name for this DNS provider."));
         }
 
         // A wildcard and its base name use the same record, so the account is for the base name.
@@ -210,12 +211,12 @@ internal sealed class DnsProviderService(
         domain = domain.StartsWith("*.", StringComparison.Ordinal) ? domain[2..] : domain;
         if (!domain.Contains('.') || domain.Contains('*') || Uri.CheckHostName(domain) != UriHostNameType.Dns)
         {
-            throw new ArgumentException($"'{request.Domain}' is not a valid domain name, such as example.com.");
+            throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format($"'{request.Domain}' is not a valid domain name, such as example.com."));
         }
 
         if (!Uri.TryCreate(request.Server?.Trim(), UriKind.Absolute, out var server) || server.Scheme != Uri.UriSchemeHttps)
         {
-            throw new ArgumentException("Enter the acme-dns server's address, starting with https://, such as https://auth.acme-dns.io.");
+            throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format("Enter the acme-dns server's address, starting with https://, such as https://auth.acme-dns.io."));
         }
 
         var allowFrom = (request.AllowFrom ?? []).Select(value => value.Trim()).Where(value => value.Length > 0).ToArray();
@@ -223,13 +224,13 @@ internal sealed class DnsProviderService(
         {
             if (!System.Net.IPNetwork.TryParse(network, out _))
             {
-                throw new ArgumentException($"'{network}' is not a network, such as 203.0.113.10/32.");
+                throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format($"'{network}' is not a network, such as 203.0.113.10/32."));
             }
         }
 
         if (request.Import is not null && allowFrom.Length > 0)
         {
-            throw new ArgumentException("Allowed networks are set when an account is registered, not when one is imported.");
+            throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format("Allowed networks are set when an account is registered, not when one is imported."));
         }
 
         var existing = (await configStore.LoadAsync(cancellationToken).ConfigureAwait(false)).DnsProviders;
@@ -242,7 +243,7 @@ internal sealed class DnsProviderService(
             if (string.IsNullOrWhiteSpace(account.Username) || string.IsNullOrWhiteSpace(account.Password) ||
                 string.IsNullOrWhiteSpace(account.Subdomain) || Uri.CheckHostName(account.FullDomain) != UriHostNameType.Dns)
             {
-                throw new ArgumentException("Importing an acme-dns account needs its username, password, subdomain, and full domain.");
+                throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format("Importing an acme-dns account needs its username, password, subdomain, and full domain."));
             }
 
             await client.CheckHealthAsync(server, cancellationToken).ConfigureAwait(false);
@@ -268,7 +269,7 @@ internal sealed class DnsProviderService(
                     ThrowIfTaken(current.DnsProviders, name, domain);
                     if (current.DnsProviders.Any(value => DnsNames.Normalize(value.ZoneName) == profile.ZoneName))
                     {
-                        throw new InvalidOperationException($"The acme-dns account '{profile.ZoneName}' is already used by another provider.");
+                        throw new SslenseException(ErrorCodes.AcmeDnsAccountInUse, $"The acme-dns account '{profile.ZoneName}' is already used by another provider.");
                     }
 
                     return current with { DnsProviders = [.. current.DnsProviders, profile] };
@@ -283,12 +284,12 @@ internal sealed class DnsProviderService(
     {
         if (profiles.Any(value => string.Equals(value.Name, name, StringComparison.OrdinalIgnoreCase)))
         {
-            throw new InvalidOperationException($"A DNS provider named '{name}' already exists. Remove it first, or choose another name.");
+            throw new SslenseException(ErrorCodes.DnsProviderNameExists, $"A DNS provider named '{name}' already exists. Remove it first, or choose another name.");
         }
 
         if (profiles.FirstOrDefault(value => value.Provider == DnsProviderType.AcmeDns && value.AcmeDnsDomain == domain) is { } other)
         {
-            throw new InvalidOperationException($"The acme-dns account '{other.Name}' is already set up for {domain}. Remove it first to replace it.");
+            throw new SslenseException(ErrorCodes.AcmeDnsDomainExists, $"The acme-dns account '{other.Name}' is already set up for {domain}. Remove it first to replace it.");
         }
     }
 
@@ -324,7 +325,7 @@ internal sealed class DnsProviderService(
 
         if (!confirmed)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.DnsScriptTestUnconfirmed, 
                 $"The test could not finish: the script reported adding a temporary TXT record at '{recordName}', but this server " +
                 "cannot query DNS servers, so SSLense could not check that the record exists. Outbound port 53 may be blocked. " +
                 "The script then removed the record. Issuing still works without this check: SSLense waits 2 minutes instead, " +
@@ -343,7 +344,7 @@ internal sealed class DnsProviderService(
         var target = DnsNames.Normalize(await lookup.ResolveCnameAsync(record, cancellationToken).ConfigureAwait(false));
         if (target != DnsNames.Normalize(profile.ZoneName))
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.AcmeDnsCnameMissing, 
                 $"'{record}' does not point to the acme-dns account yet" +
                 (target == record ? "" : $"; it leads to '{target}'") +
                 $". Create this record at your DNS host, then test again: {profile.AcmeDnsCname}");
@@ -351,13 +352,13 @@ internal sealed class DnsProviderService(
 
         // Validation holds the account until the CA has checked its values; a test value now would push one out.
         await using var held = _operationLock.TryAcquireAll([AcmeDnsAccountLock.Key(profile)])
-            ?? throw new InvalidOperationException(
+            ?? throw new SslenseException(ErrorCodes.AcmeDnsBusy, 
                 $"A certificate is being validated through the acme-dns account '{profile.Name}' right now. Test again in a few minutes.");
         var value = TestValue();
         await provider.AddTxtRecordAsync(profile, profile.ZoneName, value, cancellationToken).ConfigureAwait(false);
         if (!await _propagation.ConfirmAsync([new DnsTxtRecord(profile.ZoneName, value)], cancellationToken).ConfigureAwait(false))
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.DnsQueriesBlocked, 
                 "The CNAME is in place and the acme-dns server accepted an update, but this server cannot query DNS servers, " +
                 "so SSLense could not check that the new value is served. Outbound port 53 may be blocked. Issuing still works.");
         }
@@ -375,7 +376,7 @@ internal sealed class DnsProviderService(
         var profile = await FindAsync(name, cancellationToken).ConfigureAwait(false);
         if (profile.Provider != DnsProviderType.Script)
         {
-            throw new InvalidOperationException($"DNS provider '{profile.Name}' does not use a script.");
+            throw new SslenseException(ErrorCodes.DnsProviderNotScript, $"DNS provider '{profile.Name}' does not use a script.");
         }
 
         var sha256 = await _scripts.SaveAsync(profile.Name, scriptPath, cancellationToken).ConfigureAwait(false);
@@ -398,7 +399,7 @@ internal sealed class DnsProviderService(
                     {
                         if (!string.Equals(current.ScriptSha256, profile.ScriptSha256, StringComparison.OrdinalIgnoreCase))
                         {
-                            throw new InvalidOperationException(
+                            throw new SslenseException(ErrorCodes.DnsScriptReplacedMeanwhile, 
                                 $"The script for DNS provider '{profile.Name}' was replaced by another update while this one was being checked. " +
                                 "Nothing was changed by this update. Run it again if it is still needed.");
                         }
@@ -469,7 +470,7 @@ internal sealed class DnsProviderService(
         var trimmed = token?.Trim() ?? string.Empty;
         if (trimmed.Length == 0)
         {
-            throw new ArgumentException("Enter the API token.");
+            throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format("Enter the API token."));
         }
 
         var profile = await FindAsync(name, cancellationToken).ConfigureAwait(false);
@@ -510,7 +511,7 @@ internal sealed class DnsProviderService(
 
         if (users.Count > 0)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.DnsProviderInUse, 
                 $"DNS provider '{profile.Name}' cannot be removed, because these certificates renew through it: {string.Join(", ", users)}. " +
                 "To change its token, replace the token instead.");
         }
@@ -529,7 +530,7 @@ internal sealed class DnsProviderService(
     {
         var profiles = (await configStore.LoadAsync(cancellationToken).ConfigureAwait(false)).DnsProviders;
         return profiles.FirstOrDefault(profile => string.Equals(profile.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException(
+            ?? throw new SslenseException(ErrorCodes.DnsProviderNotFound, 
                 $"DNS provider '{name}' was not found. " +
                 (profiles.Count == 0
                     ? "Add one with 'SSLense.Cli dns add'."
@@ -549,7 +550,7 @@ internal sealed class DnsProviderService(
             config =>
             {
                 var current = config.DnsProviders.FirstOrDefault(value => value.Name == name)
-                    ?? throw new InvalidOperationException($"DNS provider '{name}' was removed while {during}.");
+                    ?? throw new SslenseException(ErrorCodes.DnsProviderRemovedMeanwhile, $"DNS provider '{name}' was removed while {during}.");
                 var changed = change(current);
                 return config with { DnsProviders = config.DnsProviders.Select(value => value.Name == name ? changed : value).ToArray() };
             },
@@ -557,7 +558,7 @@ internal sealed class DnsProviderService(
 
     private IDnsProvider GetProvider(DnsProviderProfile profile) =>
         providers.FirstOrDefault(provider => provider.Type == profile.Provider)
-        ?? throw new InvalidOperationException($"DNS provider type '{profile.Provider}' is not supported by this SSLense version.");
+        ?? throw new SslenseException(ErrorCodes.DnsProviderTypeUnsupported, $"DNS provider type '{profile.Provider}' is not supported by this SSLense version.");
 
     private string Protect(string token)
     {

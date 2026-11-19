@@ -35,7 +35,7 @@ public sealed class CertificateAuthorityRegistryTests
     [Fact]
     public async Task GetAsync_UnknownId_ListsWhatIsAvailable()
     {
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateRegistry(ZeroSsl).GetAsync("google"));
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => CreateRegistry(ZeroSsl).GetAsync("google"));
 
         Assert.Contains("'google' is not configured", exception.Message, StringComparison.Ordinal);
         Assert.Contains("zerossl", exception.Message, StringComparison.Ordinal);

@@ -1,5 +1,6 @@
-using System.Text.Json;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
+using System.Text.Json;
 
 namespace SSLense.Core.Diagnostics;
 
@@ -66,7 +67,7 @@ internal sealed class JsonServiceHeartbeatStore : IServiceHeartbeatStore
         }
         catch (JsonException exception)
         {
-            throw new InvalidDataException($"Service heartbeat '{_path}' contains invalid JSON.", exception);
+            throw new InvalidDataException(ErrorCodes.DataFileDamaged.Format($"Service heartbeat '{_path}' contains invalid JSON."), exception);
         }
     }
 

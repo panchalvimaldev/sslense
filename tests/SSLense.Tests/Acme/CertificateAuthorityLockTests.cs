@@ -93,7 +93,7 @@ public sealed class CertificateAuthorityLockTests : IDisposable
             authorityLock: authorityLock);
 
         // The CA was removed while this issue waited for the lock: it stops before ordering anything.
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.IssueAsync(
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.IssueAsync(
             new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com", AuthorityId: "zerossl", AcceptProductionRisk: true)));
 
         Assert.Equal(["use zerossl", "released zerossl"], authorityLock.Events);
@@ -118,7 +118,7 @@ public sealed class CertificateAuthorityLockTests : IDisposable
 
         Assert.Equal(["remove zerossl", "released zerossl"], authorityLock.Events);
         Assert.Empty(config.Config.CertificateAuthorities);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.RemoveAsync("letsencrypt"));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.RemoveAsync("letsencrypt"));
         Assert.Equal(2, authorityLock.Events.Count);
     }
 

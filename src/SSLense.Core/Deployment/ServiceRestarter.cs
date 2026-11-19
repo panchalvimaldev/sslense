@@ -1,3 +1,4 @@
+using SSLense.Core.Errors;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 
@@ -29,8 +30,8 @@ internal sealed partial class ScServiceRestarter : IServiceRestarter
         if (!SafeName().IsMatch(serviceName))
         {
             throw new ArgumentException(
-                $"'{serviceName}' is not a service name. Use the service's name, such as 'MSSQLSERVER' or 'TermService', " +
-                "not its display name.");
+                ErrorCodes.ServiceNameUnknown.Format($"'{serviceName}' is not a service name. Use the service's name, such as 'MSSQLSERVER' or 'TermService', " +
+                "not its display name."));
         }
     }
 
@@ -47,7 +48,7 @@ internal sealed partial class ScServiceRestarter : IServiceRestarter
         var (stopCode, stopOutput) = await RunScAsync(["stop", serviceName], cancellationToken).ConfigureAwait(false);
         if (stopCode is not (0 or ServiceNotActive))
         {
-            throw new InvalidOperationException(Failure(serviceName, "stop", stopCode, stopOutput));
+            throw new SslenseException(ErrorCodes.ServiceStopFailed, Failure(serviceName, "stop", stopCode, stopOutput));
         }
 
         await WaitForStateAsync(serviceName, Stopped, "stop", timeout, cancellationToken).ConfigureAwait(false);
@@ -55,7 +56,7 @@ internal sealed partial class ScServiceRestarter : IServiceRestarter
         var (startCode, startOutput) = await RunScAsync(["start", serviceName], cancellationToken).ConfigureAwait(false);
         if (startCode is not (0 or ServiceAlreadyRunning))
         {
-            throw new InvalidOperationException(Failure(serviceName, "start", startCode, startOutput));
+            throw new SslenseException(ErrorCodes.ServiceStartFailed, Failure(serviceName, "start", startCode, startOutput));
         }
 
         await WaitForStateAsync(serviceName, Running, "start", timeout, cancellationToken).ConfigureAwait(false);
@@ -81,13 +82,13 @@ internal sealed partial class ScServiceRestarter : IServiceRestarter
             // A service that stops again while starting has failed; waiting longer would not help.
             if (wanted == Running && state == Stopped)
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.ServiceStoppedAgain, 
                     $"The service '{serviceName}' stopped again after starting. Check the Windows Event Log for the reason.");
             }
 
             if (DateTimeOffset.UtcNow >= deadline)
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.ServiceTimeout, 
                     $"The service '{serviceName}' did not {action} within {timeout.TotalSeconds:0} seconds.");
             }
 
@@ -122,7 +123,7 @@ internal sealed partial class ScServiceRestarter : IServiceRestarter
         }
 
         using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("Could not start the Windows Service Control command.");
+            ?? throw new SslenseException(ErrorCodes.ServiceControlUnavailable, "Could not start the Windows Service Control command.");
         var standardOutput = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var standardError = process.StandardError.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);

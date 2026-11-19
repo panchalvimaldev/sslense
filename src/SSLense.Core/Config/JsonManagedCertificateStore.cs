@@ -1,7 +1,8 @@
+using SSLense.Core.Errors;
 using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json;
+using System.Text;
 
 namespace SSLense.Core.Config;
 
@@ -291,7 +292,7 @@ public sealed class JsonManagedCertificateStore : IManagedCertificateStore
         {
             // Read as a tree first, so older records can be upgraded before they are bound to the current type.
             var root = JsonNode.Parse(json)
-                ?? throw new InvalidDataException($"Managed certificate state '{_statePath}' is empty.");
+                ?? throw new InvalidDataException(ErrorCodes.DataFileDamaged.Format($"Managed certificate state '{_statePath}' is empty."));
             JsonArray? array;
             if (root is JsonArray bareArray)
             {
@@ -315,13 +316,13 @@ public sealed class JsonManagedCertificateStore : IManagedCertificateStore
         catch (JsonException exception)
         {
             throw new InvalidDataException(
-                $"Managed certificate state '{_statePath}' contains invalid JSON.",
+                ErrorCodes.DataFileDamaged.Format($"Managed certificate state '{_statePath}' contains invalid JSON."),
                 exception);
         }
 
         if (records is null)
         {
-            throw new InvalidDataException($"Managed certificate state '{_statePath}' is empty.");
+            throw new InvalidDataException(ErrorCodes.DataFileDamaged.Format($"Managed certificate state '{_statePath}' is empty."));
         }
 
         return (

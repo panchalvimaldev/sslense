@@ -1,6 +1,7 @@
+using SSLense.Core.Config;
+using SSLense.Core.Errors;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
-using SSLense.Core.Config;
 
 namespace SSLense.Core.DnsValidation;
 
@@ -70,8 +71,8 @@ internal sealed partial class DnsScriptStore : IDnsScriptStore
         if (!SafeName().IsMatch(name) || ReservedNames.Contains(name.Split('.')[0], StringComparer.OrdinalIgnoreCase))
         {
             throw new ArgumentException(
-                $"'{name}' cannot name a script provider. Use letters, digits, spaces, dots, hyphens, and underscores, " +
-                "starting and ending with a letter or digit, up to 64 characters.");
+                ErrorCodes.DnsProviderDetailsInvalid.Format($"'{name}' cannot name a script provider. Use letters, digits, spaces, dots, hyphens, and underscores, " +
+                "starting and ending with a letter or digit, up to 64 characters."));
         }
     }
 
@@ -81,18 +82,18 @@ internal sealed partial class DnsScriptStore : IDnsScriptStore
         var source = Path.GetFullPath(sourcePath.Trim().Trim('"'));
         if (!string.Equals(Path.GetExtension(source), ".ps1", StringComparison.OrdinalIgnoreCase))
         {
-            throw new ArgumentException($"'{source}' is not a PowerShell script. The script must be a .ps1 file.");
+            throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format($"'{source}' is not a PowerShell script. The script must be a .ps1 file."));
         }
 
         var file = new FileInfo(source);
         if (!file.Exists)
         {
-            throw new FileNotFoundException($"The script '{source}' was not found.", source);
+            throw new FileNotFoundException(ErrorCodes.DnsProviderDetailsInvalid.Format($"The script '{source}' was not found."), source);
         }
 
         if (file.Length > MaxScriptBytes)
         {
-            throw new ArgumentException($"'{source}' is larger than 1 MB, which is far more than a DNS script needs.");
+            throw new ArgumentException(ErrorCodes.DnsProviderDetailsInvalid.Format($"'{source}' is larger than 1 MB, which is far more than a DNS script needs."));
         }
 
         var content = await File.ReadAllBytesAsync(source, cancellationToken).ConfigureAwait(false);
@@ -101,7 +102,7 @@ internal sealed partial class DnsScriptStore : IDnsScriptStore
         var directory = Directory.CreateDirectory(_directory);
         if (directory.Attributes.HasFlag(FileAttributes.ReparsePoint))
         {
-            throw new InvalidOperationException($"'{_directory}' is a link or junction. Remove it and let SSLense recreate it.");
+            throw new SslenseException(ErrorCodes.DnsScriptFolderIsLink, $"'{_directory}' is a link or junction. Remove it and let SSLense recreate it.");
         }
 
         var target = PathFor(providerName, sha256);
@@ -134,7 +135,7 @@ internal sealed partial class DnsScriptStore : IDnsScriptStore
         var problems = Inspect(providerName, sha256);
         if (problems.Count > 0)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.DnsScriptRefused, 
                 $"SSLense will not run the script for {_owner} '{providerName}': {string.Join(" ", problems)} {_refreshHint(providerName)}");
         }
 

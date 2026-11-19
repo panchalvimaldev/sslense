@@ -1,8 +1,9 @@
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.RegularExpressions;
 using SSLense.Core.Acme;
 using SSLense.Core.Diagnostics;
+using SSLense.Core.Errors;
+using System.Security.Cryptography;
+using System.Text.RegularExpressions;
+using System.Text;
 
 namespace SSLense.Core.DnsValidation;
 
@@ -40,12 +41,12 @@ internal sealed partial class ScriptDnsProvider(IDnsScriptStore scripts, IScript
         var record = DnsNames.Normalize(recordName);
         if (!HostName().IsMatch(zone) || !HostName().IsMatch(record) || (value is not null && !RecordValue().IsMatch(value)))
         {
-            throw new ArgumentException($"SSLense refused to pass an unexpected zone, record name, or value to the script for DNS provider '{profile.Name}'.");
+            throw new ArgumentException(ErrorCodes.DnsScriptInputRefused.Format($"SSLense refused to pass an unexpected zone, record name, or value to the script for DNS provider '{profile.Name}'."));
         }
 
         var path = scripts.GetVerifiedPath(
             profile.Name,
-            profile.ScriptSha256 ?? throw new InvalidOperationException($"DNS provider '{profile.Name}' has no script. Remove it and add it again."));
+            profile.ScriptSha256 ?? throw new SslenseException(ErrorCodes.DnsScriptMissing, $"DNS provider '{profile.Name}' has no script. Remove it and add it again."));
 
         // The colon form binds a value that starts with '-', which Base64url values can.
         string[] arguments = [$"-Action:{action}", $"-Zone:{zone}", $"-RecordName:{record}", .. value is null ? Array.Empty<string>() : [$"-Value:{value}"]];
@@ -61,7 +62,7 @@ internal sealed partial class ScriptDnsProvider(IDnsScriptStore scripts, IScript
 
         if (result.ExitCode != 0)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.DnsScriptFailed, 
                 $"The script for DNS provider '{profile.Name}' could not {purpose} (exit code {result.ExitCode})." +
                 Tail(result.Output, secret));
         }
@@ -102,7 +103,7 @@ internal sealed partial class ScriptDnsProvider(IDnsScriptStore scripts, IScript
         }
         catch (Exception exception) when (exception is FormatException or CryptographicException or System.ComponentModel.Win32Exception)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.DnsSecretUnreadable, 
                 $"The secret for DNS provider '{profile.Name}' cannot be decrypted. Replace it with 'SSLense.Cli dns update-token --name \"{profile.Name}\"'.",
                 exception);
         }

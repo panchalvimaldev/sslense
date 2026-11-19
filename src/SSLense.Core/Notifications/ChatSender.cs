@@ -1,7 +1,8 @@
+using SSLense.Core.Config;
+using SSLense.Core.Errors;
 using System.Net.Http.Json;
 using System.Text;
 using System.Web;
-using SSLense.Core.Config;
 
 namespace SSLense.Core.Notifications;
 
@@ -35,7 +36,7 @@ internal sealed class ChatSender : IChatSender, IDisposable
         if (!response.IsSuccessStatusCode)
         {
             // The URL is never included: chat webhook URLs embed their credential.
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.ChatRejected, 
                 $"The {format} notification was rejected with HTTP {(int)response.StatusCode} by {url.Host}. " +
                 "Check that the webhook URL is complete and still active.");
         }
@@ -124,7 +125,7 @@ internal sealed class ChatSender : IChatSender, IDisposable
         if (url.Scheme != Uri.UriSchemeHttps &&
             !(url.Scheme == Uri.UriSchemeHttp && format is ChatFormat.Generic or ChatFormat.Ntfy))
         {
-            throw new ArgumentException($"The {format} URL must start with https://.");
+            throw new ArgumentException(ErrorCodes.NotificationSettingsInvalid.Format($"The {format} URL must start with https://."));
         }
 
         if (format == ChatFormat.Telegram &&
@@ -132,12 +133,12 @@ internal sealed class ChatSender : IChatSender, IDisposable
              string.IsNullOrWhiteSpace(HttpUtility.ParseQueryString(url.Query)["chat_id"])))
         {
             throw new ArgumentException(
-                "Use a Telegram URL of the form https://api.telegram.org/bot<token>/sendMessage?chat_id=<chat id>.");
+                ErrorCodes.NotificationSettingsInvalid.Format("Use a Telegram URL of the form https://api.telegram.org/bot<token>/sendMessage?chat_id=<chat id>."));
         }
 
         if (format == ChatFormat.Ntfy && url.AbsolutePath.Trim('/').Length == 0)
         {
-            throw new ArgumentException("Include the topic in the ntfy URL, for example https://ntfy.sh/my-sslense-alerts.");
+            throw new ArgumentException(ErrorCodes.NotificationSettingsInvalid.Format("Include the topic in the ntfy URL, for example https://ntfy.sh/my-sslense-alerts."));
         }
     }
 

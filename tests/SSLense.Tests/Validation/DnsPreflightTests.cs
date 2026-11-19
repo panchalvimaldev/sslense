@@ -83,7 +83,8 @@ public sealed class DnsPreflightTests
 
         var check = Assert.Single(results, value => value.Name == "DNS validation");
         Assert.False(check.Succeeded);
-        Assert.Equal("No DNS provider manages it.", check.Message);
+        // Not one SSLense explains, so it is reported as unexpected, with its own words.
+        Assert.Equal("SSL9999: No DNS provider manages it.", check.Message);
     }
 
     [Fact]

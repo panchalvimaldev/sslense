@@ -1,5 +1,6 @@
 using SSLense.Core.Acme;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
 using SSLense.Core.Iis;
 using SSLense.Core.Logs;
 using SSLense.Core.Reminders;
@@ -54,7 +55,7 @@ internal sealed class CertificateManagementService(
         var record = await FindRecordAsync(siteName, cancellationToken).ConfigureAwait(false);
         if (!string.Equals(record.SiteName, siteName.Trim(), StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.SiteSharesCertificate, 
                 $"IIS site '{siteName}' shares the certificate managed for '{record.SiteName}'. To stop managing only this site and keep its binding, use " +
                 $"'SSLense.Cli share remove --site \"{siteName}\"'. To remove the certificate from every site, use 'SSLense.Cli remove --site \"{record.SiteName}\"'.");
         }
@@ -102,7 +103,7 @@ internal sealed class CertificateManagementService(
         var before = await FindRecordAsync(name, cancellationToken).ConfigureAwait(false);
         if (!string.Equals(before.SiteName, name.Trim(), StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.SiteSharesCertificate, 
                 $"IIS site '{name.Trim()}' shares the certificate managed for '{before.SiteName}'. To stop managing only this site, use " +
                 $"'SSLense.Cli share remove --site \"{name.Trim()}\"'. To stop managing the certificate on every site, use " +
                 $"'SSLense.Cli unmanage --site \"{before.SiteName}\"'.");
@@ -134,7 +135,7 @@ internal sealed class CertificateManagementService(
 
     public async Task<CertificateCheckResult> CheckServedAsync(string name, CancellationToken cancellationToken = default)
     {
-        var check = servedCheck ?? throw new InvalidOperationException("The served-certificate check is not available.");
+        var check = servedCheck ?? throw new SslenseException(ErrorCodes.CheckUnavailable, "The served-certificate check is not available.");
         var record = await FindRecordAsync(name, cancellationToken).ConfigureAwait(false);
         if (record.NoSite)
         {

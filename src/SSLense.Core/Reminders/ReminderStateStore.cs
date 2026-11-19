@@ -1,5 +1,6 @@
-using System.Text.Json;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
+using System.Text.Json;
 
 namespace SSLense.Core.Reminders;
 
@@ -66,7 +67,7 @@ internal sealed class JsonReminderStateStore : IReminderStateStore
         }
         catch (JsonException exception)
         {
-            throw new InvalidDataException($"Reminder state '{_path}' contains invalid JSON.", exception);
+            throw new InvalidDataException(ErrorCodes.DataFileDamaged.Format($"Reminder state '{_path}' contains invalid JSON."), exception);
         }
     }
 

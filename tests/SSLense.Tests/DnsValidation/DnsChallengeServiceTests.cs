@@ -76,7 +76,7 @@ public sealed class DnsChallengeServiceTests
         _provider.FailAddForName = "_acme-challenge.www.example.com";
         var www = new AcmeDnsChallenge("www.example.com", false, "_acme-challenge.www.example.com", "www-value");
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().PublishAsync(
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().PublishAsync(
             ValidationMethod.Dns01Provider, [Base, www], null, Progress(), CancellationToken.None));
 
         Assert.Empty(_provider.Records);
@@ -100,7 +100,7 @@ public sealed class DnsChallengeServiceTests
     {
         var other = new AcmeDnsChallenge("other.net", false, "_acme-challenge.other.net", "other-value");
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => Service().PublishAsync(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().PublishAsync(
             ValidationMethod.Dns01Provider, [Base, other], null, Progress(), CancellationToken.None));
 
         Assert.Contains("_acme-challenge.other.net", exception.Message, StringComparison.Ordinal);
@@ -158,7 +158,7 @@ public sealed class DnsChallengeServiceTests
     [Fact]
     public async Task Manual_NotConfirmed_Stops()
     {
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => Service().PublishAsync(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().PublishAsync(
             ValidationMethod.Dns01Manual, [Base], (_, _) => Task.FromResult(false), Progress(), CancellationToken.None));
 
         Assert.Contains("not confirmed", exception.Message, StringComparison.Ordinal);
@@ -179,7 +179,7 @@ public sealed class DnsChallengeServiceTests
     {
         _lookup.Servers = [];
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => Service().CheckBeforeOrderAsync(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().CheckBeforeOrderAsync(
             ValidationMethod.Dns01Manual, ["server.example.com"], CertificateAuthorities.LetsEncryptStagingId, CancellationToken.None));
 
         Assert.Contains("public name servers", exception.Message, StringComparison.Ordinal);
@@ -190,7 +190,7 @@ public sealed class DnsChallengeServiceTests
     {
         _lookup.Caa["example.com"] = [new DnsCaaRecord(0, "issue", "other-ca.example")];
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => Service().CheckBeforeOrderAsync(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().CheckBeforeOrderAsync(
             ValidationMethod.Dns01Provider, ["shop.example.com"], CertificateAuthorities.LetsEncryptId, CancellationToken.None));
 
         Assert.Contains("'example.com'", exception.Message, StringComparison.Ordinal);
@@ -216,7 +216,7 @@ public sealed class DnsChallengeServiceTests
 
         await Service().CheckBeforeOrderAsync(
             ValidationMethod.Dns01Provider, ["example.com"], CertificateAuthorities.LetsEncryptId, CancellationToken.None);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().CheckBeforeOrderAsync(
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().CheckBeforeOrderAsync(
             ValidationMethod.Dns01Provider, ["*.example.com"], CertificateAuthorities.LetsEncryptId, CancellationToken.None));
     }
 
@@ -251,7 +251,7 @@ public sealed class DnsChallengeServiceTests
         await Service(authorities: Authorities(zeroSsl)).CheckBeforeOrderAsync(ValidationMethod.Dns01Provider, ["example.com"], "zerossl", CancellationToken.None);
 
         _lookup.Caa["example.com"] = [new DnsCaaRecord(0, "issue", "letsencrypt.org")];
-        var message = (await Assert.ThrowsAsync<InvalidOperationException>(() => Service(authorities: Authorities(zeroSsl))
+        var message = (await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service(authorities: Authorities(zeroSsl))
             .CheckBeforeOrderAsync(ValidationMethod.Dns01Provider, ["example.com"], "zerossl", CancellationToken.None))).Message;
         Assert.Contains("'sectigo.com'", message, StringComparison.Ordinal);
     }
@@ -275,7 +275,7 @@ public sealed class DnsChallengeServiceTests
     [Fact]
     public async Task CheckBeforeOrder_NoProvider_ExplainsTheOptions()
     {
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => Service().CheckBeforeOrderAsync(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().CheckBeforeOrderAsync(
             ValidationMethod.Dns01Provider, ["other.net"], CertificateAuthorities.LetsEncryptStagingId, CancellationToken.None));
 
         Assert.Contains("dns add", exception.Message, StringComparison.Ordinal);
@@ -322,7 +322,7 @@ public sealed class DnsChallengeServiceTests
         _provider.FailRemove = new InvalidOperationException("provider failed");
         _journal.Abandoned.Add(Entry("Main", "left-behind", DateTimeOffset.UtcNow));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Service().CleanUpAbandonedAsync(CancellationToken.None));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().CleanUpAbandonedAsync(CancellationToken.None));
 
         Assert.Single(_journal.Abandoned);
     }

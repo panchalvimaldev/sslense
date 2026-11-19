@@ -1,6 +1,7 @@
+using SSLense.Core.Config;
+using SSLense.Core.Errors;
 using System.Diagnostics;
 using System.Text.Json;
-using SSLense.Core.Config;
 
 namespace SSLense.Core.Validation;
 
@@ -96,7 +97,7 @@ internal sealed class JsonChallengeJournal : IChallengeJournal
             }
             catch (JsonException exception)
             {
-                throw new InvalidDataException($"Challenge journal entry '{path}' contains invalid JSON.", exception);
+                throw new InvalidDataException(ErrorCodes.DataFileDamaged.Format($"Challenge journal entry '{path}' contains invalid JSON."), exception);
             }
 
             if (artifacts is null)

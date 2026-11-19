@@ -1,6 +1,7 @@
 <UserControl x:Class="SSLense.Gui.Views.CertificateDetailsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:SSLense.Gui.Controls">
     <UserControl.Resources>
         <!-- Shown only when its text is not empty. -->
         <Style x:Key="MessageBanner" TargetType="Border" BasedOn="{StaticResource SuccessBanner}">
@@ -79,7 +80,7 @@
             <TextBlock Text="Working…" Foreground="{StaticResource MutedTextBrush}" Margin="0,0,0,10"
                        Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}" />
             <Border Style="{StaticResource ErrorMessageBanner}">
-                <TextBlock Text="{Binding ErrorMessage}" Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <controls:ErrorText Message="{Binding ErrorMessage}" Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold" TextWrapping="Wrap" />
             </Border>
             <Border Style="{StaticResource MessageBanner}">
                 <TextBlock Text="{Binding ResultMessage}" Foreground="{StaticResource SuccessBrush}" FontWeight="SemiBold" TextWrapping="Wrap" />

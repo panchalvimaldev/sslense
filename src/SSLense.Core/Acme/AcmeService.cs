@@ -1,13 +1,14 @@
-using System.Net.Mail;
-using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
 using SSLense.Core.Deployment;
 using SSLense.Core.DnsValidation;
+using SSLense.Core.Errors;
 using SSLense.Core.Iis;
 using SSLense.Core.Reminders;
 using SSLense.Core.Validation;
+using System.Net.Mail;
+using System.Security.Cryptography.X509Certificates;
+using System.Security.Cryptography;
 
 namespace SSLense.Core.Acme;
 
@@ -80,7 +81,7 @@ internal sealed partial class AcmeService : IAcmeService
         var authority = await _authorities.GetAsync(request.AuthorityId, cancellationToken).ConfigureAwait(false);
         if (!authority.IsTest && !request.AcceptProductionRisk)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.ProductionNotConfirmed, 
                 $"{authority.Name} issues certificates that browsers trust, and its limits apply. Try the site with a test CA, " +
                 "such as Let's Encrypt staging, first. Then confirm with --accept-production-risk, or with the production " +
                 "confirmation in the app.");
@@ -106,13 +107,13 @@ internal sealed partial class AcmeService : IAcmeService
             // One name never means both a site and a certificate without one.
             if (site is not null || existingRecord is { NoSite: false })
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.NameIsIisSite, 
                     $"'{request.SiteName.Trim()}' is the name of an IIS site{(site is null ? " that SSLense manages" : "")}. Choose another name for a certificate with no IIS site.");
             }
 
             if (existingRecord is not null && !request.Force)
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.NoSiteCertificateExists, 
                     $"'{existingRecord.SiteName}' already has a certificate, which expires on {existingRecord.NotAfter:yyyy-MM-dd}. Use --force to replace it now.");
             }
 
@@ -120,18 +121,18 @@ internal sealed partial class AcmeService : IAcmeService
         }
         else if (existingRecord is { NoSite: true })
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.NameIsNoSiteCertificate, 
                 $"'{existingRecord.SiteName}' is a certificate with no IIS site. Renew it with 'SSLense.Cli renew --site \"{existingRecord.SiteName}\"', or remove it first to use the name for a site.");
         }
 
         if (sharedRecord is null && site is null)
         {
-            throw new InvalidOperationException($"IIS site '{iisSiteName}' was not found.");
+            throw new SslenseException(ErrorCodes.IisSiteNotFound, $"IIS site '{iisSiteName}' was not found.");
         }
 
         if (sharedRecord is not null && !usesDns)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.SharingNeedsDns, 
                 $"The certificate for '{sharedRecord.SiteName}' is shared across several IIS sites, which needs DNS validation.");
         }
 
@@ -139,7 +140,7 @@ internal sealed partial class AcmeService : IAcmeService
         site ??= new IisSite(0, sharedRecord!.SiteName, "Missing", null, []);
         if (!usesDns && string.IsNullOrWhiteSpace(site.PhysicalPath))
         {
-            throw new InvalidOperationException($"IIS site '{site.Name}' has no physical root path.");
+            throw new SslenseException(ErrorCodes.IisSiteNoPhysicalPath, $"IIS site '{site.Name}' has no physical root path.");
         }
 
         // DNS validation never reaches the site, so port 80 is needed only for HTTP-01.
@@ -152,7 +153,7 @@ internal sealed partial class AcmeService : IAcmeService
         var requestedNames = NormalizeCertificateNames(request.NoSite ? request.CertificateNames ?? request.Hosts : request.CertificateNames, usesDns);
         if (request.NoSite && requestedNames is null)
         {
-            throw new ArgumentException("Give the names the certificate covers, such as --names rdp.example.com.", nameof(request));
+            throw new ArgumentException(ErrorCodes.NoSiteNamesMissing.Format("Give the names the certificate covers, such as --names rdp.example.com."), nameof(request));
         }
 
         // Taken from the bindings, the host names leave out those of the site's other certificates, which keep their own.
@@ -189,7 +190,7 @@ internal sealed partial class AcmeService : IAcmeService
         var names = requestedNames ?? hosts;
         if (hosts.FirstOrDefault(host => !CertificateInspector.Covers(names, host)) is { } uncovered)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.HostNotCovered, 
                 $"Host name '{uncovered}' is not covered by the certificate names {string.Join(", ", names)}.");
         }
 
@@ -200,7 +201,7 @@ internal sealed partial class AcmeService : IAcmeService
                 string.Equals(NormalizeHost(binding.HostName), host, StringComparison.OrdinalIgnoreCase));
             if (!hasBinding)
             {
-                throw new InvalidOperationException(usesDns
+                throw new SslenseException(ErrorCodes.HostHasNoBinding, usesDns
                     ? $"Host name '{host}' does not have an HTTP or HTTPS binding for IIS site '{site.Name}'."
                     : $"Host name '{host}' does not have an HTTP binding on port 80 for IIS site '{site.Name}'.");
             }
@@ -218,7 +219,7 @@ internal sealed partial class AcmeService : IAcmeService
             : await PlanSharedSitesAsync(sharedRecord, hosts, names, sites, progress, cancellationToken).ConfigureAwait(false);
 
         var dnsChallenges = usesDns
-            ? _dnsChallenges ?? throw new InvalidOperationException("DNS validation is not available.")
+            ? _dnsChallenges ?? throw new SslenseException(ErrorCodes.DnsValidationUnavailable, "DNS validation is not available.")
             : null;
         if (dnsChallenges is not null)
         {
@@ -251,7 +252,7 @@ internal sealed partial class AcmeService : IAcmeService
         }
         catch (HttpRequestException exception)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.CertificateAuthorityUnreachable, 
                 $"Could not contact the {authority.Name} service. " +
                 "Check outbound HTTPS, DNS, proxy, and TLS settings.",
                 exception);
@@ -562,14 +563,14 @@ internal sealed partial class AcmeService : IAcmeService
     {
         if (order.Challenges.Count != hosts.Count)
         {
-            throw new InvalidOperationException("The ACME server did not return one HTTP-01 challenge per host.");
+            throw new SslenseException(ErrorCodes.AcmeUnexpectedChallenges, "The ACME server did not return one HTTP-01 challenge per host.");
         }
 
         foreach (var challenge in order.Challenges)
         {
             if (!hosts.Contains(NormalizeHost(challenge.Host), StringComparer.OrdinalIgnoreCase))
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.AcmeUnexpectedAuthorization, 
                     $"The ACME server returned an unexpected authorization for '{challenge.Host}'.");
             }
 
@@ -607,7 +608,7 @@ internal sealed partial class AcmeService : IAcmeService
             var name = challenge.IsWildcard ? $"*.{NormalizeHost(challenge.Host)}" : NormalizeHost(challenge.Host);
             if (!names.Contains(name, StringComparer.OrdinalIgnoreCase))
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.AcmeUnexpectedAuthorization, 
                     $"The ACME server returned an unexpected authorization for '{name}'.");
             }
         }
@@ -645,7 +646,7 @@ internal sealed partial class AcmeService : IAcmeService
         var offered = (await _directoryReader.ReadAsync(authority.DirectoryUri, cancellationToken).ConfigureAwait(false)).Profiles;
         if (offered is null || !offered.ContainsKey(profile))
         {
-            throw new InvalidOperationException(offered is { Count: > 0 }
+            throw new SslenseException(ErrorCodes.ProfileNotOffered, offered is { Count: > 0 }
                 ? $"{authority.Name} does not offer the profile '{profile}'. It offers: {string.Join(", ", offered.Keys)}."
                 : $"{authority.Name} offers no profiles, so '{profile}' cannot be used. Leave out --profile.");
         }
@@ -718,7 +719,7 @@ internal sealed partial class AcmeService : IAcmeService
         // Names chosen before 0.23 may contain '/'; those keep renewing.
         if (request.NoSite && ManagedCertificateNames.IsAdditional(request.SiteName) && existingRecord is not { NoSite: true })
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.NoSiteNameHasSlash, 
                 $"'{request.SiteName.Trim()}' contains '/', which names a second certificate on an IIS site. Choose a name without '/' for a certificate with no IIS site.");
         }
     }
@@ -736,7 +737,7 @@ internal sealed partial class AcmeService : IAcmeService
             var site = ManagedCertificateNames.IisSiteOf(name);
             if (records.FirstOrDefault(record => record.IsShared() && record.ManagesSite(site)) is { } shared)
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.SharedSiteSecondCertificate, 
                     $"IIS site '{site}' shares the certificate managed as '{shared.SiteName}', so it cannot have a second certificate. " +
                     $"Add the host names to that certificate, or run 'SSLense.Cli share remove --site \"{site}\"' first.");
             }
@@ -777,7 +778,7 @@ internal sealed partial class AcmeService : IAcmeService
             {
                 RSA rsa => leaf.CopyWithPrivateKey(rsa),
                 ECDsa ecdsa => leaf.CopyWithPrivateKey(ecdsa),
-                _ => throw new InvalidOperationException("The reused key is neither RSA nor ECDSA.")
+                _ => throw new SslenseException(ErrorCodes.ReusedKeyUnsupported, "The reused key is neither RSA nor ECDSA.")
             };
             return await _certificateStore.AddAsync(withKey, friendlyName, cancellationToken).ConfigureAwait(false);
         }
@@ -831,7 +832,7 @@ internal sealed partial class AcmeService : IAcmeService
         {
             if (target.Hosts.FirstOrDefault(host => !CertificateInspector.Covers(names, host)) is { } uncovered)
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.SharedHostNotCovered, 
                     $"Host name '{uncovered}' on IIS site '{target.SiteName}' shares this certificate, but is not covered by the " +
                     $"certificate names {string.Join(", ", names)}. Keep the names, or stop sharing with 'SSLense.Cli share remove --site \"{target.SiteName}\"'.");
             }
@@ -857,7 +858,7 @@ internal sealed partial class AcmeService : IAcmeService
 
             if (!inLastDays)
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.SharedSiteHasProblem, 
                     $"IIS site '{target.SiteName}' shares this certificate, but it has a problem: {problem} " +
                     "Nothing was ordered and no site changed. Fix the site, or stop sharing with " +
                     $"'SSLense.Cli share remove --site \"{target.SiteName}\"'.");
@@ -868,7 +869,7 @@ internal sealed partial class AcmeService : IAcmeService
 
         if (leftOut.Count == targets.Length)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.NoSiteCanUseCertificate, 
                 $"No IIS site can use this certificate, so nothing was ordered: {string.Join(" ", leftOut.Select(site => site.Reason))}");
         }
 
@@ -955,14 +956,14 @@ internal sealed partial class AcmeService : IAcmeService
                 string.Equals(ManagedCertificateNames.IisSiteOf(record.SiteName), ManagedCertificateNames.IisSiteOf(siteName), StringComparison.OrdinalIgnoreCase))
             {
                 // Sharing is between sites; on the same site, the certificate with the wildcard can take the host names.
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.WildcardOnSameSite, 
                     $"'{shared}' is already in the certificate managed as '{record.SiteName}' on the same IIS site. Add the host names " +
                     $"to that certificate instead: 'SSLense.Cli issue --site \"{record.SiteName}\" --hosts <its host names and the new ones>'.");
             }
 
             if (shared is not null)
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.WildcardManagedElsewhere, 
                     $"'{shared}' is already managed for IIS site '{record.SiteName}'. Issuing a copy per site would use up the " +
                     "certificate authority's weekly limit. Share the certificate instead: " +
                     $"'SSLense.Cli share add --from \"{record.SiteName}\" --to \"{siteName}\"'.");
@@ -1010,7 +1011,7 @@ internal sealed partial class AcmeService : IAcmeService
                 return;
             }
 
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.AlreadyHasValidCertificate, 
                 $"IIS site '{site.Name}' already has a valid certificate for the requested hosts " +
                 $"(thumbprint {certificate.Thumbprint}, expires {certificate.NotAfter:yyyy-MM-dd}). " +
                 "Use --force to replace it.");
@@ -1054,7 +1055,7 @@ internal sealed partial class AcmeService : IAcmeService
         }
         catch (FormatException exception)
         {
-            throw new ArgumentException("A valid account email address is required.", nameof(request), exception);
+            throw new ArgumentException(ErrorCodes.InvalidEmail.Format("A valid account email address is required."), nameof(request), exception);
         }
 
         if (request.NoSite)
@@ -1062,13 +1063,13 @@ internal sealed partial class AcmeService : IAcmeService
             if (request.ValidationMethod == ValidationMethod.Http01)
             {
                 throw new ArgumentException(
-                    "A certificate with no IIS site needs DNS validation: HTTP validation needs a site to serve the file.", nameof(request));
+                    ErrorCodes.NoSiteNeedsDns.Format("A certificate with no IIS site needs DNS validation: HTTP validation needs a site to serve the file."), nameof(request));
             }
 
             if (!NoSiteName().IsMatch(request.SiteName.Trim()))
             {
                 throw new ArgumentException(
-                    $"'{request.SiteName.Trim()}' cannot name a certificate. Use letters, digits, spaces, dots, hyphens, underscores, and brackets, up to 100 characters.",
+                    ErrorCodes.InvalidCertificateName.Format($"'{request.SiteName.Trim()}' cannot name a certificate. Use letters, digits, spaces, dots, hyphens, underscores, and brackets, up to 100 characters."),
                     nameof(request));
             }
         }
@@ -1098,7 +1099,7 @@ internal sealed partial class AcmeService : IAcmeService
         if (!usesDns)
         {
             throw new ArgumentException(
-                "Certificate names, including wildcards, need DNS validation. HTTP-01 certificates cover their host names.",
+                ErrorCodes.NamesNeedDns.Format("Certificate names, including wildcards, need DNS validation. HTTP-01 certificates cover their host names."),
                 nameof(requestedNames));
         }
 
@@ -1110,14 +1111,14 @@ internal sealed partial class AcmeService : IAcmeService
                 Uri.CheckHostName(baseName) != UriHostNameType.Dns)
             {
                 throw new ArgumentException(
-                    $"'{name}' is not a valid certificate name. A wildcard covers one level, as in *.example.com.",
+                    ErrorCodes.InvalidCertificateNames.Format($"'{name}' is not a valid certificate name. A wildcard covers one level, as in *.example.com."),
                     nameof(requestedNames));
             }
 
             if (!DnsNames.IsWildcard(name) && CertificateInspector.Covers(names.Where(DnsNames.IsWildcard).ToArray(), name))
             {
                 throw new ArgumentException(
-                    $"'{name}' is already covered by a wildcard in the same certificate. Remove one of them.",
+                    ErrorCodes.InvalidCertificateNames.Format($"'{name}' is already covered by a wildcard in the same certificate. Remove one of them."),
                     nameof(requestedNames));
             }
         }
@@ -1134,7 +1135,7 @@ internal sealed partial class AcmeService : IAcmeService
             .ToArray();
         if (hosts.Length == 0)
         {
-            throw new InvalidOperationException(noHostsMessage);
+            throw new SslenseException(ErrorCodes.NoHostNames, noHostsMessage);
         }
 
         foreach (var host in hosts)
@@ -1142,16 +1143,16 @@ internal sealed partial class AcmeService : IAcmeService
             if (host.Contains('*'))
             {
                 throw new ArgumentException(
-                    $"'{host}' cannot be used as a host name, because SSLense manages IIS bindings for real host names only. " +
+                    ErrorCodes.InvalidHostName.Format($"'{host}' cannot be used as a host name, because SSLense manages IIS bindings for real host names only. " +
                     "To get a wildcard certificate, use DNS validation, list the wildcard in the certificate names " +
-                    "(--names), and list real host names in the hosts (--hosts).",
+                    "(--names), and list real host names in the hosts (--hosts)."),
                     nameof(requestedHosts));
             }
 
             if (Uri.CheckHostName(host) != UriHostNameType.Dns)
             {
                 throw new ArgumentException(
-                    $"'{host}' is not a valid DNS host name.",
+                    ErrorCodes.InvalidHostName.Format($"'{host}' is not a valid DNS host name."),
                     nameof(requestedHosts));
             }
         }

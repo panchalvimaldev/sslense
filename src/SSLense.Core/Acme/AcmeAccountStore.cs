@@ -1,6 +1,7 @@
+using SSLense.Core.Config;
+using SSLense.Core.Errors;
 using System.Security.Cryptography;
 using System.Text;
-using SSLense.Core.Config;
 
 namespace SSLense.Core.Acme;
 
@@ -40,7 +41,7 @@ internal sealed class AcmeAccountStore : IAcmeAccountStore
         }
         catch (FormatException exception)
         {
-            throw new InvalidDataException("The saved ACME account key is corrupt.", exception);
+            throw new InvalidDataException(ErrorCodes.AccountKeyDamaged.Format("The saved ACME account key is corrupt."), exception);
         }
     }
 

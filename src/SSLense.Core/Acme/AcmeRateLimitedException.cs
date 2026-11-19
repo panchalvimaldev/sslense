@@ -1,3 +1,5 @@
+using SSLense.Core.Errors;
+
 namespace SSLense.Core.Acme;
 
 /// <summary>
@@ -5,7 +7,7 @@ namespace SSLense.Core.Acme;
 /// only extends the limit, so callers must not retry until a later scheduled check.
 /// </summary>
 public sealed class AcmeRateLimitedException(string message, Exception? innerException = null)
-    : InvalidOperationException(message, innerException)
+    : SslenseException(ErrorCodes.AcmeRateLimited, message, innerException)
 {
     public const string ProblemType = "urn:ietf:params:acme:error:rateLimited";
 }

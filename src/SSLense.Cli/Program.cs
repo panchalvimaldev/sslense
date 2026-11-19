@@ -84,7 +84,7 @@ try
 catch (Exception exception)
 {
     Log.Fatal(exception, "SSLense terminated unexpectedly");
-    Console.Error.WriteLine($"Error: {exception.Message}");
+    WriteError(exception);
     return 1;
 }
 finally
@@ -415,7 +415,7 @@ static async Task<int> PreflightAsync(IPreflightService service, string site, st
         foreach (var check in checks) Console.WriteLine($"{(check.Succeeded ? "PASS" : "FAIL")}: {check.Name} - {check.Message}");
         return checks.All(value => value.Succeeded) ? 0 : 1;
     }
-    catch (Exception exception) { Log.Error(exception, "Pre-flight check failed"); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
+    catch (Exception exception) { Log.Error(exception, "Pre-flight check failed"); WriteError(exception); return 1; }
 }
 
 static async Task<int> DetailsAsync(ICertificateManagementService service, string site, CancellationToken token)
@@ -428,7 +428,7 @@ static async Task<int> DetailsAsync(ICertificateManagementService service, strin
         Console.WriteLine("Recent logs:"); foreach (var line in detail.RecentLogLines) Console.WriteLine($"  {line}");
         return 0;
     }
-    catch (Exception exception) { Log.Error(exception, "Failed to read certificate details"); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
+    catch (Exception exception) { Log.Error(exception, "Failed to read certificate details"); WriteError(exception); return 1; }
 }
 
 static async Task<int> CheckAsync(ICertificateManagementService service, string site, CancellationToken token)
@@ -439,13 +439,13 @@ static async Task<int> CheckAsync(ICertificateManagementService service, string 
         Console.WriteLine(check.Passed ? $"OK: {check.Message}" : $"Problem: {check.Message}");
         return check.Passed ? 0 : 2;
     }
-    catch (Exception exception) { Log.Error(exception, "Failed to check the served certificate"); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
+    catch (Exception exception) { Log.Error(exception, "Failed to check the served certificate"); WriteError(exception); return 1; }
 }
 
 static async Task<int> StopManagingAsync(ICertificateManagementService service, string site, CancellationToken token)
 {
     try { Console.WriteLine(await service.StopManagingAsync(site, token).ConfigureAwait(false)); return 0; }
-    catch (Exception exception) { Log.Error(exception, "Failed to stop managing the certificate for {Site}", site); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
+    catch (Exception exception) { Log.Error(exception, "Failed to stop managing the certificate for {Site}", site); WriteError(exception); return 1; }
 }
 
 static async Task<int> RemoveAsync(ICertificateManagementService service, string site, bool confirmed, CancellationToken token)
@@ -470,13 +470,13 @@ static async Task<int> RemoveAsync(ICertificateManagementService service, string
     }
 
     try { await service.RemoveAsync(site, token).ConfigureAwait(false); Console.WriteLine($"Removed managed certificate for '{site}'."); return 0; }
-    catch (Exception exception) { Log.Error(exception, "Failed to remove certificate for {Site}", site); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
+    catch (Exception exception) { Log.Error(exception, "Failed to remove certificate for {Site}", site); WriteError(exception); return 1; }
 }
 
 static async Task<int> ConfigureGeneralAsync(ISettingsService service, string? email, int days, CancellationToken token)
 {
     try { await service.SaveGeneralAsync(email, days, token).ConfigureAwait(false); Console.WriteLine("General settings saved. Staging remains the issuance default."); return 0; }
-    catch (Exception exception) { Log.Error(exception, "Failed to save general settings"); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
+    catch (Exception exception) { Log.Error(exception, "Failed to save general settings"); WriteError(exception); return 1; }
 }
 
 static async Task<int> ServiceActionAsync(IWindowsServiceManager service, string action, CancellationToken token)
@@ -488,7 +488,7 @@ static async Task<int> ServiceActionAsync(IWindowsServiceManager service, string
         var status = await service.GetStatusAsync(token).ConfigureAwait(false);
         Console.WriteLine($"SSLense service status: {status}"); return 0;
     }
-    catch (Exception exception) { Log.Error(exception, "Service action {Action} failed", action); Console.Error.WriteLine($"Error: {exception.Message}"); return 1; }
+    catch (Exception exception) { Log.Error(exception, "Service action {Action} failed", action); WriteError(exception); return 1; }
 }
 
 static void AddImportedCertificateCommands(RootCommand rootCommand, IServiceProvider services)
@@ -792,7 +792,7 @@ static void PrintImportResult(ImportResult result)
 static int ReportFailure(Exception exception, string logMessage)
 {
     Log.Error(exception, "{Operation}", logMessage);
-    Console.Error.WriteLine($"Error: {exception.Message}");
+    WriteError(exception);
     return 1;
 }
 
@@ -853,7 +853,7 @@ static async Task<int> AddSharedSiteAsync(
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to share a certificate with IIS site {SiteName}", to);
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }
@@ -868,7 +868,7 @@ static async Task<int> RemoveSharedSiteAsync(ICertificateSharingService sharing,
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to stop sharing a certificate with IIS site {SiteName}", site);
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }
@@ -985,7 +985,7 @@ static async Task<int> AddDeploymentStepAsync(
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to add a deployment step for IIS site {SiteName}", site);
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }
@@ -1034,7 +1034,7 @@ static async Task<int> ListDeploymentStepsAsync(IDeploymentService deployment, s
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to list deployment steps");
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }
@@ -1057,7 +1057,7 @@ static async Task<int> RunDeploymentStepsAsync(IDeploymentService deployment, st
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to run deployment steps for IIS site {SiteName}", site);
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }
@@ -1073,7 +1073,7 @@ static async Task<int> RemoveDeploymentStepAsync(IDeploymentService deployment, 
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to remove a deployment step for IIS site {SiteName}", site);
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }
@@ -1930,7 +1930,7 @@ static async Task<int> ShowNotificationsAsync(INotificationSettingsService setti
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to read notification settings");
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }
@@ -2038,7 +2038,7 @@ static async Task<int> ConfigureNotificationOptionsAsync(
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to update notification options");
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }
@@ -2071,7 +2071,7 @@ static async Task<int> RunNotificationChangeAsync(Func<Task> change, string succ
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to update notification settings");
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }
@@ -2091,7 +2091,7 @@ static async Task<int> TestNotificationsAsync(INotifier notifier, CancellationTo
     catch (Exception exception)
     {
         Log.Error(exception, "Test notification failed");
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }
@@ -2189,7 +2189,7 @@ static async Task<int> RenewAsync(
     catch (Exception exception)
     {
         Log.Error(exception, "Certificate renewal command failed");
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }
@@ -2223,7 +2223,7 @@ static async Task<int> HealthAsync(IHealthCheckService healthCheckService, Cance
     catch (Exception exception)
     {
         Log.Error(exception, "Health check failed");
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }
@@ -2271,7 +2271,7 @@ static async Task<int> DiagnosticsAsync(
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to create the diagnostic bundle");
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }
@@ -2296,7 +2296,7 @@ static int SecureData()
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to secure the data directory");
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }
@@ -2325,7 +2325,7 @@ static int CheckPermissions()
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to verify data directory permissions");
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }
@@ -2424,7 +2424,7 @@ static async Task<int> StatusAsync(
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to read managed certificate status");
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }
@@ -2444,7 +2444,7 @@ static async Task<int> InstallServiceAsync(
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to install the SSLense Renewal Service");
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }
@@ -2462,7 +2462,7 @@ static async Task<int> UninstallServiceAsync(
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to uninstall the SSLense Renewal Service");
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }
@@ -2579,8 +2579,20 @@ static async Task<int> IssueAsync(
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to issue a certificate for {SiteName}", site ?? noSite);
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
+    }
+}
+
+// Every error shown has a code (docs/design/error-codes.md): SSLense's own, or SSL9999 for one it did not expect,
+// with a link to what it means and what to do.
+static void WriteError(Exception exception)
+{
+    var message = SSLense.Core.Errors.ErrorCode.Describe(exception);
+    Console.Error.WriteLine($"Error: {message}");
+    if (SSLense.Core.Errors.ErrorCode.Of(message) is { } code)
+    {
+        Console.Error.WriteLine($"More: {code.Link}");
     }
 }
 
@@ -2623,7 +2635,7 @@ static async Task<int> ListSitesAsync(IIisService iisService, CancellationToken 
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to list IIS sites");
-        Console.Error.WriteLine($"Error: {exception.Message}");
+        WriteError(exception);
         return 1;
     }
 }

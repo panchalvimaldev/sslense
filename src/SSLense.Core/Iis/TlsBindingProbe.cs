@@ -1,3 +1,4 @@
+using SSLense.Core.Errors;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
@@ -43,6 +44,6 @@ internal sealed class TlsBindingProbe : ITlsBindingProbe
             .ConfigureAwait(false);
 
         return thumbprint
-            ?? throw new InvalidOperationException($"No certificate was served for '{host}' on port {port}.");
+            ?? throw new SslenseException(ErrorCodes.NoCertificateServed, $"No certificate was served for '{host}' on port {port}.");
     }
 }

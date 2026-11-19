@@ -1,7 +1,8 @@
-using System.Net;
-using System.Net.Sockets;
-using DnsClient;
 using DnsClient.Protocol;
+using DnsClient;
+using SSLense.Core.Errors;
+using System.Net.Sockets;
+using System.Net;
 
 namespace SSLense.Core.DnsValidation;
 
@@ -68,7 +69,7 @@ internal sealed class DnsClientLookup : IDnsLookup
             current = DnsNames.Normalize(target);
         }
 
-        throw new InvalidOperationException($"'{name}' has too many CNAME steps, or a CNAME loop.");
+        throw new SslenseException(ErrorCodes.CnameLoop, $"'{name}' has too many CNAME steps, or a CNAME loop.");
     }
 
     public async Task<IReadOnlyList<string>> GetAuthoritativeServersAsync(string name, CancellationToken cancellationToken)

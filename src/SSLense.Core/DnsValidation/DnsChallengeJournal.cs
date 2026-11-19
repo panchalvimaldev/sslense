@@ -1,6 +1,7 @@
-using System.Text.Json;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
 using SSLense.Core.Validation;
+using System.Text.Json;
 
 namespace SSLense.Core.DnsValidation;
 
@@ -79,7 +80,7 @@ internal sealed class JsonDnsChallengeJournal : IDnsChallengeJournal
             }
             catch (JsonException exception)
             {
-                throw new InvalidDataException($"DNS challenge journal entry '{path}' contains invalid JSON.", exception);
+                throw new InvalidDataException(ErrorCodes.DataFileDamaged.Format($"DNS challenge journal entry '{path}' contains invalid JSON."), exception);
             }
 
             if (entry is null)

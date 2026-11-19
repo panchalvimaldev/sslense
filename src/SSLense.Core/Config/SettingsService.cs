@@ -1,3 +1,4 @@
+using SSLense.Core.Errors;
 using System.Net.Mail;
 
 namespace SSLense.Core.Config;
@@ -27,7 +28,7 @@ internal sealed class SettingsService(IConfigStore configStore) : ISettingsServi
             }
             catch (FormatException exception)
             {
-                throw new ArgumentException("The default ACME email address is invalid.", nameof(defaultEmail), exception);
+                throw new ArgumentException(ErrorCodes.InvalidEmail.Format("The default ACME email address is invalid."), nameof(defaultEmail), exception);
             }
         }
 

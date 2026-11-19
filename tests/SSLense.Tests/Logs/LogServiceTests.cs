@@ -146,7 +146,7 @@ public sealed class LogServiceTests
         var fileSystem = new InMemoryFileSystem();
         fileSystem.Files[@"C:\ProgramData\SSLense\config.json"] = "{}";
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             new LogService(fileSystem).ReadAsync(@"C:\ProgramData\SSLense\config.json", "All", null, 100));
 
         Assert.Contains("not an SSLense log file", exception.Message, StringComparison.Ordinal);

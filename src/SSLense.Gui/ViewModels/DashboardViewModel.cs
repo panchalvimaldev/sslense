@@ -234,7 +234,7 @@ public partial class DashboardViewModel : ObservableObject
         catch (Exception exception)
         {
             _logger.LogError(exception, "Certificates operation failed");
-            ErrorMessage = exception.Message;
+            ErrorMessage = SSLense.Core.Errors.ErrorCode.Describe(exception);
             Activity = "Operation failed.";
         }
         finally
