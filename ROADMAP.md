@@ -63,7 +63,7 @@ References:
 
 ## 4. Next development
 
-In priority order. Feedback from real users can change the order.
+In priority order. Feedback from real users can change the order. The order of work up to the next release is in [docs/delivery-plan.md](docs/delivery-plan.md): every feature in this roadmap is built first, then tested together.
 
 1. **A simpler app window** (built, awaiting release). Three tabs, the certificates grouped by IIS site with the selected one beside them, Add certificate starting from where the certificate comes from, and plain words ([design](docs/design/gui-redesign.md)). All four steps are built: the window, the Certificates tab, Add certificate, Install renewal, Check, Activity, Settings with tabs, and Stop managing that keeps IIS as it is.
 2. **Several ACME certificates on one IIS site.** Phase 2 of [the design](docs/design/multiple-certificates-per-site.md): issue and renew a second ACME certificate on a site, including HTTP validation and sharing.
