@@ -124,7 +124,7 @@ footer nav{justify-content:center;margin-bottom:10px}
   <h2>Everything you need to secure IIS sites</h2>
   <p class="lead">Built for Windows administrators who want HTTPS working today and still working next year.</p>
   <div class="grid">
-    <div class="card"><h3>Guided issuance</h3><p>Pick a site and its host names, run the pre-flight checks, and issue. SSLense validates the domain, installs the certificate and adds the HTTPS binding with SNI.</p></div>
+    <div class="card"><h3>Guided issuance</h3><p>Pick a site and its host names, choose Check, and issue. SSLense validates the domain, installs the certificate and adds the HTTPS binding with SNI. A site that serves several domains can have a certificate for each, renewed on its own.</p></div>
     <div class="card"><h3>Wildcards and DNS validation</h3><p>Issue <code>*.example.com</code>, or secure internal servers and sites without port 80. Renewal is automatic through Cloudflare, through acme-dns with one CNAME at any DNS host, through your own PowerShell script for any DNS service with an API, or through a CNAME to a domain on Cloudflare. You can also create the records by hand.</p></div>
     <div class="card"><h3>One certificate, several sites</h3><p>Share a DNS-validated certificate across IIS sites. They renew together, one at a time, with each checked over HTTPS. A site with a problem can't take the others down.</p></div>
     <div class="card"><h3>Remote Desktop, SQL Server and Exchange</h3><p>After every renewal, SSLense can give an application pool or service access to the private key, restart a service, or run a PowerShell script. Ready-made scripts hand the certificate to Remote Desktop, SQL Server and Exchange. A step that fails is retried hourly, and the previous certificate is kept until it succeeds. A certificate only for such a service needs no IIS site. With an exportable key, it can also go to PFX or PEM files, or the IIS Central Certificate Store.</p></div>
@@ -174,7 +174,7 @@ SSLense.Cli complete --site "Shop" --certificate shop.crt --chain shop.ca-bundle
 <section id="roadmap">
   <h2>On the roadmap</h2>
   <p class="lead">Priorities are shaped by feedback on GitHub.</p>
-  <div class="chips soon"><span>Code-signed releases</span><span>winget package</span><span>Built-in Route 53, Azure DNS and GoDaddy</span><span>Several certificates per site</span><span>Bindings without a host name</span></div>
+  <div class="chips soon"><span>Code-signed releases</span><span>winget package</span><span>Built-in Route 53, Azure DNS and GoDaddy</span><span>Bindings without a host name</span></div>
 </section>
 
 <section id="guides">

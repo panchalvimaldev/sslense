@@ -96,22 +96,44 @@ public sealed class ManagedCertificateNamesTests
     }
 
     [Fact]
-    public void Issue_ASecondCertificateOnASite_IsRefused_UntilPhase2()
+    public void Issue_ForNewHostsOnAManagedSite_IsASecondCertificate_AndItsRenewalKeepsItsName()
     {
-        var exception = Assert.Throws<InvalidOperationException>(() => AcmeService.ThrowIfOtherCertificateOnSite(
-            Request("Main/www.domain2.co.uk", "www.domain2.co.uk"), Second, [First, Second]));
-
-        Assert.Contains("Other providers", exception.Message, StringComparison.Ordinal);
+        Assert.Equal("Main/www.domain3.co.uk",
+            AcmeService.ResolveName(Request("Main"), ["www.domain3.co.uk"], [First, Second]));
+        Assert.Equal("Main/www.domain2.co.uk",
+            AcmeService.ResolveName(Request("Main/www.domain2.co.uk"), ["www.domain2.co.uk"], [First, Second]));
     }
 
     [Fact]
-    public void Issue_ForHostsOfAnotherCertificateOnTheSite_IsRefused()
+    public void Issue_ForTheHostsOfOneCertificateOnTheSite_ReplacesIt_AndForTwo_IsRefused()
     {
-        var exception = Assert.Throws<InvalidOperationException>(() => AcmeService.ThrowIfOtherCertificateOnSite(
-            Request("Main", "www.domain1.co.uk", "www.domain2.co.uk"), First, [First, Second]));
+        Assert.Equal("Main/www.domain2.co.uk", AcmeService.ResolveName(Request("Main"), ["www.domain2.co.uk"], [First, Second]));
+        Assert.Equal("Main", AcmeService.ResolveName(Request("Main"), ["www.domain1.co.uk", "domain1.co.uk"], [First, Second]));
 
-        Assert.Contains("'Main/www.domain2.co.uk'", exception.Message, StringComparison.Ordinal);
-        AcmeService.ThrowIfOtherCertificateOnSite(Request("Main", "www.domain1.co.uk"), First, [First, Second]);
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            AcmeService.ResolveName(Request("Main"), ["www.domain1.co.uk", "www.domain2.co.uk"], [First, Second]));
+        Assert.Contains("belong to 2 certificates", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Issue_ForHostsOfAnotherCertificate_UnderANamedCertificate_IsRefused()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            AcmeService.ResolveName(Request("Main/www.domain2.co.uk"), ["www.domain2.co.uk", "www.domain1.co.uk"], [First, Second]));
+
+        Assert.Contains("'Main'", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Issue_ASecondCertificateOnASiteThatSharesItsCertificate_IsRefused()
+    {
+        var shared = First with { AdditionalTargets = [new CertificateTarget("Blog", ["blog.example.com"])] };
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            AcmeService.ResolveName(Request("Main"), ["www.domain3.co.uk"], [shared]));
+
+        Assert.Contains("share remove", exception.Message, StringComparison.Ordinal);
+        Assert.Equal("Main", AcmeService.ResolveName(Request("Main"), ["www.domain1.co.uk"], [shared]));
     }
 
     [Fact]
@@ -119,9 +141,8 @@ public sealed class ManagedCertificateNamesTests
     {
         var request = Request("Mail/SMTP", "mail.example.com") with { NoSite = true };
 
-        Assert.Throws<InvalidOperationException>(() => AcmeService.ThrowIfOtherCertificateOnSite(request, null, []));
-        var existing = Record("Mail/SMTP", "mail.example.com") with { NoSite = true };
-        AcmeService.ThrowIfOtherCertificateOnSite(request, existing, [existing]);
+        Assert.Throws<InvalidOperationException>(() => AcmeService.ThrowIfSlashInNoSiteName(request, null));
+        AcmeService.ThrowIfSlashInNoSiteName(request, Record("Mail/SMTP", "mail.example.com") with { NoSite = true });
     }
 
     private static AcmeIssueRequest Request(string name, params string[] hosts) => new(name, hosts, "ops@example.com");

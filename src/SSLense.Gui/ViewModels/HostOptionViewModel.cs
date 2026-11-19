@@ -21,6 +21,13 @@ public partial class HostOptionViewModel : ObservableObject
         isSelected = hasHttpBinding;
     }
 
+    /// <summary>The certificate on the site that has this host name, such as "Managed as Main/www.domain3.co.uk, bought"; empty when none.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasOwner))]
+    private string owner = string.Empty;
+
+    public bool HasOwner => Owner.Length > 0;
+
     public string Host { get; }
 
     public bool HasHttpBinding { get; }

@@ -733,7 +733,6 @@ public sealed class AcmeServiceTests
     [Theory]
     [InlineData("Other Site", CertificateAuthorities.LetsEncryptStagingId, CertificateSource.Acme, true)]
     [InlineData("OTHER SITE", CertificateAuthorities.LetsEncryptStagingId, CertificateSource.Acme, true)]
-    [InlineData("My Site", CertificateAuthorities.LetsEncryptStagingId, CertificateSource.Acme, false)]
     [InlineData("Other Site", CertificateAuthorities.LetsEncryptId, CertificateSource.Acme, false)]
     [InlineData("Other Site", CertificateAuthorities.LetsEncryptStagingId, CertificateSource.Imported, false)]
     public async Task IssueAsync_AWildcardManagedForAnotherSite_IsRefusedEvenWithForce(
@@ -772,6 +771,143 @@ public sealed class AcmeServiceTests
             await harness.Service.IssueAsync(request);
             Assert.Contains("finalize", harness.Steps);
         }
+    }
+
+    [Fact]
+    public async Task IssueAsync_TheWildcardOfAnotherCertificateOnTheSameSite_IsRefused_WithAdviceToAddTheHostsToIt()
+    {
+        var harness = WildcardHarness(
+            new IisBinding("http", "*", 80, "other.example.com", null, null, false),
+            new IisBinding("http", "*", 80, "shop.example.com", null, null, false),
+            new IisBinding("http", "*", 80, "example.com", null, null, false));
+        harness.SetManaged(new ManagedCertificate(
+            "My Site", ["other.example.com"], "admin@example.com", "OLD", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(60),
+            AuthorityId: CertificateAuthorities.LetsEncryptStagingId, Source: CertificateSource.Acme, CertificateNames: ["*.EXAMPLE.com"]));
+
+        // New host names only: a second certificate on the site, which cannot have the same wildcard.
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["shop.example.com", "example.com"], "admin@example.com", Force: true,
+            ValidationMethod: ValidationMethod.Dns01Provider, CertificateNames: ["*.example.com", "example.com"])));
+        Assert.Contains("Add the host names to that certificate", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("'My Site'", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(harness.Steps);
+
+        // With the certificate's own host name: that certificate, replaced with the new ones added.
+        await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["other.example.com", "shop.example.com", "example.com"], "admin@example.com", Force: true,
+            ValidationMethod: ValidationMethod.Dns01Provider, CertificateNames: ["*.example.com", "example.com"]));
+        Assert.Contains("finalize", harness.Steps);
+    }
+
+    // Several ACME certificates on one IIS site (docs/design/multiple-certificates-per-site.md, section 9).
+    private static readonly IisBinding FirstHostHttps = new("https", "*", 443, "a.example.com", "AAAA", "My", true);
+    private static readonly IisBinding SecondHostHttp = new("http", "*", 80, "b.example.com", null, null, false);
+
+    /// <summary>The DNS harness, ordering for b.example.com.</summary>
+    private static DnsHarness SecondHostHarness(params IisBinding[] bindings)
+    {
+        var harness = new DnsHarness(bindings);
+        var challenge = new AcmeDnsChallenge("b.example.com", false, "_acme-challenge.b.example.com", "txt-value");
+        harness.Order.SetupGet(value => value.DnsChallenges).Returns([challenge]);
+        harness.Order.Setup(value => value.ValidateAsync(challenge, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        return harness;
+    }
+
+    private static ManagedCertificate OnMySite(string name, string host, string thumbprint, CertificateSource source = CertificateSource.Acme) =>
+        new(name, [host], "admin@example.com", thumbprint, DateTimeOffset.UtcNow.AddDays(-30), DateTimeOffset.UtcNow.AddDays(30),
+            AuthorityId: CertificateAuthorities.LetsEncryptStagingId, Source: source, ValidationMethod: ValidationMethod.Dns01Provider);
+
+    [Fact]
+    public async Task IssueAsync_NewHostsOnASiteWithACertificate_AddASecondCertificate_BoundOnlyOnItsHosts()
+    {
+        var harness = SecondHostHarness(FirstHostHttps, SecondHostHttp);
+        harness.SetManaged(OnMySite("My Site", "a.example.com", "AAAA"));
+
+        await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["b.example.com"], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider));
+
+        harness.Managed.Verify(value => value.UpsertAsync(
+            It.Is<ManagedCertificate>(record => record.SiteName == "My Site/b.example.com" && record.Hosts.SequenceEqual(new[] { "b.example.com" })),
+            CancellationToken.None));
+        harness.Iis.Verify(value => value.ConfigureHttpsBindingsAsync(
+            "My Site", It.Is<IReadOnlyList<string>>(hosts => hosts.SequenceEqual(new[] { "b.example.com" })), "AABBCC", "My", It.IsAny<CancellationToken>()));
+        Assert.Equal([("My Site/b.example.com", (string?)null)], harness.Deployment.Calls);
+        harness.Store.Verify(value => value.RemoveAsync("AAAA", It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task IssueAsync_RenewingASecondCertificate_KeepsItsName_AndReplacesOnlyItsOwnCertificate()
+    {
+        var harness = SecondHostHarness(FirstHostHttps, new IisBinding("https", "*", 443, "b.example.com", "BBBB", "My", true));
+        harness.SetManaged(OnMySite("My Site", "a.example.com", "AAAA"), OnMySite("My Site/b.example.com", "b.example.com", "BBBB"));
+
+        // As the renewal service asks for it.
+        await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site/b.example.com", ["b.example.com"], "admin@example.com", Force: true, ExpectedCurrentThumbprint: "BBBB",
+            ValidationMethod: ValidationMethod.Dns01Provider, AcceptProductionRisk: true));
+
+        harness.Managed.Verify(value => value.UpsertAsync(
+            It.Is<ManagedCertificate>(record => record.SiteName == "My Site/b.example.com" && record.Thumbprint == "AABBCC"),
+            CancellationToken.None));
+        harness.Iis.Verify(value => value.ConfigureHttpsBindingsAsync(
+            "My Site", It.Is<IReadOnlyList<string>>(hosts => hosts.SequenceEqual(new[] { "b.example.com" })), "AABBCC", "My", It.IsAny<CancellationToken>()));
+        Assert.Equal([("My Site/b.example.com", (string?)"BBBB")], harness.Deployment.Calls);
+        harness.Store.Verify(value => value.RemoveAsync("AAAA", It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task IssueAsync_ForTheHostsOfABoughtSecondCertificate_ReplacesIt_AndKeepsTheBoughtOneInTheStore()
+    {
+        var harness = SecondHostHarness(FirstHostHttps, new IisBinding("https", "*", 443, "b.example.com", "BBBB", "My", true));
+        harness.SetManaged(
+            OnMySite("My Site", "a.example.com", "AAAA"),
+            OnMySite("My Site/b.example.com", "b.example.com", "BBBB", CertificateSource.Imported));
+
+        await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["b.example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider));
+
+        harness.Managed.Verify(value => value.UpsertAsync(
+            It.Is<ManagedCertificate>(record => record.SiteName == "My Site/b.example.com" && record.Source == CertificateSource.Acme),
+            CancellationToken.None));
+        Assert.Equal([("My Site/b.example.com", (string?)null)], harness.Deployment.Calls);
+        harness.Store.Verify(value => value.RemoveAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task IssueAsync_ASecondCertificateWithHttpValidation_ServesTheChallengeFromTheSitesFolder()
+    {
+        var challenge = new AcmeHttpChallenge("b.example.com", "token", "key-authorization");
+        var iis = MockIis(new IisSite(1, "My Site", "Started", "C:\\inetpub\\site", [FirstHostHttps, SecondHostHttp]));
+        iis.Setup(value => value.ConfigureHttpsBindingsAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var order = new Mock<IAcmeOrderSession>();
+        order.SetupGet(value => value.Challenges).Returns([challenge]);
+        order.Setup(value => value.FinalizeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(CreateBundle());
+        var protocol = new Mock<IAcmeProtocolClient>();
+        protocol.Setup(value => value.CreateOrderAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateAuthority>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order.Object);
+        var handler = new Mock<IChallengeHandler>();
+        handler.Setup(value => value.PrepareAsync(It.IsAny<string>(), It.IsAny<string>(), challenge, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TrackingCleanup());
+        var store = new Mock<ICertificateStore>();
+        store.Setup(value => value.ImportPfxAsync(It.IsAny<byte[]>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new InstalledCertificate("AABBCC", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(60), true));
+        var artifacts = new Mock<ICertificateArtifactStore>();
+        artifacts.Setup(value => value.SaveAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateBundle>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AcmeIssueResult("certificate.pem", null, ["b.example.com"]));
+        var managed = EmptyManagedStoreMock();
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([OnMySite("My Site", "a.example.com", "AAAA")]);
+        var service = new AcmeService(iis.Object, protocol.Object, handler.Object, Mock.Of<IChallengeProbe>(), artifacts.Object, store.Object, managed.Object);
+
+        await service.IssueAsync(new AcmeIssueRequest("My Site", ["b.example.com"], "admin@example.com"));
+
+        handler.Verify(value => value.PrepareAsync("My Site", "C:\\inetpub\\site", challenge, It.IsAny<CancellationToken>()));
+        artifacts.Verify(value => value.SaveAsync(
+            "My Site/b.example.com", It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateBundle>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()));
+        managed.Verify(value => value.UpsertAsync(It.Is<ManagedCertificate>(record => record.SiteName == "My Site/b.example.com"), CancellationToken.None));
     }
 
     [Fact]

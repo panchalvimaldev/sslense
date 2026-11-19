@@ -28,6 +28,7 @@ public partial class IssueCertificateViewModel : ObservableObject
     private readonly AsyncRelayCommand _issueCommand;
     private TaskCompletionSource<bool>? _manualAnswer;
     private ManagedCertificate? _renewing;
+    private IReadOnlyList<ManagedCertificate> _records = [];
 
     [ObservableProperty] private IisSiteOption? selectedSite;
     [ObservableProperty] private int currentStep = 1;
@@ -50,6 +51,16 @@ public partial class IssueCertificateViewModel : ObservableObject
     [ObservableProperty] private string profile = string.Empty;
     [ObservableProperty] private bool reuseKey;
     [ObservableProperty] private string noSiteName = string.Empty;
+
+    /// <summary>Which certificate the selected host names add or replace, on a site that already has certificates.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasOutcome))]
+    private string outcome = string.Empty;
+
+    /// <summary>The host names belong to several certificates, so they cannot be issued together.</summary>
+    [ObservableProperty] private bool hasOutcomeProblem;
+
+    public bool HasOutcome => Outcome.Length > 0;
 
     public IssueCertificateViewModel(
         IIisService iisService,
@@ -109,8 +120,11 @@ public partial class IssueCertificateViewModel : ObservableObject
     /// <summary>The site picker and host names apply only to a certificate for an IIS site.</summary>
     public bool ShowSitePicker => !NoSite;
 
-    /// <summary>The name of the certificate: the IIS site's, or the one chosen for a certificate with no site.</summary>
-    private string CertificateName() => NoSite ? NoSiteName.Trim() : SelectedSite!.Name;
+    /// <summary>
+    /// The name of the certificate: the one renewed by hand, the IIS site's (Core works out which certificate on the site
+    /// the host names are for), or the one chosen for a certificate with no site.
+    /// </summary>
+    private string CertificateName() => NoSite ? NoSiteName.Trim() : _renewing?.SiteName ?? SelectedSite!.Name;
 
     partial void OnNoSiteChanged(bool value)
     {
@@ -126,6 +140,7 @@ public partial class IssueCertificateViewModel : ObservableObject
     }
 
     partial void OnNoSiteNameChanged(string value) => NotifyCommands();
+    partial void OnHasOutcomeProblemChanged(bool value) => NotifyCommands();
     public bool IsRenewingByHand => _renewing is not null;
 
     /// <summary>A certificate renewed by hand stays with the CA that issued it; moving CA is a new issue with Replace.</summary>
@@ -172,6 +187,10 @@ public partial class IssueCertificateViewModel : ObservableObject
             // Read each time the wizard opens, so a CA added in Settings since appears.
             if (!IsBusy)
             {
+                // And the certificates, so the host names show which certificate has them.
+                _records = await _managedStore.GetAllAsync();
+                MarkOwners(resetSelection: false);
+
                 var chosen = SelectedAuthority?.Id ?? CertificateAuthorities.LetsEncryptStagingId;
                 Authorities.Clear();
                 foreach (var authority in await _authorities.ListAsync())
@@ -216,7 +235,8 @@ public partial class IssueCertificateViewModel : ObservableObject
     {
         var records = await _managedStore.GetAllAsync();
         var record = records.FirstOrDefault(value => string.Equals(value.SiteName, siteName, StringComparison.OrdinalIgnoreCase));
-        var site = Sites.FirstOrDefault(value => string.Equals(value.Name, siteName, StringComparison.OrdinalIgnoreCase));
+        // Another certificate on a site is named "site/first host".
+        var site = Sites.FirstOrDefault(value => string.Equals(value.Name, ManagedCertificateNames.IisSiteOf(siteName), StringComparison.OrdinalIgnoreCase));
         if (record is { NoSite: true })
         {
             StartOver();
@@ -265,6 +285,7 @@ public partial class IssueCertificateViewModel : ObservableObject
             : $"Renewing the certificate for '{record.SiteName}' by hand. The current certificate stays in place until the new one is ready.";
         OnPropertyChanged(nameof(IsRenewingByHand));
         OnPropertyChanged(nameof(CanChooseAuthority));
+        UpdateOutcome();
     }
 
     /// <summary>
@@ -317,12 +338,69 @@ public partial class IssueCertificateViewModel : ObservableObject
                     binding.Protocol is "http" or "https" &&
                     string.Equals(binding.HostName, name, StringComparison.OrdinalIgnoreCase));
                 var option = new HostOptionViewModel(name, ready, dnsReady) { UsesDns = UsesDns };
-                option.IsSelected = option.IsReady;
                 option.PropertyChanged += OnHostPropertyChanged;
                 Hosts.Add(option);
             }
         }
+        MarkOwners(resetSelection: true);
         NotifyCommands();
+    }
+
+    /// <summary>
+    /// Shows which certificate on the site has each host name. Ticked at first: every ready host name, as always on a site
+    /// with one certificate; on a site with several, only those no certificate has, so the default adds a certificate.
+    /// </summary>
+    private void MarkOwners(bool resetSelection)
+    {
+        var onSite = SelectedSite is null ? [] : ManagedCertificateNames.OnSite(_records, SelectedSite.Name);
+        foreach (var host in Hosts)
+        {
+            var owner = onSite.FirstOrDefault(record => record.Hosts.Contains(host.Host, StringComparer.OrdinalIgnoreCase));
+            host.Owner = owner is null
+                ? string.Empty
+                : $"Managed as {owner.SiteName}{(owner.Source == CertificateSource.Acme ? string.Empty : ", bought")}";
+            if (resetSelection)
+            {
+                host.IsSelected = host.IsReady && (onSite.Count < 2 || owner is null);
+            }
+        }
+
+        UpdateOutcome();
+    }
+
+    /// <summary>On a site that already has certificates, says which one the selected host names add or replace, as Core will.</summary>
+    private void UpdateOutcome()
+    {
+        Outcome = string.Empty;
+        HasOutcomeProblem = false;
+        var hosts = SelectedHosts();
+        if (NoSite || SelectedSite is null || _renewing is not null || hosts.Count == 0)
+        {
+            return;
+        }
+
+        var onSite = ManagedCertificateNames.OnSite(_records, SelectedSite.Name);
+        if (onSite.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var name = ManagedCertificateNames.Resolve(_records, SelectedSite.Name, hosts);
+            ManagedCertificateNames.ThrowIfHostsTaken(_records, name, hosts);
+            var existing = onSite.FirstOrDefault(record => string.Equals(record.SiteName, name, StringComparison.OrdinalIgnoreCase));
+            var others = onSite.Count > (existing is null ? 0 : 1) ? " The site's other certificates stay as they are." : string.Empty;
+            Outcome = existing is null
+                ? $"Adds a certificate to IIS site {SelectedSite.Name}, managed as {name}.{others}"
+                : $"Replaces the certificate managed as {name} ({(existing.Source == CertificateSource.Acme ? "renews automatically" : "bought")}, " +
+                  $"expires {existing.NotAfter.ToLocalTime():dd MMM yyyy}).{others}";
+        }
+        catch (InvalidOperationException exception)
+        {
+            Outcome = exception.Message;
+            HasOutcomeProblem = true;
+        }
     }
 
     partial void OnSelectedValidationChanged(ValidationMethod value)
@@ -336,9 +414,9 @@ public partial class IssueCertificateViewModel : ObservableObject
         foreach (var host in Hosts)
         {
             host.UsesDns = UsesDns;
-            host.IsSelected = host.IsReady;
         }
 
+        MarkOwners(resetSelection: true);
         PreflightPassed = false;
         NotifyCommands();
     }
@@ -378,6 +456,7 @@ public partial class IssueCertificateViewModel : ObservableObject
     {
         if (e.PropertyName == nameof(HostOptionViewModel.IsSelected))
         {
+            UpdateOutcome();
             PreflightPassed = false;
             NotifyCommands();
         }
@@ -443,6 +522,7 @@ public partial class IssueCertificateViewModel : ObservableObject
                 token).ConfigureAwait(true);
             ResultMessage = $"Certificate from {SelectedAuthority?.Name ?? "the certificate authority"} is installed" +
                             (SelectedValidation == ValidationMethod.Dns01Manual ? "." : ", and SSLense renews it automatically.") +
+                            (ManagedCertificateNames.IsAdditional(result.Name ?? string.Empty) ? $" It is managed as {result.Name}." : string.Empty) +
                             (SelectedValidation == ValidationMethod.Dns01Manual ? " You can now delete the TXT records you created." : string.Empty);
         }, cancellationToken);
     }
@@ -494,7 +574,7 @@ public partial class IssueCertificateViewModel : ObservableObject
         CertificateNames.Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) is { Length: > 0 } names ? names : null;
     private bool CanNext() => !IsBusy && CurrentStep == 1 && (NoSite
         ? !string.IsNullOrWhiteSpace(NoSiteName) && SelectedNames() is not null && UsesDns
-        : SelectedSite is not null && Hosts.Any(value => value.IsSelected));
+        : SelectedSite is not null && Hosts.Any(value => value.IsSelected) && !HasOutcomeProblem);
     private bool CanRunPreflight() => !IsBusy && CurrentStep == 2 && (NoSite || SelectedSite is not null) && !string.IsNullOrWhiteSpace(Email);
     private bool CanIssue() =>
         !IsBusy && CurrentStep == 2 && PreflightPassed && (!UseProduction || ProductionRiskAccepted);

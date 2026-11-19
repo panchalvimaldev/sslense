@@ -2551,6 +2551,12 @@ static async Task<int> IssueAsync(
             ? $"{CertificateAuthorities.Label(authorityId)} certificate issued, installed, and bound successfully."
             : $"{CertificateAuthorities.Label(authorityId)} certificate '{noSite}' issued and installed in LocalMachine\\My. It has no IIS site: " +
               $"add deployment steps to hand it to its services, such as 'SSLense.Cli deploy add --site \"{noSite}\" --script <path>'.");
+        if (noSite is null && result.Name is { } name)
+        {
+            // Another certificate on the site is "site/first host"; renew, status and remove take this name.
+            Console.WriteLine($"Managed as: {name}");
+        }
+
         if (result.Deployment is { } deployment)
         {
             Console.WriteLine($"Deployment steps: {deployment.Message}");

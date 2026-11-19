@@ -4,7 +4,12 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using Moq;
 using SSLense.Core.Acme;
+using SSLense.Core.Certificates;
+using SSLense.Core.Config;
+using SSLense.Core.Iis;
+using SSLense.Core.Validation;
 using Xunit;
 
 namespace SSLense.Tests.Acme;
@@ -265,6 +270,85 @@ public sealed class PebbleTests(PebbleServer pebble) : IClassFixture<PebbleServe
 
         Assert.Equal(2, order.DnsChallenges.Count);
         Assert.Equal(["*.example.org", "example.org"], DnsNames(bundle).Order());
+    }
+
+    /// <summary>
+    /// docs/design/multiple-certificates-per-site.md, section 9: the real ACME client through SSLense's issue path, with
+    /// IIS and the Windows stores faked. A second certificate on a site is issued and renewed on its own bindings only.
+    /// </summary>
+    [PebbleFact]
+    public async Task TwoCertificatesOnOneSite_AreIssuedAndRenewed_EachOnItsOwnBindings()
+    {
+        var managed = new List<ManagedCertificate>();
+        var managedStore = new Mock<IManagedCertificateStore>();
+        managedStore.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(() => managed.ToArray());
+        managedStore.Setup(value => value.UpsertAsync(It.IsAny<ManagedCertificate>(), It.IsAny<CancellationToken>()))
+            .Callback<ManagedCertificate, CancellationToken>((record, _) =>
+            {
+                managed.RemoveAll(value => value.SiteName == record.SiteName);
+                managed.Add(record);
+            })
+            .Returns(Task.CompletedTask);
+
+        // Host name -> the thumbprint its HTTPS binding uses.
+        var bound = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var iis = new Mock<IIisService>();
+        iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(() =>
+        [
+            new IisSite(1, "Main", "Started", @"C:\inetpub\main",
+            [
+                new IisBinding("http", "*", 80, "a.example.com", null, null, false),
+                new IisBinding("http", "*", 80, "b.example.com", null, null, false),
+                .. bound.Select(pair => new IisBinding("https", "*", 443, pair.Key, pair.Value, "My", true))
+            ])
+        ]);
+        iis.Setup(value => value.ConfigureHttpsBindingsAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, IReadOnlyList<string>, string, string, CancellationToken>((site, hosts, thumbprint, _, _) =>
+            {
+                Assert.Equal("Main", site);
+                foreach (var host in hosts) bound[host] = thumbprint;
+            })
+            .Returns(Task.CompletedTask);
+
+        var removed = new List<string>();
+        var store = new Mock<ICertificateStore>();
+        store.Setup(value => value.ImportPfxAsync(It.IsAny<byte[]>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((byte[] pfx, string password, string _, CancellationToken _) =>
+            {
+                using var certificate = X509CertificateLoader.LoadPkcs12(pfx, password, X509KeyStorageFlags.EphemeralKeySet);
+                return new InstalledCertificate(certificate.Thumbprint, certificate.NotBefore, certificate.NotAfter, true);
+            });
+        store.Setup(value => value.RemoveAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, CancellationToken>((thumbprint, _) => removed.Add(thumbprint))
+            .Returns(Task.CompletedTask);
+
+        var handler = new Mock<IChallengeHandler>();
+        handler.Setup(value => value.PrepareAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<AcmeHttpChallenge>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Mock.Of<IAsyncDisposable>());
+        var artifacts = new Mock<ICertificateArtifactStore>();
+        artifacts.Setup(value => value.SaveAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateBundle>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AcmeIssueResult("certificate.pem", null, []));
+        var authorities = new Mock<ICertificateAuthorityRegistry>();
+        authorities.Setup(value => value.GetAsync("pebble", It.IsAny<CancellationToken>())).ReturnsAsync(Authority());
+        authorities.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([Authority()]);
+        var service = new AcmeService(iis.Object, Client(new MemoryAccountStore()), handler.Object, Mock.Of<IChallengeProbe>(),
+            artifacts.Object, store.Object, managedStore.Object, authorities: authorities.Object);
+        AcmeIssueRequest Request(string name, string host) => new(name, [host], Email, AuthorityId: "pebble");
+
+        await service.IssueAsync(Request("Main", "a.example.com"));
+        var first = bound["a.example.com"];
+        Assert.Equal("Main/b.example.com", (await service.IssueAsync(Request("Main", "b.example.com"))).Name);
+        var second = bound["b.example.com"];
+        await service.IssueAsync(Request("Main/b.example.com", "b.example.com") with { Force = true, ExpectedCurrentThumbprint = second });
+
+        Assert.Equal(["Main", "Main/b.example.com"], managed.Select(record => record.SiteName).Order());
+        Assert.Equal(first, bound["a.example.com"]);
+        Assert.NotEqual(second, bound["b.example.com"]);
+        Assert.Equal(bound["b.example.com"], managed.Single(record => record.SiteName == "Main/b.example.com").Thumbprint);
+        Assert.Equal(["b.example.com"], managed.Single(record => record.SiteName == "Main/b.example.com").Hosts);
+        Assert.Equal([second], removed);
     }
 
     private static string[] DnsNames(CertificateBundle bundle)

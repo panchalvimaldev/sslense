@@ -7,6 +7,7 @@ namespace SSLense.Core.Acme;
 /// <param name="Deployment">How the certificate's deployment steps ran after the install; null when it has none.</param>
 /// <param name="PreviousCertificateKept">True when the replaced certificate stays in the store because deployment steps are pending.</param>
 /// <param name="KeyReused">With key reuse asked for: true when the key was kept, false when a new one had to be used. Null otherwise.</param>
+/// <param name="Name">The name the certificate is managed as: the site, or "site/first host" for another certificate on it.</param>
 public sealed record AcmeIssueResult(
     string CertificatePemPath,
     string? PfxPath,
@@ -17,4 +18,5 @@ public sealed record AcmeIssueResult(
     IReadOnlyList<LeftOutSite>? LeftOutSites = null,
     DeploymentRunResult? Deployment = null,
     bool PreviousCertificateKept = false,
-    bool? KeyReused = null);
+    bool? KeyReused = null,
+    string? Name = null);

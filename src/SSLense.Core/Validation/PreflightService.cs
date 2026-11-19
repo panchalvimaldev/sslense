@@ -35,7 +35,7 @@ internal sealed class PreflightService(
             isAdministrator ? "SSLense is elevated." : "Run SSLense as Administrator."));
 
         var sites = await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
-        var site = sites.SingleOrDefault(value => string.Equals(value.Name, siteName, StringComparison.OrdinalIgnoreCase));
+        var site = sites.FindSite(siteName);
         if (site is null)
         {
             results.Add(new PreflightCheck("IIS site", false, $"IIS site '{siteName}' was not found."));
@@ -160,7 +160,7 @@ internal sealed class PreflightService(
             return results;
         }
 
-        var site = sites.SingleOrDefault(value => string.Equals(value.Name, request.SiteName, StringComparison.OrdinalIgnoreCase));
+        var site = sites.FindSite(request.SiteName);
         if (site is null)
         {
             results.Add(new PreflightCheck("IIS site", false, $"IIS site '{request.SiteName}' was not found."));

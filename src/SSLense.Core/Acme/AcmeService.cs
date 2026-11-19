@@ -93,12 +93,14 @@ internal sealed partial class AcmeService : IAcmeService
             ? "Checking the IIS site and its bindings."
             : "Checking the IIS site and HTTP bindings."));
         var sites = await _iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
+        // A second certificate on a site is named "site/host"; the IIS site is the part before the '/'.
+        var iisSiteName = request.NoSite ? request.SiteName.Trim() : ManagedCertificateNames.IisSiteOf(request.SiteName);
         var site = sites.SingleOrDefault(candidate =>
-            string.Equals(candidate.Name, request.SiteName, StringComparison.OrdinalIgnoreCase));
+            string.Equals(candidate.Name, iisSiteName, StringComparison.OrdinalIgnoreCase));
         var allRecords = await _managedCertificateStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
         var existingRecord = allRecords
             .FirstOrDefault(record => string.Equals(record.SiteName, request.SiteName.Trim(), StringComparison.OrdinalIgnoreCase));
-        ThrowIfOtherCertificateOnSite(request, existingRecord, allRecords);
+        ThrowIfSlashInNoSiteName(request, existingRecord);
         if (request.NoSite)
         {
             // One name never means both a site and a certificate without one.
@@ -124,7 +126,7 @@ internal sealed partial class AcmeService : IAcmeService
 
         if (sharedRecord is null && site is null)
         {
-            throw new InvalidOperationException($"IIS site '{request.SiteName}' was not found.");
+            throw new InvalidOperationException($"IIS site '{iisSiteName}' was not found.");
         }
 
         if (sharedRecord is not null && !usesDns)
@@ -174,9 +176,14 @@ internal sealed partial class AcmeService : IAcmeService
                 : usesDns
                     ? "No host names were supplied and the IIS site has no named HTTP or HTTPS bindings."
                     : "No host names were supplied and the IIS site has no named HTTP bindings on port 80.");
-        if (!request.NoSite)
+        // The certificate these host names belong to: the one named, the one on the site that has them, or a new one.
+        var name = request.NoSite ? request.SiteName.Trim() : ResolveName(request, hosts, allRecords);
+        if (!string.Equals(name, request.SiteName.Trim(), StringComparison.OrdinalIgnoreCase))
         {
-            ManagedCertificateNames.ThrowIfHostsTaken(allRecords, request.SiteName, hosts);
+            existingRecord = allRecords.FirstOrDefault(record => string.Equals(record.SiteName, name, StringComparison.OrdinalIgnoreCase));
+            progress?.Report(new ProgressEvent("preflight", existingRecord is null
+                ? $"The host names are a new certificate on IIS site '{site.Name}', managed as '{name}'."
+                : $"The host names belong to the certificate managed as '{name}', which this replaces."));
         }
 
         var names = requestedNames ?? hosts;
@@ -199,7 +206,7 @@ internal sealed partial class AcmeService : IAcmeService
             }
         }
 
-        await ThrowIfWildcardManagedElsewhereAsync(site.Name, names, authority.Id, cancellationToken).ConfigureAwait(false);
+        await ThrowIfWildcardManagedElsewhereAsync(name, names, authority.Id, cancellationToken).ConfigureAwait(false);
         if (!request.Force)
         {
             await ThrowIfAlreadyCoveredAsync(site, hosts, authority, cancellationToken)
@@ -292,12 +299,12 @@ internal sealed partial class AcmeService : IAcmeService
                     ? "Saving the public certificate. The PFX remains transient."
                     : "Saving the public certificate to the requested output directory. The PFX remains transient."));
             var artifacts = await _artifactStore
-                .SaveAsync(site.Name, hosts, bundle, request.OutputDirectory, cancellationToken)
+                .SaveAsync(name, hosts, bundle, request.OutputDirectory, cancellationToken)
                 .ConfigureAwait(false);
 
             using var publicCertificate = X509Certificate2.CreateFromPem(bundle.CertificatePem);
             var preparedRecord = new ManagedCertificate(
-                site.Name,
+                name,
                 hosts,
                 request.Email.Trim(),
                 publicCertificate.Thumbprint,
@@ -424,7 +431,7 @@ internal sealed partial class AcmeService : IAcmeService
                 throw;
             }
 
-            var replaced = await FindReplacedCertificateAsync(site.Name).ConfigureAwait(false);
+            var replaced = await FindReplacedCertificateAsync(name).ConfigureAwait(false);
             progress?.Report(new ProgressEvent("state", "Saving the managed certificate record."));
             await _managedCertificateStore.UpsertAsync(
                     pendingRecord,
@@ -439,7 +446,7 @@ internal sealed partial class AcmeService : IAcmeService
                 .ConfigureAwait(false);
 
             // The certificate is installed, bound, and saved: deployment steps run now, and a failure never undoes that.
-            var deployment = await RunDeploymentAsync(site.Name, replaced, leftOut, progress).ConfigureAwait(false);
+            var deployment = await RunDeploymentAsync(name, replaced, leftOut, progress).ConfigureAwait(false);
             if (replaced is not null && deployment?.KeepReplaced != true)
             {
                 await RemoveReplacedCertificateAsync(replaced, installedCertificate.Thumbprint, leftOut, progress).ConfigureAwait(false);
@@ -453,7 +460,8 @@ internal sealed partial class AcmeService : IAcmeService
                 LeftOutSites = leftOut,
                 Deployment = deployment?.Result,
                 PreviousCertificateKept = deployment?.KeepReplaced == true,
-                KeyReused = request.ReuseKey ? reusedKey is not null : null
+                KeyReused = request.ReuseKey ? reusedKey is not null : null,
+                Name = name
             };
         }
         finally
@@ -703,40 +711,38 @@ internal sealed partial class AcmeService : IAcmeService
     }
 
     /// <summary>
-    /// Phase 1 of docs/design/multiple-certificates-per-site.md: a second certificate on a site ("site/host") comes from
-    /// another provider, and an ACME certificate keeps off the host names of the site's other certificates.
+    /// A new certificate with no IIS site cannot have '/' in its name, which names a second certificate on a site.
     /// </summary>
-    internal static void ThrowIfOtherCertificateOnSite(
-        AcmeIssueRequest request,
-        ManagedCertificate? existingRecord,
-        IReadOnlyList<ManagedCertificate> records)
+    internal static void ThrowIfSlashInNoSiteName(AcmeIssueRequest request, ManagedCertificate? existingRecord)
     {
-        if (!ManagedCertificateNames.IsAdditional(request.SiteName))
+        // Names chosen before 0.23 may contain '/'; those keep renewing.
+        if (request.NoSite && ManagedCertificateNames.IsAdditional(request.SiteName) && existingRecord is not { NoSite: true })
         {
-            if (!request.NoSite)
-            {
-                ManagedCertificateNames.ThrowIfHostsTaken(records, request.SiteName, request.Hosts);
-            }
-
-            return;
+            throw new InvalidOperationException(
+                $"'{request.SiteName.Trim()}' contains '/', which names a second certificate on an IIS site. Choose a name without '/' for a certificate with no IIS site.");
         }
+    }
 
-        if (request.NoSite)
+    /// <summary>
+    /// Which certificate on the IIS site the host names are for: the one that has them, or a new one, as for imports
+    /// (docs/design/multiple-certificates-per-site.md, section 9.2). A site that shares a certificate has only that one.
+    /// </summary>
+    internal static string ResolveName(AcmeIssueRequest request, IReadOnlyList<string> hosts, IReadOnlyList<ManagedCertificate> records)
+    {
+        var name = ManagedCertificateNames.Resolve(records, request.SiteName, hosts);
+        ManagedCertificateNames.ThrowIfHostsTaken(records, name, hosts);
+        if (ManagedCertificateNames.IsAdditional(name))
         {
-            // Names chosen before 0.23 may contain '/'; those keep renewing.
-            if (existingRecord is not { NoSite: true })
+            var site = ManagedCertificateNames.IisSiteOf(name);
+            if (records.FirstOrDefault(record => record.IsShared() && record.ManagesSite(site)) is { } shared)
             {
                 throw new InvalidOperationException(
-                    $"'{request.SiteName.Trim()}' contains '/', which names a second certificate on an IIS site. Choose a name without '/' for a certificate with no IIS site.");
+                    $"IIS site '{site}' shares the certificate managed as '{shared.SiteName}', so it cannot have a second certificate. " +
+                    $"Add the host names to that certificate, or run 'SSLense.Cli share remove --site \"{site}\"' first.");
             }
-
-            return;
         }
 
-        throw new InvalidOperationException(
-            $"'{request.SiteName.Trim()}' is a second certificate on IIS site '{ManagedCertificateNames.IisSiteOf(request.SiteName)}'. " +
-            "SSLense does not issue or renew a second certificate on a site from an ACME CA yet; replace it from Other providers " +
-            "('import' or 'csr' in the CLI).");
+        return name;
     }
 
     internal static bool Matches(AsymmetricAlgorithm key, CertificateKeyType keyType) => (key, keyType) switch
@@ -945,6 +951,15 @@ internal sealed partial class AcmeService : IAcmeService
         {
             var shared = wildcards.FirstOrDefault(name =>
                 (record.CertificateNames ?? record.Hosts).Contains(name, StringComparer.OrdinalIgnoreCase));
+            if (shared is not null && !record.NoSite &&
+                string.Equals(ManagedCertificateNames.IisSiteOf(record.SiteName), ManagedCertificateNames.IisSiteOf(siteName), StringComparison.OrdinalIgnoreCase))
+            {
+                // Sharing is between sites; on the same site, the certificate with the wildcard can take the host names.
+                throw new InvalidOperationException(
+                    $"'{shared}' is already in the certificate managed as '{record.SiteName}' on the same IIS site. Add the host names " +
+                    $"to that certificate instead: 'SSLense.Cli issue --site \"{record.SiteName}\" --hosts <its host names and the new ones>'.");
+            }
+
             if (shared is not null)
             {
                 throw new InvalidOperationException(
@@ -1013,9 +1028,9 @@ internal sealed partial class AcmeService : IAcmeService
             return true;
         }
 
+        // Any certificate on the site: the one bound may be managed as another certificate on it, "site/host".
         var records = await _managedCertificateStore.GetAllAsync(cancellationToken).ConfigureAwait(false);
-        var record = records.FirstOrDefault(value =>
-            string.Equals(value.SiteName, siteName, StringComparison.OrdinalIgnoreCase) &&
+        var record = ManagedCertificateNames.OnSite(records, siteName).FirstOrDefault(value =>
             string.Equals(
                 NormalizeThumbprint(value.Thumbprint),
                 NormalizeThumbprint(certificate.Thumbprint),

@@ -77,10 +77,17 @@
      <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="7" Padding="12,7">
      <ItemsControl ItemsSource="{Binding Hosts}"><ItemsControl.ItemTemplate><DataTemplate>
       <Grid Margin="4,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="220"/></Grid.ColumnDefinitions>
-       <CheckBox Content="{Binding Host}" IsChecked="{Binding IsSelected}" FontWeight="SemiBold" AutomationProperties.Name="{Binding Host}"/>
+       <StackPanel>
+        <CheckBox Content="{Binding Host}" IsChecked="{Binding IsSelected}" FontWeight="SemiBold" AutomationProperties.Name="{Binding Host}"/>
+        <TextBlock Text="{Binding Owner}" Style="{StaticResource CaptionText}" Margin="21,2,0,0" Visibility="{Binding HasOwner, Converter={StaticResource BoolToVisibility}}"/>
+       </StackPanel>
        <TextBlock Grid.Column="1" Text="{Binding BindingStatus}" HorizontalAlignment="Right"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/><Style.Triggers><DataTrigger Binding="{Binding IsReady}" Value="False"><Setter Property="Foreground" Value="{StaticResource DangerBrush}"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
       </Grid>
      </DataTemplate></ItemsControl.ItemTemplate></ItemsControl></Border>
+     <TextBlock Text="{Binding Outcome}" TextWrapping="Wrap" Margin="0,8,0,0" AutomationProperties.Name="What this does"
+                Visibility="{Binding HasOutcome, Converter={StaticResource BoolToVisibility}}">
+      <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="FontWeight" Value="SemiBold"/><Style.Triggers><DataTrigger Binding="{Binding HasOutcomeProblem}" Value="True"><Setter Property="Foreground" Value="{StaticResource DangerBrush}"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+     </TextBlock>
      </StackPanel>
     </StackPanel>
 
