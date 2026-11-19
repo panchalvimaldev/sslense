@@ -390,6 +390,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     rootCommand.Subcommands.Add(CreateRevokeCommand(services));
     rootCommand.Subcommands.Add(CreateAccountCommand(services));
     rootCommand.Subcommands.Add(CreateBulkCommand(services));
+    rootCommand.Subcommands.Add(CreateVersionCommand(services));
     rootCommand.Subcommands.Add(CreateWatchCommand(services));
     rootCommand.Subcommands.Add(CreateRedirectCommand(services));
     AddImportedCertificateCommands(rootCommand, services);
@@ -1813,6 +1814,22 @@ static Command CreateBulkCommand(IServiceProvider services)
         Console.WriteLine(results.Count == 0 ? "Nothing to do." : $"{results.Count(result => result.Succeeded)} of {results.Count} succeeded.");
         return results.All(result => result.Succeeded) ? 0 : 1;
     }
+}
+
+// The new-version notice (docs/design/version-notice.md).
+static Command CreateVersionCommand(IServiceProvider services)
+{
+    var command = new Command("version", "Show this SSLense version, and whether a newer release is published. Nothing is downloaded or installed.");
+    command.SetAction(async (_, token) =>
+    {
+        var updates = services.GetRequiredService<SSLense.Core.Diagnostics.IUpdateCheckService>();
+        Console.WriteLine($"SSLense {updates.CurrentVersion}");
+        Console.WriteLine(await updates.CheckAsync(token).ConfigureAwait(false) is { } update
+            ? $"SSLense {update.LatestVersion}{(update.IsPrerelease ? " (preview)" : string.Empty)} is available: {update.ReleaseUrl}"
+            : "No newer release was found, or the check is off (Settings › General).");
+        return 0;
+    });
+    return command;
 }
 
 // Recovery from a compromised key or account (docs/design/compromise-recovery.md).

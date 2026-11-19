@@ -27,8 +27,14 @@ public partial class MainViewModel : ObservableObject
         ActivityViewModel activity,
         SettingsViewModel settings,
         LogsViewModel logs,
-        INavigationService navigation)
+        INavigationService navigation,
+        SSLense.Core.Diagnostics.IUpdateCheckService? updates = null)
     {
+        _updates = updates;
+        OpenUpdateCommand = new RelayCommand(() =>
+        {
+            if (UpdateUrl is { } url) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });
+        });
         _certificates = certificates;
         _issue = issue;
         _add = add;
@@ -56,6 +62,27 @@ public partial class MainViewModel : ObservableObject
 
     public IRelayCommand OpenActivityCommand { get; }
 
+    // The new-version notice (docs/design/version-notice.md): a link in the header, never an install.
+    private readonly SSLense.Core.Diagnostics.IUpdateCheckService? _updates;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasUpdate))]
+    private string updateText = string.Empty;
+
+    public Uri? UpdateUrl { get; private set; }
+
+    public bool HasUpdate => UpdateText.Length > 0;
+
+    public IRelayCommand OpenUpdateCommand { get; }
+
+    private async Task CheckForUpdateAsync()
+    {
+        if (_updates is null) return;
+        var update = await _updates.CheckAsync().ConfigureAwait(true);
+        UpdateUrl = update?.ReleaseUrl;
+        UpdateText = update is null ? string.Empty : $"SSLense {update.LatestVersion} is available";
+    }
+
     public IAsyncRelayCommand RenewAllCommand => _certificates.RenewAllCommand;
 
     public IRelayCommand OpenHealthCommand => _certificates.OpenHealthCommand;
@@ -67,6 +94,7 @@ public partial class MainViewModel : ObservableObject
         await _certificates.InitializeAsync();
         await _issue.InitializeAsync();
         _logs.StartLiveUpdates();
+        _ = CheckForUpdateAsync();
     }
 
     partial void OnCurrentPageChanged(object value) => OnPropertyChanged(nameof(IsAddingCertificate));

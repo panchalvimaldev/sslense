@@ -25,6 +25,7 @@ public partial class SettingsViewModel : ObservableObject
 
     private readonly SSLense.Core.Certificates.IRevocationService? _revocation;
     [ObservableProperty] private string defaultEmail = string.Empty;
+    [ObservableProperty] private bool checkForUpdates = true;
 
     // The maintenance window (docs/design/maintenance-windows.md).
     [ObservableProperty] private bool useMaintenanceWindow;
@@ -279,6 +280,7 @@ public partial class SettingsViewModel : ObservableObject
             var config = await _settingsService.GetAsync(token).ConfigureAwait(true);
             DefaultEmail = config.DefaultEmail ?? string.Empty;
             RenewalThresholdDays = config.RenewalThresholdDays;
+            CheckForUpdates = config.CheckForUpdates;
             var window = config.MaintenanceWindow;
             UseMaintenanceWindow = window is not null;
             foreach (var day in WindowDays) day.IsChecked = window?.Days.Contains(day.Day) ?? day.Day is not (DayOfWeek.Saturday or DayOfWeek.Sunday);
@@ -566,6 +568,7 @@ public partial class SettingsViewModel : ObservableObject
     private Task SaveGeneralAsync(CancellationToken token) => RunAsync(async ct =>
     {
         await _settingsService.SaveGeneralAsync(DefaultEmail, RenewalThresholdDays, ct).ConfigureAwait(true);
+        await _settingsService.SaveCheckForUpdatesAsync(CheckForUpdates, ct).ConfigureAwait(true);
         ResultMessage = "General settings saved. Staging remains the default for new issuance.";
     }, token);
 

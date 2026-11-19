@@ -72,7 +72,7 @@ In priority order. Feedback from real users can change the order. The order of w
 5. **Certificates on other machines** (built, awaiting release). Add host names that are not on this server, such as load balancers and appliances, to the daily served-certificate check, so one place reminds about every certificate.
 6. **HTTP-to-HTTPS redirect helper** (built, awaiting release) using an IIS URL Rewrite rule, with a check that it does not block validation.
 7. **Bulk operations** (built, awaiting release). Adopt every unmanaged certificate at once, and issue for many sites from a CSV file.
-8. **New version notice.** Tell the administrator when a newer release is available, with a setting to turn the check off. Never install anything automatically.
+8. **New version notice** (built, awaiting release). Tell the administrator when a newer release is available, with a setting to turn the check off. Never install anything automatically.
 
 Later, by demand: export to Azure Key Vault (it needs a new dependency), certificates for IP addresses, TLS-ALPN-01 validation, IIS FTP sites, and managing several servers from one place.
 

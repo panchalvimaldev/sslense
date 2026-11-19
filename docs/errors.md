@@ -1504,6 +1504,12 @@ Another SSLense process is writing to the log. Try again in a moment.
 
 Start SSLense with 'Run as administrator'.
 
+<a id="ssl9007"></a>
+
+### SSL9007: A newer SSLense is available
+
+Download it from the release page in the message and run its installer; it upgrades in place and keeps your settings. SSLense never installs anything by itself. Turn the notice off under Settings › General.
+
 <a id="ssl9999"></a>
 
 ### SSL9999: Unexpected error

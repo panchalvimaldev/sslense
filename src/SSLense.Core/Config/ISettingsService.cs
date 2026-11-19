@@ -11,4 +11,7 @@ public interface ISettingsService
 
     /// <summary>Sets when automatic renewals may run, or null to let them run at any time.</summary>
     Task SaveMaintenanceWindowAsync(MaintenanceWindow? window, CancellationToken cancellationToken = default);
+
+    /// <summary>Turns the new-version notice on or off.</summary>
+    Task SaveCheckForUpdatesAsync(bool enabled, CancellationToken cancellationToken = default);
 }
