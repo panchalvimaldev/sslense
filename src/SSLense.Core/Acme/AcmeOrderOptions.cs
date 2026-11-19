@@ -1,3 +1,5 @@
+using SSLense.Core.Errors;
+
 namespace SSLense.Core.Acme;
 
 /// <summary>The certificate's key, chosen at issue and kept at renewal. See docs/design/key-and-order-options.md.</summary>
@@ -40,5 +42,5 @@ public static class CertificateKeyTypes
     public static CertificateKeyType Parse(string name) =>
         All.FirstOrDefault(value => string.Equals(value.Name, name.Trim(), StringComparison.OrdinalIgnoreCase)) is { Name: not null } match
             ? match.Type
-            : throw new ArgumentException($"'{name}' is not a key type. Use one of: {string.Join(", ", All.Select(value => value.Name))}.");
+            : throw new ArgumentException(ErrorCodes.InvalidKeyType.Format($"'{name}' is not a key type. Use one of: {string.Join(", ", All.Select(value => value.Name))}."));
 }

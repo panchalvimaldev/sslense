@@ -1,8 +1,9 @@
-using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
 using SSLense.Core.Acme;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
 using SSLense.Core.Iis;
+using System.Security.Cryptography.X509Certificates;
+using System.Security.Cryptography;
 
 namespace SSLense.Core.Certificates;
 
@@ -137,7 +138,7 @@ internal sealed class ImportedCertificateService(
         var otherPorts = bindings.Where(binding => binding.Port != 443).ToArray();
         if (otherPorts.Length > 0)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.AdoptOtherPort, 
                 $"IIS site '{site.Name}' serves this certificate on port " +
                 $"{string.Join(", ", otherPorts.Select(binding => binding.Port).Distinct())} " +
                 $"({string.Join(", ", otherPorts.Select(binding => $"{binding.HostName}:{binding.Port}"))}). SSLense manages HTTPS " +
@@ -148,30 +149,30 @@ internal sealed class ImportedCertificateService(
         var thumbprints = bindings.Select(binding => binding.CertificateThumbprint!).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         if (thumbprints.Length == 0)
         {
-            throw new InvalidOperationException(thumbprint is null
+            throw new SslenseException(ErrorCodes.AdoptNothingBound, thumbprint is null
                 ? $"IIS site '{site.Name}' has no HTTPS binding with a certificate to adopt."
                 : $"No HTTPS binding of IIS site '{site.Name}' uses certificate {thumbprint}.");
         }
 
         if (thumbprints.Length > 1)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.AdoptSeveralCertificates, 
                 $"IIS site '{site.Name}' uses several certificates ({string.Join(", ", thumbprints)}). " +
                 "Choose which one to adopt (--thumbprint in the CLI, or select its binding in the app); adopt each one to " +
                 "manage them all.");
         }
 
         var certificate = await certificateStore.FindByThumbprintAsync(thumbprints[0], cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"Certificate {thumbprints[0]} is bound in IIS but missing from LocalMachine\\My.");
+            ?? throw new SslenseException(ErrorCodes.BoundCertificateMissing, $"Certificate {thumbprints[0]} is bound in IIS but missing from LocalMachine\\My.");
         if (!certificate.HasPrivateKey)
         {
-            throw new InvalidOperationException($"Certificate {certificate.Thumbprint} has no private key on this server.");
+            throw new SslenseException(ErrorCodes.CertificateHasNoPrivateKey, $"Certificate {certificate.Thumbprint} has no private key on this server.");
         }
 
         var hosts = bindings.Select(binding => NormalizeHost(binding.HostName)).Where(host => host.Length > 0).Distinct().ToArray();
         if (hosts.Length == 0)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.BindingsWithoutHostNames, 
                 $"The HTTPS bindings of IIS site '{site.Name}' have no host names. SSLense manages SNI bindings by host name.");
         }
 
@@ -181,7 +182,7 @@ internal sealed class ImportedCertificateService(
         await ThrowIfSharedAsync(name, cancellationToken).ConfigureAwait(false);
         if (await FindRecordAsync(name, cancellationToken).ConfigureAwait(false) is { } existing)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.HostsAlreadyManaged, 
                 $"This certificate's host names on IIS site '{site.Name}' are already managed by SSLense as '{existing.SiteName}' " +
                 $"(certificate {existing.Thumbprint}). Import a certificate or complete a request to replace it.");
         }
@@ -212,7 +213,7 @@ internal sealed class ImportedCertificateService(
         var normalizedHosts = NormalizeHosts(hosts);
         if (!PrivateKeyTypes.All.Contains(keyType))
         {
-            throw new ArgumentException($"Unknown key type '{keyType}'. Use {string.Join(", ", PrivateKeyTypes.All)}.", nameof(keyType));
+            throw new ArgumentException(ErrorCodes.InvalidKeyType.Format($"Unknown key type '{keyType}'. Use {string.Join(", ", PrivateKeyTypes.All)}."), nameof(keyType));
         }
 
         // The site's lock comes first: an import or adoption running now may create the certificate these host names
@@ -265,10 +266,10 @@ internal sealed class ImportedCertificateService(
     {
         // Looked up first so a request can be cancelled even after its IIS site was deleted.
         var found = await FindRequestAsync(siteName, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"IIS site '{siteName}' has no pending certificate request.");
+            ?? throw new SslenseException(ErrorCodes.NoPendingRequest, $"IIS site '{siteName}' has no pending certificate request.");
         await using var siteLock = await operationLock.AcquireAsync(found.SiteName, cancellationToken).ConfigureAwait(false);
         var request = await pendingRequests.GetAsync(found.SiteName, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"IIS site '{siteName}' has no pending certificate request.");
+            ?? throw new SslenseException(ErrorCodes.NoPendingRequest, $"IIS site '{siteName}' has no pending certificate request.");
         await pendingRequests.RemoveAsync(request.SiteName, CancellationToken.None).ConfigureAwait(false);
         await ReleaseRequestKeyAsync(request, CancellationToken.None).ConfigureAwait(false);
     }
@@ -290,7 +291,7 @@ internal sealed class ImportedCertificateService(
         await using var siteLock = await operationLock.AcquireAsync(name, cancellationToken).ConfigureAwait(false);
         await ThrowIfSharedAsync(name, cancellationToken).ConfigureAwait(false);
         var request = await pendingRequests.GetAsync(name, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException(
+            ?? throw new SslenseException(ErrorCodes.NoPendingRequest, 
                 $"IIS site '{siteName}' has no pending certificate request. Create one with 'csr', or use 'import' for a PFX file.");
         ManagedCertificateNames.ThrowIfHostsTaken(
             await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false), name, request.Hosts);
@@ -303,13 +304,13 @@ internal sealed class ImportedCertificateService(
         try
         {
             using var key = privateKeys.Open(request.KeyName)
-                ?? throw new InvalidOperationException(
+                ?? throw new SslenseException(ErrorCodes.RequestKeyMissing, 
                     "The private key for this request no longer exists on this server. Create a new request with 'csr' " +
                     "and ask the certificate provider to reissue the certificate for it.");
             var publicKey = key.ExportSubjectPublicKeyInfo();
             var leaf = certificates.FirstOrDefault(certificate =>
                     certificate.PublicKey.ExportSubjectPublicKeyInfo().AsSpan().SequenceEqual(publicKey))
-                ?? throw new InvalidOperationException(
+                ?? throw new SslenseException(ErrorCodes.CertificateNotForRequest, 
                     "None of the certificates in the file belongs to this server's pending request. Check that the " +
                     "provider issued it for the CSR SSLense created, not an older or different request.");
             var intermediates = certificates.Where(value => !ReferenceEquals(value, leaf) && CertificateInspector.IsCertificateAuthority(value)).ToArray();
@@ -319,7 +320,7 @@ internal sealed class ImportedCertificateService(
             {
                 RSA rsa => leaf.CopyWithPrivateKey(rsa),
                 ECDsa ecdsa => leaf.CopyWithPrivateKey(ecdsa),
-                _ => throw new InvalidOperationException("The pending request uses an unsupported key type.")
+                _ => throw new SslenseException(ErrorCodes.RequestKeyUnsupported, "The pending request uses an unsupported key type.")
             };
             var result = await InstallAsync(
                     name,
@@ -372,7 +373,7 @@ internal sealed class ImportedCertificateService(
         try
         {
             var leaf = collection.OfType<X509Certificate2>().SingleOrDefault(value => value.HasPrivateKey)
-                ?? throw new InvalidOperationException("The PFX must contain exactly one certificate with its private key.");
+                ?? throw new SslenseException(ErrorCodes.PfxNotOneCertificate, "The PFX must contain exactly one certificate with its private key.");
             var intermediates = collection.OfType<X509Certificate2>()
                 .Where(value => !ReferenceEquals(value, leaf) && CertificateInspector.IsCertificateAuthority(value))
                 .ToArray();
@@ -382,7 +383,7 @@ internal sealed class ImportedCertificateService(
                 : await InferHostsAsync(siteName, site, dnsNames, cancellationToken).ConfigureAwait(false);
             if (targetHosts.Count == 0)
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.PfxCoversNoHost, 
                     $"None of IIS site '{site.Name}''s binding host names is covered by the certificate " +
                     $"({string.Join(", ", dnsNames)}). Enter the host names to bind (--hosts in the CLI).");
             }
@@ -433,7 +434,7 @@ internal sealed class ImportedCertificateService(
         var existing = await FindRecordAsync(name, cancellationToken).ConfigureAwait(false);
         if (existing?.Source == CertificateSource.Acme && !force)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.ImportOverAutomatic, 
                 $"The certificate '{name}' is one SSLense renews automatically. Importing replaces it with " +
                 "one you must renew manually. Confirm the replacement to continue (--force in the CLI).");
         }
@@ -441,7 +442,7 @@ internal sealed class ImportedCertificateService(
         var thumbprint = Normalize(leaf.Thumbprint);
         if (existing is not null && string.Equals(Normalize(existing.Thumbprint), thumbprint, StringComparison.Ordinal))
         {
-            throw new InvalidOperationException($"Certificate {thumbprint} is already installed and bound for '{name}'.");
+            throw new SslenseException(ErrorCodes.CertificateAlreadyInstalled, $"Certificate {thumbprint} is already installed and bound for '{name}'.");
         }
 
         var record = new ManagedCertificate(
@@ -530,7 +531,7 @@ internal sealed class ImportedCertificateService(
         var problems = CertificateInspector.Validate(leaf, hosts, intermediates, DateTimeOffset.UtcNow, trustedRootsForTesting);
         if (problems.Count > 0)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.CertificateRejected, 
                 $"The certificate {CertificateInspector.Describe(leaf)} was not installed: {string.Join(" ", problems)}");
         }
     }
@@ -611,7 +612,7 @@ internal sealed class ImportedCertificateService(
         ArgumentException.ThrowIfNullOrWhiteSpace(siteName);
         var sites = await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
         return sites.FindSite(siteName)
-            ?? throw new InvalidOperationException(
+            ?? throw new SslenseException(ErrorCodes.IisSiteNotFound, 
                 $"IIS site '{ManagedCertificateNames.IisSiteOf(siteName)}' was not found. Run 'list-sites' to see the site names.");
     }
 
@@ -631,7 +632,7 @@ internal sealed class ImportedCertificateService(
             var site = ManagedCertificateNames.IisSiteOf(siteName);
             if (records.FirstOrDefault(record => record.IsShared() && record.ManagesSite(site)) is { } shared)
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.SharedSiteSecondCertificate, 
                     $"IIS site '{site}' shares the certificate managed as '{shared.SiteName}', so it cannot have a second certificate " +
                     "yet. Run 'SSLense.Cli share remove' first.");
             }
@@ -706,7 +707,7 @@ internal sealed class ImportedCertificateService(
         {
             0 => null,
             1 => onSite[0],
-            _ => throw new InvalidOperationException(
+            _ => throw new SslenseException(ErrorCodes.SeveralPendingRequests, 
                 $"IIS site '{name.Trim()}' has {onSite.Length} pending certificate requests " +
                 $"({string.Join(", ", onSite.Select(request => $"'{request.SiteName}'"))}). Choose one by its name (--site in the CLI).")
         };
@@ -717,14 +718,14 @@ internal sealed class ImportedCertificateService(
         var normalized = hosts.Select(NormalizeHost).Where(host => host.Length > 0).Distinct().ToArray();
         if (normalized.Length == 0)
         {
-            throw new ArgumentException("Specify at least one host name.");
+            throw new ArgumentException(ErrorCodes.NoHostNamesGiven.Format("Specify at least one host name."));
         }
 
         foreach (var host in normalized)
         {
             if (host.Contains('*') || Uri.CheckHostName(host) != UriHostNameType.Dns)
             {
-                throw new ArgumentException($"'{host}' is not a valid DNS host name for an IIS binding.");
+                throw new ArgumentException(ErrorCodes.InvalidHostName.Format($"'{host}' is not a valid DNS host name for an IIS binding."));
             }
         }
 

@@ -34,7 +34,7 @@ public sealed class MailKitEmailSenderTests
     {
         using var server = new FakeSmtpServer(rejectRecipients: true);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new MailKitEmailSender().SendAsync(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => new MailKitEmailSender().SendAsync(
             new EmailDelivery("127.0.0.1", server.Port, SmtpSecurity.None, SmtpAuthentication.None, null, null,
                 "alerts@contoso.com", ["ops@contoso.com"]),
             new NotificationMessage(NotificationKind.Test, "test", "test"),

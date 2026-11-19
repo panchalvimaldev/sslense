@@ -1,8 +1,9 @@
-using System.Security.AccessControl;
-using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
-using System.Security.Principal;
 using SSLense.Core.Certificates;
+using SSLense.Core.Errors;
+using System.Security.AccessControl;
+using System.Security.Cryptography.X509Certificates;
+using System.Security.Cryptography;
+using System.Security.Principal;
 
 namespace SSLense.Core.Deployment;
 
@@ -31,7 +32,7 @@ internal sealed class PrivateKeyAccess(ICertificateStore certificateStore) : IPr
     {
         var (sid, name) = Resolve(account);
         using var certificate = await certificateStore.OpenAsync(thumbprint, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"The certificate {thumbprint} is not installed in LocalMachine\\My.");
+            ?? throw new SslenseException(ErrorCodes.CertificateNotInStore, $"The certificate {thumbprint} is not installed in LocalMachine\\My.");
         GrantRead(certificate, sid, MachineKeyDirectories, name);
     }
 
@@ -46,8 +47,8 @@ internal sealed class PrivateKeyAccess(ICertificateStore certificateStore) : IPr
         catch (IdentityNotMappedException)
         {
             throw new ArgumentException(
-                $"Windows does not know the account '{account.Trim()}'. Check the name, such as 'IIS AppPool\\Shop' or " +
-                "'NT Service\\MSSQLSERVER'; an application pool's account exists only while the pool does.");
+                ErrorCodes.AccountUnknown.Format($"Windows does not know the account '{account.Trim()}'. Check the name, such as 'IIS AppPool\\Shop' or " +
+                "'NT Service\\MSSQLSERVER'; an application pool's account exists only while the pool does."));
         }
     }
 
@@ -62,13 +63,13 @@ internal sealed class PrivateKeyAccess(ICertificateStore certificateStore) : IPr
         var path = keyDirectories
             .Select(directory => Path.Combine(directory, uniqueName))
             .FirstOrDefault(File.Exists)
-            ?? throw new InvalidOperationException(
+            ?? throw new SslenseException(ErrorCodes.PrivateKeyFileMissing, 
                 $"The private key file of certificate {certificate.Thumbprint} was not found, so '{accountName}' could not be given access.");
 
         var file = new FileInfo(path);
         if (file.Attributes.HasFlag(FileAttributes.ReparsePoint))
         {
-            throw new InvalidOperationException($"The private key file '{path}' is a link. SSLense will not change its access.");
+            throw new SslenseException(ErrorCodes.PrivateKeyFileIsLink, $"The private key file '{path}' is a link. SSLense will not change its access.");
         }
 
         var security = file.GetAccessControl();
@@ -80,7 +81,7 @@ internal sealed class PrivateKeyAccess(ICertificateStore certificateStore) : IPr
     {
         if (!certificate.HasPrivateKey)
         {
-            throw new InvalidOperationException($"The certificate {certificate.Thumbprint} has no private key.");
+            throw new SslenseException(ErrorCodes.NoPrivateKey, $"The certificate {certificate.Thumbprint} has no private key.");
         }
 
         using AsymmetricAlgorithm? key = (AsymmetricAlgorithm?)certificate.GetRSAPrivateKey() ?? certificate.GetECDsaPrivateKey();
@@ -94,7 +95,7 @@ internal sealed class PrivateKeyAccess(ICertificateStore certificateStore) : IPr
 
         if (string.IsNullOrEmpty(name) || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.PrivateKeyLocationUnknown, 
                 $"SSLense cannot find where the private key of certificate {certificate.Thumbprint} is kept.");
         }
 

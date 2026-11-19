@@ -62,7 +62,7 @@ public sealed class AcmeDnsTests
     [Fact]
     public async Task Client_Update_WithAWrongPassword_SaysTheCredentialsWereRefused()
     {
-        var message = (await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var message = (await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             Client().UpdateAsync(new Uri(Server), "user-1", "wrong", "d420c923", Value1, CancellationToken.None))).Message;
 
         Assert.Contains("refused the account's username or password", message, StringComparison.Ordinal);
@@ -95,7 +95,7 @@ public sealed class AcmeDnsTests
         await RegisterAsync();
         var saved = _config.Config.DnsProviders.Single();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             Provider().AddTxtRecordAsync(saved, "_acme-challenge.example.com", Value1, CancellationToken.None));
         await Assert.ThrowsAsync<ArgumentException>(() =>
             Provider().AddTxtRecordAsync(saved, FullDomain, "too-short", CancellationToken.None));
@@ -148,7 +148,7 @@ public sealed class AcmeDnsTests
     {
         await RegisterAsync();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             Service().AddAcmeDnsAsync(new AcmeDnsProviderRequest("Another", "example.com", Server)));
 
         Assert.Single(_config.Config.DnsProviders);
@@ -166,7 +166,7 @@ public sealed class AcmeDnsTests
     {
         await RegisterAsync();
 
-        var message = (await Assert.ThrowsAsync<InvalidOperationException>(() => Service().TestAsync("Shop acme-dns"))).Message;
+        var message = (await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().TestAsync("Shop acme-dns"))).Message;
 
         Assert.Contains($"_acme-challenge.example.com  CNAME  {FullDomain}", message, StringComparison.Ordinal);
         Assert.Empty(_server.Values);
@@ -200,7 +200,7 @@ public sealed class AcmeDnsTests
         await using (await Challenges().PublishAsync(ValidationMethod.Dns01Provider, challenges, null, null, CancellationToken.None))
         {
             Assert.Contains($"acme-dns:{FullDomain}", _locks.Held);
-            var message = (await Assert.ThrowsAsync<InvalidOperationException>(() => Service().TestAsync("Shop acme-dns"))).Message;
+            var message = (await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Service().TestAsync("Shop acme-dns"))).Message;
 
             Assert.Contains("being validated", message, StringComparison.Ordinal);
             Assert.Equal([Value1, Value2], _server.Values);
@@ -232,7 +232,7 @@ public sealed class AcmeDnsTests
     {
         await RegisterAsync();
 
-        var message = (await Assert.ThrowsAsync<InvalidOperationException>(() => Challenges().CheckBeforeOrderAsync(
+        var message = (await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Challenges().CheckBeforeOrderAsync(
             ValidationMethod.Dns01Provider, ["*.example.com", "example.com"], CertificateAuthorities.LetsEncryptStagingId, CancellationToken.None))).Message;
 
         Assert.Contains("CNAME", message, StringComparison.Ordinal);
@@ -260,7 +260,7 @@ public sealed class AcmeDnsTests
             _lookup.Cnames[$"_acme-challenge.{name}"] = FullDomain;
         }
 
-        var message = (await Assert.ThrowsAsync<InvalidOperationException>(() => Challenges().CheckBeforeOrderAsync(
+        var message = (await Assert.ThrowsAnyAsync<InvalidOperationException>(() => Challenges().CheckBeforeOrderAsync(
             ValidationMethod.Dns01Provider, ["example.com", "shop.example.com", "blog.example.com"], CertificateAuthorities.LetsEncryptStagingId,
             CancellationToken.None))).Message;
 

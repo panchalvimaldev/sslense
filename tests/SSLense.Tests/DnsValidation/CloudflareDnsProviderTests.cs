@@ -51,7 +51,7 @@ public sealed class CloudflareDnsProviderTests
             """{"success":false,"errors":[{"code":10000,"message":"Authentication error"}],"result":null}""");
         using var client = new HttpClient(_handler);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             Provider(client).AddTxtRecordAsync(Profile(), RecordName, "value", CancellationToken.None));
 
         Assert.Contains("HTTP 403", exception.Message, StringComparison.Ordinal);
@@ -114,7 +114,7 @@ public sealed class CloudflareDnsProviderTests
         _handler.Respond(HttpStatusCode.BadGateway, "<html>Bad gateway</html>");
         using var client = new HttpClient(_handler);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             Provider(client).VerifyAccessAsync(Profile(), CancellationToken.None));
 
         Assert.Contains("HTTP 502", exception.Message, StringComparison.Ordinal);
@@ -126,7 +126,7 @@ public sealed class CloudflareDnsProviderTests
         using var client = new HttpClient(_handler);
         var provider = new CloudflareDnsProvider(client, new PrefixProtector());
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             provider.VerifyAccessAsync(Profile() with { ProtectedToken = "not base64!" }, CancellationToken.None));
 
         Assert.Contains("add it again", exception.Message, StringComparison.Ordinal);

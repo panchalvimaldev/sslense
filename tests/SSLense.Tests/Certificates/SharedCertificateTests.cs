@@ -364,7 +364,7 @@ public sealed class SharedCertificateTests
         var harness = new IssueHarness(Shared(), Site("Shop", "shop.example.com"), Site("Blog", "blog.example.com"));
         BlogNotAnswering(harness);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(Renewal()));
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.IssueAsync(Renewal()));
 
         Assert.Contains("'Blog'", exception.Message, StringComparison.Ordinal);
         harness.VerifyNothingOrdered();
@@ -475,7 +475,7 @@ public sealed class SharedCertificateTests
     {
         var harness = new IssueHarness(Shared(), Site("Shop", "shop.example.com"), Site("Blog", "blog.example.com"));
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             harness.Service.IssueAsync(Renewal(names: ["shop.example.com"])));
 
         Assert.Contains("blog.example.com", exception.Message, StringComparison.Ordinal);
@@ -487,7 +487,7 @@ public sealed class SharedCertificateTests
     {
         var harness = new IssueHarness(Shared(), Site("Shop", "shop.example.com"), Site("Blog", "blog.example.com"));
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(Renewal("Blog")));
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.IssueAsync(Renewal("Blog")));
 
         Assert.Contains("'Shop'", exception.Message, StringComparison.Ordinal);
         harness.VerifyNothingOrdered();
@@ -570,7 +570,7 @@ public sealed class SharedCertificateTests
         var harness = new SharingHarness([SingleSite(), second, SingleSite(site: "Blog")],
             Site("Shop", "shop.example.com"), Site("Blog", "blog.example.com"));
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.AddSiteAsync(from, to, []));
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.AddSiteAsync(from, to, []));
 
         Assert.Contains("'Shop/www.example.com'", exception.Message, StringComparison.Ordinal);
         Assert.Contains("Issue a certificate for the host names instead", exception.Message, StringComparison.Ordinal);
@@ -592,7 +592,7 @@ public sealed class SharedCertificateTests
     {
         var harness = new SharingHarness([SingleSite(ValidationMethod.Http01)], Site("Shop", "shop.example.com"), Site("Blog", "blog.example.com"));
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.AddSiteAsync("Shop", "Blog", []));
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.AddSiteAsync("Shop", "Blog", []));
 
         Assert.Contains("DNS validation", exception.Message, StringComparison.Ordinal);
         harness.VerifyNothingChanged();
@@ -603,7 +603,7 @@ public sealed class SharedCertificateTests
     {
         var harness = new SharingHarness([SingleSite(source: CertificateSource.Imported)], Site("Shop", "shop.example.com"), Site("Blog", "blog.example.com"));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.AddSiteAsync("Shop", "Blog", []));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.AddSiteAsync("Shop", "Blog", []));
 
         harness.VerifyNothingChanged();
     }
@@ -618,7 +618,7 @@ public sealed class SharedCertificateTests
         harness.Store.Setup(value => value.FindByThumbprintAsync(Old, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new InstalledCertificate(Old, DateTimeOffset.UtcNow.AddDays(-90), DateTimeOffset.UtcNow.AddMinutes(-1), true));
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             harness.Service.AddSiteAsync("Shop", "Blog", [], replaceExisting: true));
 
         Assert.Contains("renew --site \"Shop\"", exception.Message, StringComparison.Ordinal);
@@ -631,7 +631,7 @@ public sealed class SharedCertificateTests
     {
         var harness = new SharingHarness([SingleSite()], Site("Shop", "shop.example.com"), Site("Blog", "blog.other.net"));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.AddSiteAsync("Shop", "Blog", ["blog.other.net"]));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.AddSiteAsync("Shop", "Blog", ["blog.other.net"]));
 
         harness.VerifyNothingChanged();
     }
@@ -645,7 +645,7 @@ public sealed class SharedCertificateTests
             Site("Blog", "blog.example.com"),
             Site("Admin", "blog.example.com"));
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.AddSiteAsync("Shop", "Blog", ["blog.example.com"]));
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.AddSiteAsync("Shop", "Blog", ["blog.example.com"]));
 
         Assert.Contains("'Admin'", exception.Message, StringComparison.Ordinal);
         harness.VerifyNothingChanged();
@@ -659,7 +659,7 @@ public sealed class SharedCertificateTests
             Site("Shop", "shop.example.com"),
             Site("Blog", "blog.example.com", thumbprint: "BLOGCERT"));
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.AddSiteAsync("Shop", "Blog", []));
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.AddSiteAsync("Shop", "Blog", []));
 
         Assert.Contains("--replace-existing", exception.Message, StringComparison.Ordinal);
         harness.VerifyNothingChanged();
@@ -746,7 +746,7 @@ public sealed class SharedCertificateTests
     {
         var harness = new SharingHarness([SingleSite()]);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.RemoveSiteAsync("Shop"));
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.RemoveSiteAsync("Shop"));
 
         Assert.Contains("SSLense.Cli remove", exception.Message, StringComparison.Ordinal);
     }
@@ -944,7 +944,7 @@ public sealed class SharedCertificateTests
         var managed = StoreWith(Shared());
         var service = new CertificateManagementService(managed.Object, Mock.Of<ICertificateStore>(), iis.Object, Mock.Of<SSLense.Core.Logs.ILogService>());
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.RemoveAsync("Blog"));
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.RemoveAsync("Blog"));
 
         Assert.Contains("share remove", exception.Message, StringComparison.Ordinal);
         Assert.Empty(iis.Invocations);
@@ -1047,7 +1047,7 @@ public sealed class SharedCertificateTests
     [Fact]
     public async Task ImportedInstall_OnAnAdditionalSite_IsRefused()
     {
-        Assert.Contains("'Shop'", (await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        Assert.Contains("'Shop'", (await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
         {
             ManagedCertificateTargets.ThrowIfAdditionalSite([Shared()], "Blog");
             return Task.CompletedTask;
@@ -1059,7 +1059,7 @@ public sealed class SharedCertificateTests
     [Fact]
     public void ImportedInstall_OnTheFirstSiteOfASharedCertificate_IsRefused_AndSaysHowToDetachIt()
     {
-        var message = Assert.Throws<InvalidOperationException>(() =>
+        var message = Assert.ThrowsAny<InvalidOperationException>(() =>
             ManagedCertificateTargets.ThrowIfSharedFirstSite([Shared()], "shop")).Message;
 
         Assert.Contains("'Blog'", message, StringComparison.Ordinal);

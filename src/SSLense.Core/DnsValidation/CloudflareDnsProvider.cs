@@ -1,10 +1,11 @@
-using System.Net;
+using SSLense.Core.Acme;
+using SSLense.Core.Errors;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Net;
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
-using SSLense.Core.Acme;
+using System.Text;
 
 namespace SSLense.Core.DnsValidation;
 
@@ -79,7 +80,7 @@ internal sealed class CloudflareDnsProvider(HttpClient httpClient, ISecretProtec
     }
 
     private static string ZoneUrl(DnsProviderProfile profile) =>
-        $"{ApiBase}/zones/{Uri.EscapeDataString(profile.ZoneId ?? throw new InvalidOperationException(
+        $"{ApiBase}/zones/{Uri.EscapeDataString(profile.ZoneId ?? throw new SslenseException(ErrorCodes.CloudflareZoneNotFound, 
             $"DNS provider '{profile.Name}' has no Cloudflare zone ID."))}";
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string url, DnsProviderProfile profile)
@@ -100,7 +101,7 @@ internal sealed class CloudflareDnsProvider(HttpClient httpClient, ISecretProtec
         }
         catch (Exception exception) when (exception is FormatException or CryptographicException or System.ComponentModel.Win32Exception)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.DnsSecretUnreadable, 
                 $"The token for DNS provider '{profile.Name}' cannot be decrypted. Remove the provider and add it again on this server.",
                 exception);
         }
@@ -159,7 +160,7 @@ internal sealed class CloudflareDnsProvider(HttpClient httpClient, ISecretProtec
             ? $" Check that the token is valid and has Zone > DNS > Edit permission on {profile.ZoneName}."
             : string.Empty;
         var detail = result.Message.Length > 0 ? $" {result.Message}" : string.Empty;
-        throw new InvalidOperationException(
+        throw new SslenseException(ErrorCodes.CloudflareRequestFailed, 
             $"Cloudflare could not {action} (HTTP {(int)response.StatusCode}).{detail}{advice}");
     }
 

@@ -1,11 +1,12 @@
 using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
 using SSLense.Core.Iis;
+using SSLense.Core.Notifications;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
-using SSLense.Core.Notifications;
 
 namespace SSLense.Core.Renewal;
 
@@ -232,7 +233,7 @@ internal sealed class RenewalService : IRenewalService
                     cancellationToken)
                 .ConfigureAwait(false);
             var newThumbprint = issued.CertificateThumbprint
-                ?? throw new InvalidOperationException("The renewed certificate has no thumbprint.");
+                ?? throw new SslenseException(ErrorCodes.RenewedWithoutThumbprint, "The renewed certificate has no thumbprint.");
 
             IReadOnlyList<LeftOutSite> leftOut = issued.LeftOutSites ?? [];
             var keyNotice = issued.KeyReused == false
@@ -496,7 +497,7 @@ internal sealed class RenewalService : IRenewalService
         var hasSite = !string.IsNullOrWhiteSpace(request.SiteName);
         if (request.All == hasSite)
         {
-            throw new ArgumentException("Specify exactly one of --all or --site.", nameof(request));
+            throw new ArgumentException(ErrorCodes.RenewChooseAllOrSite.Format("Specify exactly one of --all or --site."), nameof(request));
         }
     }
 }

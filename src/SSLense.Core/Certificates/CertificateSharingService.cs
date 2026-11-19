@@ -1,4 +1,5 @@
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
 using SSLense.Core.Iis;
 using SSLense.Core.Reminders;
 
@@ -43,22 +44,22 @@ internal sealed class CertificateSharingService(
         ThrowIfSeveralCertificates(records, toSite);
         var sites = await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
         var site = sites.FirstOrDefault(value => string.Equals(value.Name, toSite.Trim(), StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException($"IIS site '{toSite}' was not found. Run 'list-sites' to see the site names.");
+            ?? throw new SslenseException(ErrorCodes.IisSiteNotFound, $"IIS site '{toSite}' was not found. Run 'list-sites' to see the site names.");
         var existing = FindExistingRecordToReplace(records, owner, site.Name, replaceExisting);
         var targetHosts = ResolveHosts(owner, site, sites, hosts);
         var installed = await certificateStore.FindByThumbprintAsync(owner.Thumbprint, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidOperationException(
+            ?? throw new SslenseException(ErrorCodes.SharedCertificateMissing, 
                 $"Certificate {owner.Thumbprint} is not in LocalMachine\\My. Renew it first with 'SSLense.Cli renew --site \"{owner.SiteName}\" --force'.");
         if (!installed.HasPrivateKey)
         {
-            throw new InvalidOperationException($"Certificate {owner.Thumbprint} has no usable private key, so no site can use it.");
+            throw new SslenseException(ErrorCodes.SharedCertificateNoKey, $"Certificate {owner.Thumbprint} has no usable private key, so no site can use it.");
         }
 
         // The HTTPS confirmation checks only which certificate is served, not whether it is valid, so it would not catch this.
         var now = DateTimeOffset.UtcNow;
         if (installed.NotAfter <= now || installed.NotBefore > now)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.SharedCertificateNotValidNow, 
                 $"Certificate {owner.Thumbprint} is not valid now (valid from {installed.NotBefore:yyyy-MM-dd HH:mm} to " +
                 $"{installed.NotAfter:yyyy-MM-dd HH:mm} UTC), so sharing it would break HTTPS on IIS site '{site.Name}'. " +
                 $"Renew it first with 'SSLense.Cli renew --site \"{owner.SiteName}\" --force'.");
@@ -126,7 +127,7 @@ internal sealed class CertificateSharingService(
         var owner = FindOwner(await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false), siteName);
         if (!owner.IsShared())
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.CertificateNotShared, 
                 $"The certificate for IIS site '{owner.SiteName}' is not shared. To stop managing it and remove its HTTPS bindings, " +
                 $"use 'SSLense.Cli remove --site \"{owner.SiteName}\"'.");
         }
@@ -211,7 +212,7 @@ internal sealed class CertificateSharingService(
         var onSite = ManagedCertificateNames.OnSite(records, siteName);
         if (ManagedCertificateNames.IsAdditional(siteName) || onSite.Any(record => ManagedCertificateNames.IsAdditional(record.SiteName)))
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.SeveralCertificatesCannotShare, 
                 $"IIS site '{ManagedCertificateNames.IisSiteOf(siteName)}' has several certificates " +
                 $"({string.Join(", ", onSite.Select(record => $"'{record.SiteName}'"))}). A site with several certificates cannot share one with other sites. " +
                 "Issue a certificate for the host names instead.");
@@ -222,13 +223,13 @@ internal sealed class CertificateSharingService(
     {
         if (owner.Source != CertificateSource.Acme)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.SharingNeedsAcme, 
                 $"The certificate for IIS site '{owner.SiteName}' came from another provider. Only certificates SSLense obtains can be shared for now.");
         }
 
         if (owner.ValidationMethod == ValidationMethod.Http01)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.SharingNeedsDns, 
                 $"The certificate for IIS site '{owner.SiteName}' uses HTTP validation. Sharing needs DNS validation, because HTTP validation would have to reach every site. " +
                 "Issue the certificate again with DNS validation.");
         }
@@ -242,7 +243,7 @@ internal sealed class CertificateSharingService(
     {
         if (owner.ManagesSite(siteName))
         {
-            throw new InvalidOperationException($"IIS site '{siteName}' already uses this certificate.");
+            throw new SslenseException(ErrorCodes.SiteAlreadyShares, $"IIS site '{siteName}' already uses this certificate.");
         }
 
         ManagedCertificateTargets.ThrowIfAdditionalSite(records, siteName);
@@ -254,13 +255,13 @@ internal sealed class CertificateSharingService(
 
         if (existing.IsShared())
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.SiteHasSharedCertificate, 
                 $"IIS site '{siteName}' has its own certificate, shared with other sites. Stop sharing that one first with 'SSLense.Cli share remove'.");
         }
 
         return replaceExisting
             ? existing
-            : throw new InvalidOperationException(
+            : throw new SslenseException(ErrorCodes.SiteHasOwnCertificate, 
                 $"IIS site '{siteName}' has its own certificate ({existing.Thumbprint}). To replace it with the shared one, add --replace-existing.");
     }
 
@@ -281,7 +282,7 @@ internal sealed class CertificateSharingService(
             .ToArray();
         if (hosts.Length == 0)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.SiteHasNoCoveredBindings, 
                 $"IIS site '{site.Name}' has no named bindings that the certificate covers ({string.Join(", ", names)}). Add a binding, or list the hosts with --hosts.");
         }
 
@@ -289,17 +290,17 @@ internal sealed class CertificateSharingService(
         {
             if (host.Contains('*') || Uri.CheckHostName(host) != UriHostNameType.Dns)
             {
-                throw new ArgumentException($"'{host}' cannot be used as a host name, because SSLense manages IIS bindings for real host names only.", nameof(requested));
+                throw new ArgumentException(ErrorCodes.InvalidHostName.Format($"'{host}' cannot be used as a host name, because SSLense manages IIS bindings for real host names only."), nameof(requested));
             }
 
             if (!CertificateInspector.Covers(names, host))
             {
-                throw new InvalidOperationException($"The certificate does not cover host name '{host}'. It covers {string.Join(", ", names)}.");
+                throw new SslenseException(ErrorCodes.SharedHostNotCovered, $"The certificate does not cover host name '{host}'. It covers {string.Join(", ", names)}.");
             }
 
             if (!HasWebBinding(site, host))
             {
-                throw new InvalidOperationException($"Host name '{host}' does not have an HTTP or HTTPS binding for IIS site '{site.Name}'.");
+                throw new SslenseException(ErrorCodes.HostHasNoBinding, $"Host name '{host}' does not have an HTTP or HTTPS binding for IIS site '{site.Name}'.");
             }
 
             if (sites.FirstOrDefault(other =>
@@ -309,7 +310,7 @@ internal sealed class CertificateSharingService(
                         binding.Port == 443 &&
                         string.Equals(NormalizeHost(binding.HostName), host, StringComparison.OrdinalIgnoreCase))) is { } conflict)
             {
-                throw new InvalidOperationException($"Host name '{host}' is already bound to HTTPS on IIS site '{conflict.Name}'.");
+                throw new SslenseException(ErrorCodes.HostBoundElsewhere, $"Host name '{host}' is already bound to HTTPS on IIS site '{conflict.Name}'.");
             }
         }
 

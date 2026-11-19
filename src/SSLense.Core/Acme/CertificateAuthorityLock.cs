@@ -1,6 +1,7 @@
+using SSLense.Core.Config;
+using SSLense.Core.Errors;
 using System.Security.Cryptography;
 using System.Text;
-using SSLense.Core.Config;
 
 namespace SSLense.Core.Acme;
 
@@ -74,7 +75,7 @@ internal sealed class FileCertificateAuthorityLock(string directory) : ICertific
             }
             catch (IOException exception)
             {
-                throw new InvalidOperationException(timeoutMessage, exception);
+                throw new SslenseException(ErrorCodes.CertificateAuthorityBusy, timeoutMessage, exception);
             }
 
             await Task.Delay(RetryInterval, cancellationToken).ConfigureAwait(false);

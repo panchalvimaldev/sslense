@@ -118,7 +118,7 @@ public sealed class CertificateExportTests : IDisposable
             _store.Setup(value => value.OpenAsync(locked.Thumbprint, It.IsAny<CancellationToken>()))
                 .ReturnsAsync(() => X509CertificateLoader.LoadCertificate(locked.RawData).CopyWithPrivateKey(new ECDsaCng(key)));
 
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => new CertificateExporter(_store.Object)
+            var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => new CertificateExporter(_store.Object)
                 .ExportPfxAsync(locked.Thumbprint, Path.Combine(_root, "locked.pfx"), "pw", CancellationToken.None));
 
             Assert.Contains("--exportable-key", exception.Message, StringComparison.Ordinal);
@@ -139,7 +139,7 @@ public sealed class CertificateExportTests : IDisposable
         var record = new ManagedCertificate("Shop", ["example.com"], "ops@example.com", "AABB", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(60));
         await store.UpsertAsync(record);
 
-        var notExportable = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var notExportable = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.ExportPfx, @"D:\Certs\shop.pfx", Password: "pw")));
         Assert.Contains("--exportable-key", notExportable.Message, StringComparison.Ordinal);
 

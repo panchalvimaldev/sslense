@@ -1,5 +1,6 @@
-using System.Security.Cryptography;
+using SSLense.Core.Errors;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Cryptography;
 
 namespace SSLense.Core.Certificates;
 
@@ -141,7 +142,7 @@ internal static class CertificateInspector
             collection.ImportFromPem(text);
             return collection.Count > 0
                 ? collection.Cast<X509Certificate2>().ToArray()
-                : throw new InvalidDataException("The file contains no certificates.");
+                : throw new InvalidDataException(ErrorCodes.NotACertificateFile.Format("The file contains no certificates."));
         }
 
         try
@@ -151,8 +152,8 @@ internal static class CertificateInspector
         catch (CryptographicException exception)
         {
             throw new InvalidDataException(
-                "The file is not a PEM or DER certificate. If you have a .p7b or .pfx file, export the certificate as " +
-                "Base-64 (.crt or .pem), or use 'import' for a .pfx.",
+                ErrorCodes.NotACertificateFile.Format("The file is not a PEM or DER certificate. If you have a .p7b or .pfx file, export the certificate as " +
+                "Base-64 (.crt or .pem), or use 'import' for a .pfx."),
                 exception);
         }
     }

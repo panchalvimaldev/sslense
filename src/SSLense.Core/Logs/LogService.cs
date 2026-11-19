@@ -1,5 +1,6 @@
-using System.Text.RegularExpressions;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
+using System.Text.RegularExpressions;
 
 namespace SSLense.Core.Logs;
 
@@ -62,7 +63,7 @@ internal sealed partial class LogService(
     public async Task<string?> ClearCurrentAsync(CancellationToken cancellationToken = default)
     {
         var file = FindCurrentFile()
-            ?? throw new InvalidOperationException($"There is no log file in '{AppPaths.LogDirectory}' yet.");
+            ?? throw new SslenseException(ErrorCodes.NoLogFile, $"There is no log file in '{AppPaths.LogDirectory}' yet.");
 
         // Every SSLense process writes the log under the same lock, so no entry can arrive between reading and emptying.
         var backup = await (exclusive ?? DefaultExclusive)(async () =>
@@ -163,7 +164,7 @@ internal sealed partial class LogService(
     /// <summary>Only files SSLense lists may be read or copied, never an arbitrary path.</summary>
     private string EnsureLogFile(string filePath) =>
         DailyFiles().Concat(Backups()).FirstOrDefault(path => string.Equals(path, filePath, StringComparison.OrdinalIgnoreCase))
-        ?? throw new InvalidOperationException($"'{filePath}' is not an SSLense log file.");
+        ?? throw new SslenseException(ErrorCodes.NotALogFile, $"'{filePath}' is not an SSLense log file.");
 
     private static LogFileInfo Describe(string path, bool isBackup)
     {

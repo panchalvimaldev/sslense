@@ -2,6 +2,7 @@ using MailKit.Net.Smtp;
 using MailKit.Security;
 using MimeKit;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
 
 namespace SSLense.Core.Notifications;
 
@@ -40,8 +41,8 @@ internal sealed class MailKitEmailSender : IEmailSender
                 // Password sign-in only; OAuth needs an app registration and is not offered here.
                 client.AuthenticationMechanisms.Remove("XOAUTH2");
                 await client.AuthenticateAsync(
-                        settings.Username ?? throw new InvalidOperationException("Password sign-in needs an SMTP username."),
-                        settings.Password ?? throw new InvalidOperationException("No SMTP password is saved; enter it in the email settings."),
+                        settings.Username ?? throw new SslenseException(ErrorCodes.SmtpUsernameMissing, "Password sign-in needs an SMTP username."),
+                        settings.Password ?? throw new SslenseException(ErrorCodes.SmtpPasswordMissing, "No SMTP password is saved; enter it in the email settings."),
                         cancellationToken)
                     .ConfigureAwait(false);
             }
@@ -51,7 +52,7 @@ internal sealed class MailKitEmailSender : IEmailSender
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            throw new InvalidOperationException(Describe(exception, settings), exception);
+            throw new SslenseException(ErrorCodes.EmailFailed, Describe(exception, settings), exception);
         }
     }
 

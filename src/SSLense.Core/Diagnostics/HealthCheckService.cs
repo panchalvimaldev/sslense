@@ -1,11 +1,12 @@
-using System.Net;
 using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
 using SSLense.Core.Iis;
 using SSLense.Core.Renewal;
 using SSLense.Core.Validation;
 using SSLense.Core.WindowsServices;
+using System.Net;
 
 namespace SSLense.Core.Diagnostics;
 
@@ -48,8 +49,8 @@ internal sealed class HealthCheckService(
             : new HealthCheckResult(
                 name,
                 HealthStatus.Fail,
-                $"{string.Join(" ", problems)} Renewals through this provider will stop until you take a new copy with " +
-                $"'SSLense.Cli dns update-script --name \"{provider.Name}\" --script <path>'.");
+                ErrorCodes.DnsScriptRefused.Format($"{string.Join(" ", problems)} Renewals through this provider will stop until you take a new copy with " +
+                $"'SSLense.Cli dns update-script --name \"{provider.Name}\" --script <path>'."));
     }
 
     // The service checks hourly; three missed cycles means it is stuck or not running its loop.
@@ -148,7 +149,7 @@ internal sealed class HealthCheckService(
                     .ConfigureAwait(false);
                 if (Reminders.ServedCertificateCheck.DescribeSharing(certificate, sites, certificates) is { } shared)
                 {
-                    results.Add(new HealthCheckResult($"Shared certificate: {site}", HealthStatus.Warning, shared));
+                    results.Add(new HealthCheckResult($"Shared certificate: {site}", HealthStatus.Warning, ErrorCodes.SharingNeedsAttention.Format(shared)));
                 }
 
                 if (FindUnmanagedCoveredHosts(certificate, sites) is { Length: > 0 } unmanaged)
@@ -156,7 +157,7 @@ internal sealed class HealthCheckService(
                     results.Add(new HealthCheckResult(
                         $"Wildcard coverage: {site}",
                         HealthStatus.Warning,
-                        $"{string.Join(", ", unmanaged)} on this site {(unmanaged.Length == 1 ? "is" : "are")} covered by the wildcard, but SSLense does not manage the HTTPS binding.",
+                        ErrorCodes.WildcardBindingUnmanaged.Format($"{string.Join(", ", unmanaged)} on this site {(unmanaged.Length == 1 ? "is" : "are")} covered by the wildcard, but SSLense does not manage the HTTPS binding."),
                         $"Issue the certificate again with those hosts in --hosts, for example 'SSLense.Cli issue --site \"{site}\" --force --hosts ...'."));
                 }
 
@@ -266,7 +267,7 @@ internal sealed class HealthCheckService(
             results.Add(new HealthCheckResult(
                 $"HTTPS bindings: {target.SiteName}",
                 HealthStatus.Warning,
-                $"IIS site '{target.SiteName}' uses the certificate for '{certificate.SiteName}' but no longer exists.",
+                ErrorCodes.SharingSiteGone.Format($"IIS site '{target.SiteName}' uses the certificate for '{certificate.SiteName}' but no longer exists."),
                 $"If it was deleted, run 'SSLense.Cli share remove --site \"{target.SiteName}\"'."));
             return;
         }
@@ -279,7 +280,7 @@ internal sealed class HealthCheckService(
             results.Add(new HealthCheckResult(
                 $"Wildcard coverage: {target.SiteName}",
                 HealthStatus.Warning,
-                $"{string.Join(", ", unmanaged)} on this site {(unmanaged.Length == 1 ? "is" : "are")} covered by the wildcard, but SSLense does not manage the HTTPS binding."));
+                ErrorCodes.WildcardBindingUnmanaged.Format($"{string.Join(", ", unmanaged)} on this site {(unmanaged.Length == 1 ? "is" : "are")} covered by the wildcard, but SSLense does not manage the HTTPS binding.")));
         }
     }
 
@@ -300,7 +301,7 @@ internal sealed class HealthCheckService(
             ? new HealthCheckResult(
                 name,
                 HealthStatus.Fail,
-                problem,
+                ErrorCodes.ServedCertificateMismatch.Format(problem),
                 $"Compare the site's HTTPS bindings in IIS Manager with 'SSLense.Cli details --site \"{certificate.SiteName}\"'.")
             : Pass(name, "This server serves the expected certificate for every host name.");
     }
@@ -314,7 +315,7 @@ internal sealed class HealthCheckService(
         const string name = "Reminders";
         if (config is null)
         {
-            return new HealthCheckResult(name, HealthStatus.Warning, "Configuration could not be read.");
+            return new HealthCheckResult(name, HealthStatus.Warning, ErrorCodes.ConfigurationUnreadable.Format("Configuration could not be read."));
         }
 
         var settings = config.Reminders;
@@ -330,7 +331,7 @@ internal sealed class HealthCheckService(
             : new HealthCheckResult(
                 name,
                 HealthStatus.Warning,
-                $"{summary} Reminders are off or snoozed for {string.Join(", ", mutedSoon.Select(certificate => $"'{certificate.SiteName}' (expires {certificate.NotAfter:yyyy-MM-dd})"))}.",
+                ErrorCodes.RemindersMutedBeforeExpiry.Format($"{summary} Reminders are off or snoozed for {string.Join(", ", mutedSoon.Select(certificate => $"'{certificate.SiteName}' (expires {certificate.NotAfter:yyyy-MM-dd})"))}."),
                 "Turn its reminders back on in the certificate's Reminders tab, or with 'SSLense.Cli reminders site --site <site> --mode on'.");
     }
 
@@ -340,7 +341,7 @@ internal sealed class HealthCheckService(
             : new HealthCheckResult(
                 "Administrator",
                 HealthStatus.Fail,
-                "Not running as Administrator; several checks cannot read IIS or SSLense state.",
+                ErrorCodes.NotAdministrator.Format("Not running as Administrator; several checks cannot read IIS or SSLense state."),
                 "Run SSLense from an elevated terminal.");
 
     private static HealthCheckResult CheckPermissions()
@@ -351,7 +352,7 @@ internal sealed class HealthCheckService(
             : new HealthCheckResult(
                 "Data folder permissions",
                 HealthStatus.Fail,
-                string.Join(" ", problems.Take(3)) + (problems.Count > 3 ? $" (+{problems.Count - 3} more)" : string.Empty),
+                ErrorCodes.DataFolderPermissions.Format(string.Join(" ", problems.Take(3)) + (problems.Count > 3 ? $" (+{problems.Count - 3} more)" : string.Empty)),
                 "Run 'SSLense.Cli secure-data' from an elevated terminal.");
     }
 
@@ -370,12 +371,12 @@ internal sealed class HealthCheckService(
             _ when !certificate.HasDeploymentSteps() => new HealthCheckResult(
                 $"Deployment steps: {name}",
                 HealthStatus.Warning,
-                "This certificate has no IIS site and no deployment steps, so nothing uses it after a renewal.",
+                ErrorCodes.NoSiteNoSteps.Format("This certificate has no IIS site and no deployment steps, so nothing uses it after a renewal."),
                 $"Add the steps that hand it to its service, for example 'SSLense.Cli deploy add --site \"{name}\" --script <path>'."),
             _ when certificate.HasPendingDeployment() => new HealthCheckResult(
                 $"Deployment steps: {name}",
                 HealthStatus.Fail,
-                $"The deployment steps have not succeeded for this certificate. {certificate.Deployment?.LastError}".Trim(),
+                ErrorCodes.DeploymentPending.Format($"The deployment steps have not succeeded for this certificate. {certificate.Deployment?.LastError}".Trim()),
                 $"Run 'SSLense.Cli deploy list --site \"{name}\"' to see why, then 'deploy run'."),
             _ => new HealthCheckResult($"Deployment steps: {name}", HealthStatus.Pass, "The deployment steps succeeded for this certificate.")
         });
@@ -391,8 +392,8 @@ internal sealed class HealthCheckService(
             : new HealthCheckResult(
                 "Interrupted operations",
                 HealthStatus.Warning,
-                $"{pending.Count} interrupted operation(s) for: " +
-                string.Join(", ", pending.Select(value => value.Certificate.SiteName).Distinct()) + ".",
+                ErrorCodes.InterruptedOperations.Format($"{pending.Count} interrupted operation(s) for: " +
+                string.Join(", ", pending.Select(value => value.Certificate.SiteName).Distinct()) + "."),
                 "They are completed or rolled back automatically the next time the service, GUI, or CLI starts.");
     }
 
@@ -405,17 +406,17 @@ internal sealed class HealthCheckService(
             WindowsServiceStatus.NotInstalled => new HealthCheckResult(
                 name,
                 certificateCount > 0 ? HealthStatus.Fail : HealthStatus.Warning,
-                "The SSLense service is not installed, so certificates are not renewed automatically.",
+                ErrorCodes.ServiceNotInstalled.Format("The SSLense service is not installed, so certificates are not renewed automatically."),
                 "Install SSLense with the MSI, or run 'SSLense.Cli install-service'."),
             WindowsServiceStatus.Stopped => new HealthCheckResult(
                 name,
                 certificateCount > 0 ? HealthStatus.Fail : HealthStatus.Warning,
-                "The SSLense service is stopped, so certificates are not renewed automatically.",
+                ErrorCodes.ServiceStopped.Format("The SSLense service is stopped, so certificates are not renewed automatically."),
                 "Run 'SSLense.Cli start-service' or start it in services.msc."),
             var status => new HealthCheckResult(
                 name,
                 HealthStatus.Warning,
-                $"The SSLense service state is {status}.",
+                ErrorCodes.ServiceStateUnusual.Format($"The SSLense service state is {status}."),
                 "Check it again in a minute, or look in services.msc.")
         };
     }
@@ -429,7 +430,7 @@ internal sealed class HealthCheckService(
             return new HealthCheckResult(
                 name,
                 HealthStatus.Warning,
-                "The service has not recorded a completed renewal check yet.",
+                ErrorCodes.NoRenewalCheckYet.Format("The service has not recorded a completed renewal check yet."),
                 "If the service has been running for more than an hour, check the log in C:\\ProgramData\\SSLense\\logs.");
         }
 
@@ -440,7 +441,7 @@ internal sealed class HealthCheckService(
             return new HealthCheckResult(
                 name,
                 HealthStatus.Warning,
-                $"The last completed renewal check was {when}.",
+                ErrorCodes.RenewalCheckOverdue.Format($"The last completed renewal check was {when}."),
                 "The service checks hourly. Restart it, then check the log in C:\\ProgramData\\SSLense\\logs.");
         }
 
@@ -448,7 +449,7 @@ internal sealed class HealthCheckService(
             ? new HealthCheckResult(
                 name,
                 HealthStatus.Warning,
-                $"The last renewal check ran {when} but reported a problem: {heartbeat.LastCycleMessage}",
+                ErrorCodes.RenewalCheckProblem.Format($"The last renewal check ran {when} but reported a problem: {heartbeat.LastCycleMessage}"),
                 "See the per-certificate results below and the service log.")
             : Pass(name, $"The last renewal check completed {when}.");
     }
@@ -463,7 +464,7 @@ internal sealed class HealthCheckService(
             return new HealthCheckResult(
                 name,
                 HealthStatus.Fail,
-                $"Certificate {certificate.Thumbprint} is not in LocalMachine\\My.",
+                ErrorCodes.CertificateNotInStore.Format($"Certificate {certificate.Thumbprint} is not in LocalMachine\\My."),
                 Reinstall(certificate, $"Run 'SSLense.Cli renew --site \"{certificate.SiteName}\" --force' to issue and bind a new one."));
         }
 
@@ -472,7 +473,7 @@ internal sealed class HealthCheckService(
             : new HealthCheckResult(
                 name,
                 HealthStatus.Fail,
-                $"Certificate {certificate.Thumbprint} is installed without its private key.",
+                ErrorCodes.CertificateHasNoPrivateKey.Format($"Certificate {certificate.Thumbprint} is installed without its private key."),
                 Reinstall(certificate, $"Run 'SSLense.Cli renew --site \"{certificate.SiteName}\" --force'."));
     }
 
@@ -485,7 +486,7 @@ internal sealed class HealthCheckService(
             return new HealthCheckResult(
                 name,
                 HealthStatus.Fail,
-                $"IIS site '{certificate.SiteName}' no longer exists.",
+                ErrorCodes.IisSiteNotFound.Format($"IIS site '{certificate.SiteName}' no longer exists."),
                 $"Remove the managed certificate with 'SSLense.Cli remove --site \"{certificate.SiteName}\" --yes', or recreate the site.");
         }
 
@@ -501,7 +502,7 @@ internal sealed class HealthCheckService(
             : new HealthCheckResult(
                 name,
                 HealthStatus.Fail,
-                $"No HTTPS binding with the managed certificate for: {string.Join(", ", missing)}.",
+                ErrorCodes.BindingMissing.Format($"No HTTPS binding with the managed certificate for: {string.Join(", ", missing)}."),
                 Reinstall(certificate, $"Run 'SSLense.Cli renew --site \"{certificate.SiteName}\" --force' to rebind."));
     }
 
@@ -513,9 +514,9 @@ internal sealed class HealthCheckService(
         {
             var issued = $"Imported certificate from {certificate.Issuer ?? "an external CA"} expires {certificate.NotAfter:yyyy-MM-dd HH:mm} UTC";
             var replace = $"Order a replacement, then run 'SSLense.Cli csr --site \"{certificate.SiteName}\"' and 'complete', or 'import' a PFX.";
-            return days < 0 ? new HealthCheckResult(name, HealthStatus.Fail, $"{issued} and has expired.", replace)
-                : days <= 7 ? new HealthCheckResult(name, HealthStatus.Fail, $"{issued} ({days} days left).", replace)
-                : days <= 30 ? new HealthCheckResult(name, HealthStatus.Warning, $"{issued} ({days} days left).", replace)
+            return days < 0 ? new HealthCheckResult(name, HealthStatus.Fail, ErrorCodes.BoughtCertificateExpiring.Format($"{issued} and has expired."), replace)
+                : days <= 7 ? new HealthCheckResult(name, HealthStatus.Fail, ErrorCodes.BoughtCertificateExpiring.Format($"{issued} ({days} days left)."), replace)
+                : days <= 30 ? new HealthCheckResult(name, HealthStatus.Warning, ErrorCodes.BoughtCertificateExpiring.Format($"{issued} ({days} days left)."), replace)
                 : Pass(name, $"{issued} ({days} days left). It is renewed manually.");
         }
 
@@ -524,9 +525,9 @@ internal sealed class HealthCheckService(
         if (certificate.ValidationMethod == ValidationMethod.Dns01Manual)
         {
             var renew = $"Renew it by hand: '{ManualDnsRenewal.Command(certificate)}'.";
-            return days < 0 ? new HealthCheckResult(name, HealthStatus.Fail, $"{expires} and has expired.", renew)
-                : days <= 7 ? new HealthCheckResult(name, HealthStatus.Fail, $"{expires} ({days} days left).", renew)
-                : days <= 30 ? new HealthCheckResult(name, HealthStatus.Warning, $"{expires} ({days} days left).", renew)
+            return days < 0 ? new HealthCheckResult(name, HealthStatus.Fail, ErrorCodes.ManualDnsCertificateExpiring.Format($"{expires} and has expired."), renew)
+                : days <= 7 ? new HealthCheckResult(name, HealthStatus.Fail, ErrorCodes.ManualDnsCertificateExpiring.Format($"{expires} ({days} days left)."), renew)
+                : days <= 30 ? new HealthCheckResult(name, HealthStatus.Warning, ErrorCodes.ManualDnsCertificateExpiring.Format($"{expires} ({days} days left)."), renew)
                 : Pass(name, $"{expires} ({days} days left). It uses manual DNS validation, so it is renewed by hand.");
         }
 
@@ -534,13 +535,13 @@ internal sealed class HealthCheckService(
         {
             ExpiryWarningLevel.None => Pass(name, $"{expires} ({days} days left)."),
             ExpiryWarningLevel.Warning => new HealthCheckResult(
-                name, HealthStatus.Warning, $"{expires} ({days} days left) and has not been renewed yet.",
+                name, HealthStatus.Warning, ErrorCodes.AutomaticCertificateNotRenewed.Format($"{expires} ({days} days left) and has not been renewed yet."),
                 "Check the renewal history below; renew manually if it keeps failing."),
             ExpiryWarningLevel.Critical => new HealthCheckResult(
-                name, HealthStatus.Fail, $"{expires} ({Math.Max(days, 0)} days left).",
+                name, HealthStatus.Fail, ErrorCodes.AutomaticCertificateNotRenewed.Format($"{expires} ({Math.Max(days, 0)} days left)."),
                 $"Renew now: 'SSLense.Cli renew --site \"{certificate.SiteName}\" --force'."),
             _ => new HealthCheckResult(
-                name, HealthStatus.Fail, $"{environment} certificate expired {certificate.NotAfter:yyyy-MM-dd HH:mm} UTC.",
+                name, HealthStatus.Fail, ErrorCodes.AutomaticCertificateNotRenewed.Format($"{environment} certificate expired {certificate.NotAfter:yyyy-MM-dd HH:mm} UTC."),
                 $"Renew now: 'SSLense.Cli renew --site \"{certificate.SiteName}\" --force'.")
         };
     }
@@ -560,7 +561,7 @@ internal sealed class HealthCheckService(
         using var installed = await certificateStore.OpenAsync(certificate.Thumbprint, cancellationToken).ConfigureAwait(false);
         if (installed is null)
         {
-            return new HealthCheckResult(name, HealthStatus.Fail, $"Certificate {certificate.Thumbprint} is not installed.", Reinstall(certificate, string.Empty));
+            return new HealthCheckResult(name, HealthStatus.Fail, ErrorCodes.CertificateNotInStore.Format($"Certificate {certificate.Thumbprint} is not installed."), Reinstall(certificate, string.Empty));
         }
 
         // Intermediates are looked up in the machine stores, as HTTP.sys does when it sends the chain.
@@ -568,7 +569,7 @@ internal sealed class HealthCheckService(
             ? new HealthCheckResult(
                 name,
                 HealthStatus.Fail,
-                problem,
+                ErrorCodes.ChainProblem.Format(problem),
                 "Without the intermediate certificate, some browsers and most API clients reject the site. Reinstall with the " +
                 "bundle: 'SSLense.Cli complete ... --chain <bundle>', or 'import' a PFX that includes the chain.")
             : Pass(name, "The certificate chains to a trusted root.");
@@ -590,7 +591,7 @@ internal sealed class HealthCheckService(
             : new HealthCheckResult(
                 name,
                 HealthStatus.Warning,
-                $"Requests older than 30 days: {string.Join(", ", stale.Select(request => request.SiteName))}.",
+                ErrorCodes.StalePendingRequests.Format($"Requests older than 30 days: {string.Join(", ", stale.Select(request => request.SiteName))}."),
                 "Install the issued certificate with 'SSLense.Cli complete', or remove the request with 'SSLense.Cli cancel-request'.");
     }
 
@@ -608,7 +609,7 @@ internal sealed class HealthCheckService(
         return new HealthCheckResult(
             name,
             certificate.ConsecutiveFailures >= 3 ? HealthStatus.Fail : HealthStatus.Warning,
-            $"{certificate.ConsecutiveFailures} consecutive failed renewal(s). Last error: {certificate.LastRenewalMessage}{next}",
+            ErrorCodes.RenewalFailing.Format($"{certificate.ConsecutiveFailures} consecutive failed renewal(s). Last error: {certificate.LastRenewalMessage}{next}"),
             "Fix the cause shown in the error, then run 'SSLense.Cli renew --site \"" + certificate.SiteName + "\"'.");
     }
 
@@ -621,7 +622,7 @@ internal sealed class HealthCheckService(
         {
             var addresses = await hostResolver.ResolveAsync(host, timeout.Token).ConfigureAwait(false);
             return addresses.Length == 0
-                ? new HealthCheckResult(name, HealthStatus.Fail, $"'{host}' has no DNS addresses.", "Add an A or AAAA record for the host.")
+                ? new HealthCheckResult(name, HealthStatus.Fail, ErrorCodes.HostDoesNotResolve.Format($"'{host}' has no DNS addresses."), "Add an A or AAAA record for the host.")
                 : Pass(name, $"Resolves to {string.Join(", ", addresses.Take(4).Select(value => value.ToString()))}.");
         }
         catch (Exception exception) when (exception is System.Net.Sockets.SocketException ||
@@ -630,7 +631,7 @@ internal sealed class HealthCheckService(
             return new HealthCheckResult(
                 name,
                 HealthStatus.Fail,
-                $"'{host}' does not resolve: {exception.Message}",
+                ErrorCodes.HostDoesNotResolve.Format($"'{host}' does not resolve: {exception.Message}"),
                 "Check the DNS record for the host, or the tunnel route that publishes it.");
         }
     }
@@ -651,7 +652,7 @@ internal sealed class HealthCheckService(
                 : new HealthCheckResult(
                     name,
                     HealthStatus.Fail,
-                    $"The ACME directory responded with HTTP {(int)response.StatusCode}.",
+                    ErrorCodes.AcmeDirectoryHttpError.Format($"The ACME directory responded with HTTP {(int)response.StatusCode}."),
                     isLetsEncrypt
                         ? "Check https://letsencrypt.status.io for outages, and any outbound proxy."
                         : "Check the certificate authority's status page for outages, and any outbound proxy.");
@@ -662,7 +663,7 @@ internal sealed class HealthCheckService(
             return new HealthCheckResult(
                 name,
                 HealthStatus.Fail,
-                $"Could not reach {authority.DirectoryUri}: {exception.Message}",
+                ErrorCodes.AcmeDirectoryUnreachable.Format($"Could not reach {authority.DirectoryUri}: {exception.Message}"),
                 $"Allow outbound HTTPS (port 443) to {authority.DirectoryUri.Host}, and check DNS, proxy, and TLS-inspection settings.");
         }
     }
@@ -672,7 +673,7 @@ internal sealed class HealthCheckService(
         const string name = "Notifications";
         if (config is null)
         {
-            return new HealthCheckResult(name, HealthStatus.Warning, "Configuration could not be read.");
+            return new HealthCheckResult(name, HealthStatus.Warning, ErrorCodes.ConfigurationUnreadable.Format("Configuration could not be read."));
         }
 
         var notifications = config.Notifications;
@@ -699,12 +700,12 @@ internal sealed class HealthCheckService(
             ? new HealthCheckResult(
                 name,
                 HealthStatus.Warning,
-                "Problems are only written to the Windows Event Log, so nobody is alerted unless that log is monitored.",
+                ErrorCodes.OnlyEventLog.Format("Problems are only written to the Windows Event Log, so nobody is alerted unless that log is monitored."),
                 fix)
             : new HealthCheckResult(
                 name,
                 HealthStatus.Warning,
-                "No notification channel is configured and the Event Log is off, so renewal failures and expiry warnings are recorded only in SSLense's own log.",
+                ErrorCodes.NoNotificationChannels.Format("No notification channel is configured and the Event Log is off, so renewal failures and expiry warnings are recorded only in SSLense's own log."),
                 fix);
     }
 

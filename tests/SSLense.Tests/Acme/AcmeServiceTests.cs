@@ -119,7 +119,7 @@ public sealed class AcmeServiceTests
             Mock.Of<ICertificateStore>(),
             EmptyManagedStore());
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.IssueAsync(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.IssueAsync(
             new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com")));
 
         Assert.Contains("HTTP binding on port 80", exception.Message, StringComparison.Ordinal);
@@ -162,7 +162,7 @@ public sealed class AcmeServiceTests
             Mock.Of<ICertificateStore>(),
             EmptyManagedStore());
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.IssueAsync(
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.IssueAsync(
             new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com")));
 
         Assert.True(cleanup.WasDisposed);
@@ -197,7 +197,7 @@ public sealed class AcmeServiceTests
             certificateStore.Object,
             EmptyManagedStore());
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.IssueAsync(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.IssueAsync(
             new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com")));
 
         Assert.Contains("--force", exception.Message, StringComparison.Ordinal);
@@ -252,7 +252,7 @@ public sealed class AcmeServiceTests
             certificateStore.Object,
             managed.Object);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.IssueAsync(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.IssueAsync(
             new AcmeIssueRequest(
                 "My Site", ["example.com"], "admin@example.com",
                 AuthorityId: CertificateAuthorities.LetsEncryptId,
@@ -288,7 +288,7 @@ public sealed class AcmeServiceTests
             managed.Object,
             authorities: new CertificateAuthorityRegistry(new SSLense.Tests.DnsValidation.FakeConfigStore(new AppConfig { CertificateAuthorities = [zeroSsl] })));
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => service.IssueAsync(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.IssueAsync(
             new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com", AuthorityId: authorityId)));
 
         Assert.Contains("--accept-production-risk", exception.Message, StringComparison.Ordinal);
@@ -513,7 +513,7 @@ public sealed class AcmeServiceTests
         harness.SetManaged(new ManagedCertificate("My Site/b.example.com", ["b.example.com"], string.Empty, "BOUGHT",
             DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(300), Source: CertificateSource.Imported));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
             "My Site", [], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider)));
 
         Assert.Empty(harness.Steps);
@@ -526,7 +526,7 @@ public sealed class AcmeServiceTests
     {
         var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
             "My Site", ["other.example.com"], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider)));
 
         Assert.Contains("HTTP or HTTPS binding", exception.Message, StringComparison.Ordinal);
@@ -539,7 +539,7 @@ public sealed class AcmeServiceTests
         var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
         harness.Dns.FailCheck = new InvalidOperationException("no provider");
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
             "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider)));
 
         harness.Protocol.VerifyNoOtherCalls();
@@ -565,7 +565,7 @@ public sealed class AcmeServiceTests
         harness.Order.Setup(value => value.ValidateAsync(It.IsAny<AcmeDnsChallenge>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("rejected"));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
             "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider)));
 
         Assert.Contains("cleanup", harness.Steps);
@@ -642,7 +642,7 @@ public sealed class AcmeServiceTests
     {
         var harness = WildcardHarness(new IisBinding("http", "*", 80, "example.net", null, null, false));
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
             "My Site", [], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider, CertificateNames: ["*.example.com"])));
 
         Assert.Contains("*.example.com", exception.Message, StringComparison.Ordinal);
@@ -654,7 +654,7 @@ public sealed class AcmeServiceTests
     {
         var harness = WildcardHarness();
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
             "My Site",
             ["example.com"],
             "admin@example.com",
@@ -723,7 +723,7 @@ public sealed class AcmeServiceTests
     {
         var harness = WildcardHarness();
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
             "My Site", ["example.com"], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider, CertificateNames: ["example.com"])));
 
         Assert.Contains("*.example.com", exception.Message, StringComparison.Ordinal);
@@ -762,7 +762,7 @@ public sealed class AcmeServiceTests
 
         if (refused)
         {
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(request));
+            var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.IssueAsync(request));
             Assert.Contains("share add", exception.Message, StringComparison.Ordinal);
             Assert.Empty(harness.Steps);
         }
@@ -785,7 +785,7 @@ public sealed class AcmeServiceTests
             AuthorityId: CertificateAuthorities.LetsEncryptStagingId, Source: CertificateSource.Acme, CertificateNames: ["*.EXAMPLE.com"]));
 
         // New host names only: a second certificate on the site, which cannot have the same wildcard.
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
             "My Site", ["shop.example.com", "example.com"], "admin@example.com", Force: true,
             ValidationMethod: ValidationMethod.Dns01Provider, CertificateNames: ["*.example.com", "example.com"])));
         Assert.Contains("Add the host names to that certificate", exception.Message, StringComparison.Ordinal);
@@ -1103,7 +1103,7 @@ public sealed class AcmeServiceTests
         var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
         harness.Directory.Profiles = new Dictionary<string, string> { ["classic"] = "", ["tlsserver"] = "" };
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
             "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider, Profile: "shortlived")));
 
         Assert.Contains("classic, tlsserver", exception.Message, StringComparison.Ordinal);
@@ -1150,7 +1150,7 @@ public sealed class AcmeServiceTests
         var harness = new DnsHarness();
         harness.SetManaged(Previous() with { NoSite = true });
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
             "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider)));
 
         Assert.Contains("no IIS site", exception.Message, StringComparison.Ordinal);
@@ -1162,7 +1162,7 @@ public sealed class AcmeServiceTests
         var harness = new DnsHarness();
         harness.SetManaged(Previous() with { SiteName = "RDP", NoSite = true });
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
             "RDP", [], "admin@example.com", ValidationMethod: ValidationMethod.Dns01Provider, CertificateNames: ["example.com"], NoSite: true)));
 
         Assert.Contains("--force", exception.Message, StringComparison.Ordinal);
@@ -1243,7 +1243,7 @@ public sealed class AcmeServiceTests
             "C:\\inetpub\\site",
             new IisBinding("https", "*", 443, "example.com", "OLD", "My", true));
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.IssueAsync(new AcmeIssueRequest(
             "My Site", ["example.com"], "admin@example.com", Force: true)));
 
         Assert.Contains("port 80", exception.Message, StringComparison.Ordinal);

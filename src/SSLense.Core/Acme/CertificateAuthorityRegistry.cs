@@ -1,4 +1,5 @@
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
 
 namespace SSLense.Core.Acme;
 
@@ -27,7 +28,7 @@ internal sealed class CertificateAuthorityRegistry(IConfigStore configStore) : I
 
     private static CertificateAuthority Find(IReadOnlyList<CertificateAuthority> authorities, string id) =>
         authorities.FirstOrDefault(value => string.Equals(value.Id, id, StringComparison.OrdinalIgnoreCase))
-        ?? throw new InvalidOperationException(
+        ?? throw new SslenseException(ErrorCodes.CertificateAuthorityNotConfigured, 
             $"Certificate authority '{id}' is not configured on this server. Available: " +
             string.Join(", ", authorities.Select(value => value.Id)) + ".");
 

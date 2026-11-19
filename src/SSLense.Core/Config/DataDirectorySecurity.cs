@@ -1,8 +1,9 @@
+using Microsoft.Win32.SafeHandles;
+using SSLense.Core.Errors;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
-using Microsoft.Win32.SafeHandles;
 
 namespace SSLense.Core.Config;
 
@@ -237,7 +238,7 @@ public static class DataDirectorySecurity
     {
         if (directory.Attributes.HasFlag(FileAttributes.ReparsePoint))
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.DataDirectoryIsLink, 
                 $"The SSLense data directory '{directory.FullName}' is a link or junction. " +
                 "Remove it and let SSLense recreate the directory.");
         }

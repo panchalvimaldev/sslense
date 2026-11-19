@@ -170,7 +170,7 @@ public sealed class ReminderServiceTests
         Assert.Single(_sent);
         Assert.Equal(snoozedAt.AddDays(2), Assert.Single(await _certificates.GetAllAsync()).SnoozedUntil);
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => service.SetCertificateRemindersAsync("Shop", ReminderMode.Snoozed, 0));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.SetCertificateRemindersAsync("Unknown", ReminderMode.Off));
+        await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.SetCertificateRemindersAsync("Unknown", ReminderMode.Off));
     }
 
     [Fact]

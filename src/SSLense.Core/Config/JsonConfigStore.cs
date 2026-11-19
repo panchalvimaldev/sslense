@@ -1,3 +1,4 @@
+using SSLense.Core.Errors;
 using System.Text.Json;
 
 namespace SSLense.Core.Config;
@@ -106,7 +107,7 @@ public sealed class JsonConfigStore : IConfigStore
             var json = await _fileSystem.ReadAllTextAsync(_configPath, cancellationToken)
                 .ConfigureAwait(false);
             var config = JsonSerializer.Deserialize<AppConfig>(json, SerializerOptions)
-                ?? throw new InvalidDataException($"Configuration file '{_configPath}' is empty.");
+                ?? throw new InvalidDataException(ErrorCodes.DataFileDamaged.Format($"Configuration file '{_configPath}' is empty."));
             StateSchema.EnsureSupported(config.SchemaVersion, StateSchema.Config, _configPath);
             config = config.Notifications is null
                 ? config with { Notifications = new NotificationConfig() }
@@ -123,7 +124,7 @@ public sealed class JsonConfigStore : IConfigStore
         catch (JsonException exception)
         {
             throw new InvalidDataException(
-                $"Configuration file '{_configPath}' contains invalid JSON.",
+                ErrorCodes.DataFileDamaged.Format($"Configuration file '{_configPath}' contains invalid JSON."),
                 exception);
         }
     }
@@ -152,7 +153,7 @@ public sealed class JsonConfigStore : IConfigStore
         catch (JsonException exception)
         {
             throw new InvalidDataException(
-                $"Configuration file '{_configPath}' contains invalid JSON and was not overwritten.",
+                ErrorCodes.DataFileDamaged.Format($"Configuration file '{_configPath}' contains invalid JSON and was not overwritten."),
                 exception);
         }
     }

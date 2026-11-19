@@ -1,5 +1,6 @@
-using Certes;
 using Certes.Acme;
+using Certes;
+using SSLense.Core.Errors;
 
 namespace SSLense.Core.Acme;
 
@@ -112,7 +113,7 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
                 .WaitAsync(cancellationToken)
                 .ConfigureAwait(false);
             var challenge = await authorization.Http().WaitAsync(cancellationToken).ConfigureAwait(false)
-                ?? throw new InvalidOperationException(
+                ?? throw new SslenseException(ErrorCodes.Http01NotOffered, 
                     $"The ACME server did not offer HTTP-01 for '{authorizationResource.Identifier.Value}'.");
             challenges.Add(new CertesChallenge(
                 new AcmeHttpChallenge(
@@ -157,7 +158,7 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
 
             var host = authorizationResource.Identifier.Value;
             var challenge = await authorization.Dns().WaitAsync(cancellationToken).ConfigureAwait(false)
-                ?? throw new InvalidOperationException($"The ACME server did not offer DNS-01 for '{host}'.");
+                ?? throw new SslenseException(ErrorCodes.Dns01NotOffered, $"The ACME server did not offer DNS-01 for '{host}'.");
             challenges.Add(new CertesChallenge(
                 new AcmeDnsChallenge(
                     host,
@@ -218,7 +219,7 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
         }
         catch (Exception exception) when (exception is FormatException or System.Security.Cryptography.CryptographicException or System.ComponentModel.Win32Exception)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.EabKeyUnreadable, 
                 $"The EAB key for {authority.Name} cannot be decrypted on this server. Remove the CA and add it again with its EAB credentials.",
                 exception);
         }
@@ -320,7 +321,7 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
                         .WaitAsync(cancellationToken)
                         .ConfigureAwait(false);
                     var detail = challengeResource.Error?.Detail ?? "The ACME server rejected the authorization.";
-                    throw new InvalidOperationException(
+                    throw new SslenseException(ErrorCodes.AcmeValidationFailed, 
                         $"{item.Method} validation failed for '{item.Host}': {detail}");
                 }
 
@@ -328,10 +329,10 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
             }
 
             throw new TimeoutException(
-                $"Timed out waiting for {item.Method} validation of '{item.Host}'. " +
+                ErrorCodes.AcmeValidationTimeout.Format($"Timed out waiting for {item.Method} validation of '{item.Host}'. " +
                 (item.Model is AcmeDnsChallenge
                     ? "Confirm the TXT record is visible in public DNS, then try again."
-                    : "Confirm public DNS and inbound port 80 access, then try again."));
+                    : "Confirm public DNS and inbound port 80 access, then try again.")));
         }
 
         public async Task<CertificateBundle> FinalizeAsync(
@@ -362,7 +363,7 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
 
                 if (order.Status != Certes.Acme.Resource.OrderStatus.Valid)
                 {
-                    throw new InvalidOperationException(
+                    throw new SslenseException(ErrorCodes.AcmeOrderNotIssued, 
                         $"{_authority.Name} did not issue the certificate: the order is {order.Status?.ToString().ToLowerInvariant() ?? "in an unknown state"}.");
                 }
 

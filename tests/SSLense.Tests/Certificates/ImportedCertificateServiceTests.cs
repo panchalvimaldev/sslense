@@ -86,7 +86,7 @@ public sealed class ImportedCertificateServiceTests : IDisposable
         using (other)
         using (otherKey)
         {
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
                 service.CompleteRequestAsync(Site, other.RawData, Encoding.ASCII.GetBytes(_ca.ChainPem)));
 
             Assert.Contains("belongs to this server's pending request", exception.Message, StringComparison.Ordinal);
@@ -103,7 +103,7 @@ public sealed class ImportedCertificateServiceTests : IDisposable
         var request = await service.CreateRequestAsync(Site, ["shop.example.com"]);
         using var issued = _ca.Issue(request.CsrPem);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             service.CompleteRequestAsync(Site, issued.RawData, chainFile: null));
 
         Assert.Contains("--chain", exception.Message, StringComparison.Ordinal);
@@ -138,7 +138,7 @@ public sealed class ImportedCertificateServiceTests : IDisposable
         {
             var pfx = _ca.ExportPfx(certificate, key, "secret");
 
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
                 CreateService().ImportPfxAsync(Site, [], pfx, "secret"));
 
             Assert.Contains("--force", exception.Message, StringComparison.Ordinal);
@@ -180,7 +180,7 @@ public sealed class ImportedCertificateServiceTests : IDisposable
         using (certificate)
         using (key)
         {
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
                 CreateService().ImportPfxAsync(Site, [], _ca.ExportPfx(certificate, key, "secret"), "secret", force: true));
 
             Assert.Contains("'Blog'", exception.Message, StringComparison.Ordinal);
@@ -280,7 +280,7 @@ public sealed class ImportedCertificateServiceTests : IDisposable
         using (certificate)
         using (key)
         {
-            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
                 CreateService().ImportPfxAsync(Site, [], certificate.RawData, ""));
 
             Assert.Contains("without its private key", exception.Message, StringComparison.Ordinal);
@@ -310,7 +310,7 @@ public sealed class ImportedCertificateServiceTests : IDisposable
         var request = await service.CreateRequestAsync(Site, ["shop.example.com"]);
         using var issued = _ca.Issue(request.CsrPem);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             service.ImportPfxAsync(Site, [], Encoding.ASCII.GetBytes(issued.ExportCertificatePem()), ""));
 
         Assert.Contains("pending request of IIS site 'Shop'", exception.Message, StringComparison.Ordinal);
@@ -350,7 +350,7 @@ public sealed class ImportedCertificateServiceTests : IDisposable
                 new IisBinding("https", "*", 8443, "shop.example.com", "AABB", "My", true)
             ])]);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateService().AdoptAsync(Site));
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => CreateService().AdoptAsync(Site));
 
         Assert.Contains("shop.example.com:8443", exception.Message, StringComparison.Ordinal);
         Assert.Contains("port 443 only", exception.Message, StringComparison.Ordinal);
@@ -370,7 +370,7 @@ public sealed class ImportedCertificateServiceTests : IDisposable
         Assert.Equal("Shop/b.example.com", second.SiteName);
         Assert.Equal(["b.example.com"], second.Hosts);
         Assert.Equal(2, _managed.Count);
-        var again = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateService().AdoptAsync(Site, site.B.Thumbprint));
+        var again = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => CreateService().AdoptAsync(Site, site.B.Thumbprint));
         Assert.Contains("already managed by SSLense as 'Shop/b.example.com'", again.Message, StringComparison.Ordinal);
     }
 
@@ -485,7 +485,7 @@ public sealed class ImportedCertificateServiceTests : IDisposable
         await CreateService().AdoptAsync(Site, site.A.Thumbprint);
         await CreateService().AdoptAsync(Site, site.B.Thumbprint);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
             CreateService().CreateRequestAsync(Site, ["a.example.com", "b.example.com"]));
 
         Assert.Contains("belong to 2 certificates", exception.Message, StringComparison.Ordinal);
@@ -500,7 +500,7 @@ public sealed class ImportedCertificateServiceTests : IDisposable
             DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(60), ValidationMethod: ValidationMethod.Dns01Provider,
             AdditionalTargets: [new CertificateTarget("Blog", ["blog.example.com"])]));
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => CreateService().AdoptAsync(Site, site.B.Thumbprint));
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => CreateService().AdoptAsync(Site, site.B.Thumbprint));
 
         Assert.Contains("share remove", exception.Message, StringComparison.Ordinal);
         Assert.Single(_managed);

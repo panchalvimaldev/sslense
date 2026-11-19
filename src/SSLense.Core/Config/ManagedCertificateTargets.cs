@@ -1,3 +1,5 @@
+using SSLense.Core.Errors;
+
 namespace SSLense.Core.Config;
 
 /// <summary>
@@ -62,7 +64,7 @@ public static class ManagedCertificateTargets
             record.ManagesSite(siteName));
         if (owner is not null)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.SiteSharesCertificate, 
                 $"IIS site '{siteName}' uses the certificate managed for '{owner.SiteName}'. Renew it with " +
                 $"'SSLense.Cli renew --site \"{siteName}\"'. To give the site its own certificate, first run " +
                 $"'SSLense.Cli share remove --site \"{siteName}\"'.");
@@ -79,7 +81,7 @@ public static class ManagedCertificateTargets
         if (record is not null && record.IsShared())
         {
             var others = string.Join(", ", record.AdditionalTargets!.Select(target => $"'{target.SiteName}'"));
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.SharedFirstSite, 
                 $"IIS site '{record.SiteName}' shares its certificate with {others}. A certificate you import or request cannot " +
                 $"be shared, so those sites would stop being renewed. To give this site its own certificate, first run " +
                 $"'SSLense.Cli share remove --site \"{record.SiteName}\"': the other sites keep the shared certificate and its renewal.");

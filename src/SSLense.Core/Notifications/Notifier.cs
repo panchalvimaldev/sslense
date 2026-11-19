@@ -1,7 +1,8 @@
-using System.Security.Cryptography;
-using System.Text;
 using SSLense.Core.Acme;
 using SSLense.Core.Config;
+using SSLense.Core.Errors;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace SSLense.Core.Notifications;
 
@@ -54,7 +55,7 @@ internal sealed class Notifier(
 
         return results.Count > 0
             ? results
-            : throw new InvalidOperationException(
+            : throw new SslenseException(ErrorCodes.NoNotificationChannels, 
                 "No notification channels are configured and the Event Log is turned off. " +
                 "Configure email, a chat channel, or a heartbeat, or turn the Event Log back on.");
     }
@@ -73,7 +74,7 @@ internal sealed class Notifier(
         using var response = await httpClient.GetAsync(url, timeout.Token).ConfigureAwait(false);
         return response.IsSuccessStatusCode
             ? true
-            : throw new InvalidOperationException(
+            : throw new SslenseException(ErrorCodes.HeartbeatFailed, 
                 $"The heartbeat URL on {url.Host} returned HTTP {(int)response.StatusCode}. Check that the check still exists.");
     }
 
@@ -160,7 +161,7 @@ internal sealed class Notifier(
         }
         catch (FormatException exception)
         {
-            throw new InvalidDataException("A protected notification secret is not valid base64 data.", exception);
+            throw new InvalidDataException(ErrorCodes.NotificationSecretDamaged.Format("A protected notification secret is not valid base64 data."), exception);
         }
 
         var plaintext = secretProtector.Unprotect(protectedBytes);

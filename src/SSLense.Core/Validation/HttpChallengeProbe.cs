@@ -1,4 +1,5 @@
 using SSLense.Core.Acme;
+using SSLense.Core.Errors;
 
 namespace SSLense.Core.Validation;
 
@@ -29,7 +30,7 @@ internal sealed class HttpChallengeProbe : IChallengeProbe, IDisposable
         }
         catch (HttpRequestException exception)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.ChallengeSelfCheckUnreachable, 
                 $"HTTP-01 self-check could not connect to '{challenge.Host}' on port 80. " +
                 "Confirm public DNS or tunnel routing, the HTTP Host header, and IIS availability.",
                 exception);
@@ -37,8 +38,8 @@ internal sealed class HttpChallengeProbe : IChallengeProbe, IDisposable
         catch (TaskCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
             throw new TimeoutException(
-                $"HTTP-01 self-check for '{challenge.Host}' timed out after 15 seconds. " +
-                "Confirm the public route reaches this IIS server on port 80.",
+                ErrorCodes.ChallengeSelfCheckTimeout.Format($"HTTP-01 self-check for '{challenge.Host}' timed out after 15 seconds. " +
+                "Confirm the public route reaches this IIS server on port 80."),
                 exception);
         }
 
@@ -46,7 +47,7 @@ internal sealed class HttpChallengeProbe : IChallengeProbe, IDisposable
         {
             if (!response.IsSuccessStatusCode)
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.ChallengeSelfCheckStatus, 
                     $"HTTP-01 self-check for '{challenge.Host}' returned {(int)response.StatusCode}. " +
                     "Confirm public DNS or tunnel routing targets this server, preserves the HTTP Host header, " +
                     "and reaches port 80.");
@@ -55,7 +56,7 @@ internal sealed class HttpChallengeProbe : IChallengeProbe, IDisposable
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (!string.Equals(body, challenge.KeyAuthorization, StringComparison.Ordinal))
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.ChallengeSelfCheckContent, 
                     $"HTTP-01 self-check for '{challenge.Host}' returned unexpected content. " +
                     "Check IIS routing, authentication, proxy caching, and rewrite rules for .well-known/acme-challenge.");
             }

@@ -1,3 +1,4 @@
+using SSLense.Core.Errors;
 using System.Text.Json;
 
 namespace SSLense.Core.Acme;
@@ -35,7 +36,7 @@ internal sealed class AcmeDirectoryReader(HttpClient httpClient) : IAcmeDirector
             using var response = await httpClient.SendAsync(request, timeout.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                throw new InvalidOperationException(
+                throw new SslenseException(ErrorCodes.AcmeDirectoryHttpError, 
                     $"The ACME directory at {directoryUri} answered HTTP {(int)response.StatusCode}. Check the address.");
             }
 
@@ -43,11 +44,11 @@ internal sealed class AcmeDirectoryReader(HttpClient httpClient) : IAcmeDirector
         }
         catch (HttpRequestException exception)
         {
-            throw new InvalidOperationException($"The ACME directory at {directoryUri} could not be reached: {exception.Message}", exception);
+            throw new SslenseException(ErrorCodes.AcmeDirectoryUnreachable, $"The ACME directory at {directoryUri} could not be reached: {exception.Message}", exception);
         }
         catch (TaskCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
-            throw new InvalidOperationException($"The ACME directory at {directoryUri} did not answer within {Timeout.TotalSeconds:0} seconds.", exception);
+            throw new SslenseException(ErrorCodes.AcmeDirectoryTimeout, $"The ACME directory at {directoryUri} did not answer within {Timeout.TotalSeconds:0} seconds.", exception);
         }
 
         return Parse(json, directoryUri);
@@ -64,7 +65,7 @@ internal sealed class AcmeDirectoryReader(HttpClient httpClient) : IAcmeDirector
                 !root.TryGetProperty("newOrder", out _) ||
                 !root.TryGetProperty("newNonce", out _))
             {
-                throw new InvalidOperationException($"{directoryUri} is not an ACME directory: it has no newAccount, newOrder, and newNonce.");
+                throw new SslenseException(ErrorCodes.NotAnAcmeDirectory, $"{directoryUri} is not an ACME directory: it has no newAccount, newOrder, and newNonce.");
             }
 
             var required = false;
@@ -98,7 +99,7 @@ internal sealed class AcmeDirectoryReader(HttpClient httpClient) : IAcmeDirector
         }
         catch (JsonException exception)
         {
-            throw new InvalidOperationException($"{directoryUri} did not return an ACME directory: the answer is not JSON.", exception);
+            throw new SslenseException(ErrorCodes.NotAnAcmeDirectory, $"{directoryUri} did not return an ACME directory: the answer is not JSON.", exception);
         }
     }
 }

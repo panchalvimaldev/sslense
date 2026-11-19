@@ -1,3 +1,5 @@
+using SSLense.Core.Errors;
+
 namespace SSLense.Core.DnsValidation;
 
 internal sealed record DnsPropagationOptions
@@ -75,8 +77,8 @@ internal sealed class DnsPropagationChecker(IDnsLookup lookup, DnsPropagationOpt
             if (DateTimeOffset.UtcNow >= deadline)
             {
                 throw new TimeoutException(
-                    $"The DNS records did not appear within {_options.Timeout.TotalMinutes:0.#} minutes: {string.Join("; ", round.Missing)}. " +
-                    "The certificate authority was not asked to validate. Check the records and try again.");
+                    ErrorCodes.DnsRecordNotVisible.Format($"The DNS records did not appear within {_options.Timeout.TotalMinutes:0.#} minutes: {string.Join("; ", round.Missing)}. " +
+                    "The certificate authority was not asked to validate. Check the records and try again."));
             }
 
             progress?.Report(new ProgressEvent("dns-propagation", $"Waiting for DNS: {round.Missing[0]}."));

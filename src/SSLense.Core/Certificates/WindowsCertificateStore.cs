@@ -1,5 +1,6 @@
-using System.Security.Cryptography;
+using SSLense.Core.Errors;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Cryptography;
 
 namespace SSLense.Core.Certificates;
 
@@ -63,7 +64,7 @@ internal sealed class WindowsCertificateStore : ICertificateStore
                 (exportable ? X509KeyStorageFlags.Exportable : X509KeyStorageFlags.DefaultKeySet));
             if (!certificate.HasPrivateKey)
             {
-                throw new CryptographicException("The issued PFX does not contain a private key.");
+                throw new CryptographicException(ErrorCodes.PfxNotOneCertificate.Format("The issued PFX does not contain a private key."));
             }
 
             certificate.FriendlyName = friendlyName;
@@ -74,7 +75,7 @@ internal sealed class WindowsCertificateStore : ICertificateStore
         }
         catch (CryptographicException exception)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.StoreImportFailed, 
                 "The certificate could not be imported into LocalMachine\\My. " +
                 "Run SSLense as Administrator and verify the PFX is valid.",
                 exception);
@@ -117,7 +118,7 @@ internal sealed class WindowsCertificateStore : ICertificateStore
                 password,
                 X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet);
             var leaf = collection.OfType<X509Certificate2>().SingleOrDefault(value => value.HasPrivateKey)
-                ?? throw new CryptographicException("The PFX must contain exactly one certificate with a private key.");
+                ?? throw new CryptographicException(ErrorCodes.PfxNotOneCertificate.Format("The PFX must contain exactly one certificate with a private key."));
             leaf.FriendlyName = friendlyName;
             using (var store = new X509Store(StoreName.My, StoreLocation.LocalMachine))
             {
@@ -130,7 +131,7 @@ internal sealed class WindowsCertificateStore : ICertificateStore
         }
         catch (CryptographicException exception)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.PfxImportFailed, 
                 "The PFX could not be imported into LocalMachine\\My. Check the password, and run SSLense as Administrator.",
                 exception);
         }
@@ -153,7 +154,7 @@ internal sealed class WindowsCertificateStore : ICertificateStore
         EnsureWindows();
         if (!certificateWithKey.HasPrivateKey)
         {
-            throw new InvalidOperationException("The certificate is not linked to its private key.");
+            throw new SslenseException(ErrorCodes.CertificateKeyNotLinked, "The certificate is not linked to its private key.");
         }
 
         certificateWithKey.FriendlyName = friendlyName;

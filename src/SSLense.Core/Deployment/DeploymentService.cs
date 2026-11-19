@@ -1,11 +1,12 @@
-using System.Globalization;
-using System.Text;
 using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
 using SSLense.Core.DnsValidation;
+using SSLense.Core.Errors;
 using SSLense.Core.Iis;
 using SSLense.Core.Notifications;
+using System.Globalization;
+using System.Text;
 
 namespace SSLense.Core.Deployment;
 
@@ -130,19 +131,19 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
         var record = await FindAsync(request.Site, cancellationToken).ConfigureAwait(false);
         if ((record.DeploymentSteps?.Count ?? 0) >= MaxSteps)
         {
-            throw new InvalidOperationException($"A certificate can have at most {MaxSteps} deployment steps.");
+            throw new SslenseException(ErrorCodes.TooManySteps, $"A certificate can have at most {MaxSteps} deployment steps.");
         }
 
         if (request.Password is not null && request.Kind is not (DeploymentStepKind.ExportPfx or DeploymentStepKind.CentralStore))
         {
-            throw new ArgumentException(request.Kind == DeploymentStepKind.ExportPem
+            throw new ArgumentException(ErrorCodes.DeploymentStepInvalid.Format(request.Kind == DeploymentStepKind.ExportPem
                 ? "PEM files take no password: key.pem is written for Administrators and SYSTEM only."
-                : "Only a PFX or Central Certificate Store export takes a password.");
+                : "Only a PFX or Central Certificate Store export takes a password."));
         }
 
         if (request.Kind != DeploymentStepKind.Script && request.TimeoutSeconds is not null)
         {
-            throw new ArgumentException("A timeout can only be set for a script step.");
+            throw new ArgumentException(ErrorCodes.DeploymentStepInvalid.Format("A timeout can only be set for a script step."));
         }
 
         var id = Guid.NewGuid();
@@ -158,12 +159,12 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
                 if (!await _services.ExistsAsync(name, cancellationToken).ConfigureAwait(false))
                 {
                     throw new ArgumentException(
-                        $"No Windows service is named '{name}'. Use the service's name, as 'sc.exe query' or the Services console shows it, not its display name.");
+                        ErrorCodes.ServiceNameUnknown.Format($"No Windows service is named '{name}'. Use the service's name, as 'sc.exe query' or the Services console shows it, not its display name."));
                 }
 
                 if (string.Equals(name, "SSLense", StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new ArgumentException("SSLense cannot restart its own service as a deployment step.");
+                    throw new ArgumentException(ErrorCodes.CannotRestartSslense.Format("SSLense cannot restart its own service as a deployment step."));
                 }
 
                 step = new DeploymentStep(id, request.Kind, name);
@@ -173,7 +174,7 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
                 if (timeout is < MinScriptTimeoutSeconds or > MaxScriptTimeoutSeconds)
                 {
                     throw new ArgumentException(
-                        $"The timeout must be from {MinScriptTimeoutSeconds} to {MaxScriptTimeoutSeconds} seconds.");
+                        ErrorCodes.DeploymentStepInvalid.Format($"The timeout must be from {MinScriptTimeoutSeconds} to {MaxScriptTimeoutSeconds} seconds."));
                 }
 
                 var sha256 = await _scripts.SaveAsync(ScriptName(id), request.Value, cancellationToken).ConfigureAwait(false);
@@ -211,7 +212,7 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
         if (updated is null)
         {
             DeleteScript(step);
-            throw new InvalidOperationException($"The certificate record for '{request.Site}' was removed while the step was added.");
+            throw new SslenseException(ErrorCodes.CertificateRemovedMeanwhile, $"The certificate record for '{request.Site}' was removed while the step was added.");
         }
 
         return step;
@@ -240,9 +241,9 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
                     {
                         throw new ArgumentOutOfRangeException(
                             nameof(number),
-                            steps.Count == 0
+                            ErrorCodes.DeploymentStepNotFound.Format(steps.Count == 0
                                 ? $"'{current.SiteName}' has no deployment steps."
-                                : $"'{current.SiteName}' has deployment steps 1 to {steps.Count}. 'SSLense.Cli deploy list' shows them.");
+                                : $"'{current.SiteName}' has deployment steps 1 to {steps.Count}. 'SSLense.Cli deploy list' shows them."));
                     }
 
                     removed = steps[number - 1];
@@ -257,7 +258,7 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
             .ConfigureAwait(false);
         if (updated is null || removed is null)
         {
-            throw new InvalidOperationException($"The certificate record for '{site}' was removed meanwhile.");
+            throw new SslenseException(ErrorCodes.CertificateRemovedMeanwhile, $"The certificate record for '{site}' was removed meanwhile.");
         }
 
         DeleteScript(removed);
@@ -281,7 +282,7 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
         record = await FindAsync(site, cancellationToken).ConfigureAwait(false);
         if (!record.HasDeploymentSteps())
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.NoDeploymentSteps, 
                 $"'{record.SiteName}' has no deployment steps. Add one with 'SSLense.Cli deploy add --site \"{record.SiteName}\"'.");
         }
 
@@ -482,7 +483,7 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
                     .ConfigureAwait(false);
                 break;
             default:
-                throw new InvalidOperationException($"This SSLense version does not know deployment step kind {(int)step.Kind}.");
+                throw new SslenseException(ErrorCodes.DeploymentStepUnknown, $"This SSLense version does not know deployment step kind {(int)step.Kind}.");
         }
     }
 
@@ -490,7 +491,7 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
     {
         if (!record.ExportableKey)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.KeyNotExportable, 
                 $"The private key of the certificate for '{record.SiteName}' is not exportable, so it cannot be written to files. " +
                 "Issue the certificate again with an exportable key: add --exportable-key --force to its 'issue' command, or choose " +
                 "Exportable private key in the app.");
@@ -499,13 +500,13 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
         var path = request.Value.Trim().Trim('"');
         if (!Path.IsPathFullyQualified(path))
         {
-            throw new ArgumentException($"'{path}' is not a full path. Use one such as D:\\Certs\\shop.pfx or \\\\server\\share\\certs.");
+            throw new ArgumentException(ErrorCodes.DeploymentStepInvalid.Format($"'{path}' is not a full path. Use one such as D:\\Certs\\shop.pfx or \\\\server\\share\\certs."));
         }
 
         if (request.Kind == DeploymentStepKind.ExportPfx &&
             !string.Equals(Path.GetExtension(path), ".pfx", StringComparison.OrdinalIgnoreCase))
         {
-            throw new ArgumentException($"'{path}' must be a .pfx file.");
+            throw new ArgumentException(ErrorCodes.DeploymentStepInvalid.Format($"'{path}' must be a .pfx file."));
         }
 
         string? protectedPassword = null;
@@ -513,14 +514,14 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
         {
             if (string.IsNullOrEmpty(request.Password))
             {
-                throw new ArgumentException("A password is needed to protect the PFX files.");
+                throw new ArgumentException(ErrorCodes.DeploymentStepInvalid.Format("A password is needed to protect the PFX files."));
             }
 
             var plaintext = Encoding.UTF8.GetBytes(request.Password);
             try
             {
                 protectedPassword = Convert.ToBase64String(
-                    (_protector ?? throw new InvalidOperationException("Passwords cannot be stored here.")).Protect(plaintext));
+                    (_protector ?? throw new SslenseException(ErrorCodes.PasswordStorageUnavailable, "Passwords cannot be stored here.")).Protect(plaintext));
             }
             finally
             {
@@ -532,13 +533,13 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
     }
 
     private ICertificateExporter Exporter() =>
-        _exporter ?? throw new InvalidOperationException("Export is not available in this SSLense process.");
+        _exporter ?? throw new SslenseException(ErrorCodes.ExportUnavailable, "Export is not available in this SSLense process.");
 
     private string Password(DeploymentStep step)
     {
         if (step.ProtectedPassword is null || _protector is null)
         {
-            throw new InvalidOperationException("The step has no password. Remove it and add it again.");
+            throw new SslenseException(ErrorCodes.StepPasswordMissing, "The step has no password. Remove it and add it again.");
         }
 
         try
@@ -547,7 +548,7 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
         }
         catch (Exception exception) when (exception is FormatException or System.Security.Cryptography.CryptographicException)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.StepPasswordUnreadable, 
                 "The step's password can no longer be read on this server, for example after the data folder was copied from " +
                 "another one. Remove the step and add it again.");
         }
@@ -558,7 +559,7 @@ ManagedCertificate record, DeploymentStep step, string? previous, CancellationTo
     {
         var path = _scripts.GetVerifiedPath(
             ScriptName(step.Id),
-            step.ScriptSha256 ?? throw new InvalidOperationException("The step has no script. Remove it and add it again."));
+            step.ScriptSha256 ?? throw new SslenseException(ErrorCodes.StepScriptMissing, "The step has no script. Remove it and add it again."));
         var timeout = TimeSpan.FromSeconds(step.TimeoutSeconds ?? DefaultScriptTimeoutSeconds);
         var result = await _runner.RunAsync(path, ScriptArguments(record, previous), null, timeout, cancellationToken).ConfigureAwait(false);
         if (result.TimedOut)
@@ -570,7 +571,7 @@ ManagedCertificate record, DeploymentStep step, string? previous, CancellationTo
 
         if (result.ExitCode != 0)
         {
-            throw new InvalidOperationException(
+            throw new SslenseException(ErrorCodes.DeploymentScriptFailed, 
                 $"The script '{step.Value}' failed (exit code {result.ExitCode})." + ScriptDnsProvider.Tail(result.Output, null));
         }
     }

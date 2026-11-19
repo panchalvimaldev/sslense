@@ -2,6 +2,7 @@ using SSLense.Core.Acme;
 using SSLense.Core.Certificates;
 using SSLense.Core.Config;
 using SSLense.Core.DnsValidation;
+using SSLense.Core.Errors;
 using SSLense.Core.Iis;
 
 namespace SSLense.Core.Validation;
@@ -24,7 +25,7 @@ internal sealed class PreflightService(
         ArgumentException.ThrowIfNullOrWhiteSpace(siteName);
         if (hosts.Count == 0)
         {
-            throw new ArgumentException("Select at least one host name.", nameof(hosts));
+            throw new ArgumentException(ErrorCodes.NoHostNamesGiven.Format("Select at least one host name."), nameof(hosts));
         }
 
         var results = new List<PreflightCheck>();
@@ -32,13 +33,13 @@ internal sealed class PreflightService(
         results.Add(new PreflightCheck(
             "Administrator",
             isAdministrator,
-            isAdministrator ? "SSLense is elevated." : "Run SSLense as Administrator."));
+            isAdministrator ? "SSLense is elevated." : ErrorCodes.NotAdministrator.Format("Run SSLense as Administrator.")));
 
         var sites = await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
         var site = sites.FindSite(siteName);
         if (site is null)
         {
-            results.Add(new PreflightCheck("IIS site", false, $"IIS site '{siteName}' was not found."));
+            results.Add(new PreflightCheck("IIS site", false, ErrorCodes.IisSiteNotFound.Format($"IIS site '{siteName}' was not found.")));
             return results;
         }
 
@@ -52,7 +53,7 @@ internal sealed class PreflightService(
             results.Add(new PreflightCheck(
                 $"HTTP binding: {host}",
                 hasBinding,
-                hasBinding ? "Port 80 binding is configured." : "Add an IIS HTTP binding on port 80 for this host."));
+                hasBinding ? "Port 80 binding is configured." : ErrorCodes.HostHasNoBinding.Format("Add an IIS HTTP binding on port 80 for this host.")));
 
             try
             {
@@ -73,13 +74,13 @@ internal sealed class PreflightService(
                 results.Add(new PreflightCheck(
                     $"HTTP reachability: {host}",
                     false,
-                    "Could not reach the host on port 80. Check DNS or tunnel routing and the HTTP Host header."));
+                    ErrorCodes.ChallengeSelfCheckUnreachable.Format("Could not reach the host on port 80. Check DNS or tunnel routing and the HTTP Host header.")));
             }
         }
 
         if (string.IsNullOrWhiteSpace(site.PhysicalPath))
         {
-            results.Add(new PreflightCheck("Challenge folder", false, "The IIS site has no physical root path."));
+            results.Add(new PreflightCheck("Challenge folder", false, ErrorCodes.IisSiteNoPhysicalPath.Format("The IIS site has no physical root path.")));
         }
         else
         {
@@ -98,7 +99,7 @@ internal sealed class PreflightService(
                 results.Add(new PreflightCheck(
                     "Challenge folder",
                     false,
-                    "The challenge folder is not writable. Check the site path and Administrator permissions."));
+                    ErrorCodes.ChallengeFolderNotWritable.Format("The challenge folder is not writable. Check the site path and Administrator permissions.")));
             }
             finally
             {
@@ -119,13 +120,13 @@ internal sealed class PreflightService(
         ArgumentException.ThrowIfNullOrWhiteSpace(request.SiteName);
         if (request.Hosts.Count == 0 && !request.NoSite)
         {
-            throw new ArgumentException("Select at least one host name.", nameof(request));
+            throw new ArgumentException(ErrorCodes.NoHostNamesGiven.Format("Select at least one host name."), nameof(request));
         }
 
         var isAdministrator = WindowsElevation.IsAdministrator();
         var results = new List<PreflightCheck>
         {
-            new("Administrator", isAdministrator, isAdministrator ? "SSLense is elevated." : "Run SSLense as Administrator.")
+            new("Administrator", isAdministrator, isAdministrator ? "SSLense is elevated." : ErrorCodes.NotAdministrator.Format("Run SSLense as Administrator."))
         };
 
         var sites = await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
@@ -136,7 +137,7 @@ internal sealed class PreflightService(
                 "Name",
                 !taken,
                 taken
-                    ? $"'{request.SiteName.Trim()}' is the name of an IIS site. Choose another name for a certificate with no IIS site."
+                    ? ErrorCodes.NameIsIisSite.Format($"'{request.SiteName.Trim()}' is the name of an IIS site. Choose another name for a certificate with no IIS site.")
                     : $"The certificate will be named '{request.SiteName.Trim()}'. Nothing is bound in IIS; deployment steps hand it to its services."));
             IReadOnlyList<string>? noSiteNames;
             try
@@ -145,13 +146,13 @@ internal sealed class PreflightService(
             }
             catch (ArgumentException exception)
             {
-                results.Add(new PreflightCheck("Certificate names", false, exception.Message));
+                results.Add(new PreflightCheck("Certificate names", false, ErrorCodes.InvalidCertificateNames.Format(exception.Message)));
                 return results;
             }
 
             if (noSiteNames is null)
             {
-                results.Add(new PreflightCheck("Certificate names", false, "Enter the names the certificate covers, such as rdp.example.com."));
+                results.Add(new PreflightCheck("Certificate names", false, ErrorCodes.NoSiteNamesMissing.Format("Enter the names the certificate covers, such as rdp.example.com.")));
                 return results;
             }
 
@@ -163,7 +164,7 @@ internal sealed class PreflightService(
         var site = sites.FindSite(request.SiteName);
         if (site is null)
         {
-            results.Add(new PreflightCheck("IIS site", false, $"IIS site '{request.SiteName}' was not found."));
+            results.Add(new PreflightCheck("IIS site", false, ErrorCodes.IisSiteNotFound.Format($"IIS site '{request.SiteName}' was not found.")));
             return results;
         }
 
@@ -176,7 +177,7 @@ internal sealed class PreflightService(
         }
         catch (ArgumentException exception)
         {
-            results.Add(new PreflightCheck("Certificate names", false, exception.Message));
+            results.Add(new PreflightCheck("Certificate names", false, ErrorCodes.InvalidCertificateNames.Format(exception.Message)));
             return results;
         }
 
@@ -198,19 +199,19 @@ internal sealed class PreflightService(
             return new PreflightCheck(
                 name,
                 false,
-                "SSLense manages IIS bindings for real host names only. Put the wildcard in the certificate names, and choose real host names.");
+                ErrorCodes.InvalidHostName.Format("SSLense manages IIS bindings for real host names only. Put the wildcard in the certificate names, and choose real host names."));
         }
 
         if (!site.Bindings.Any(binding =>
                 binding.Protocol is "http" or "https" &&
                 string.Equals(binding.HostName, host, StringComparison.OrdinalIgnoreCase)))
         {
-            return new PreflightCheck(name, false, "Add an IIS HTTP or HTTPS binding for this host.");
+            return new PreflightCheck(name, false, ErrorCodes.HostHasNoBinding.Format("Add an IIS HTTP or HTTPS binding for this host."));
         }
 
         return CertificateInspector.Covers(names, host)
             ? new PreflightCheck(name, true, "The binding exists, and the certificate names cover it. Port 80 is not needed.")
-            : new PreflightCheck(name, false, $"The certificate names {string.Join(", ", names)} do not cover this host.");
+            : new PreflightCheck(name, false, ErrorCodes.HostNotCovered.Format($"The certificate names {string.Join(", ", names)} do not cover this host."));
     }
 
     private async Task<PreflightCheck> CheckDnsRecordsAsync(
@@ -232,7 +233,7 @@ internal sealed class PreflightService(
         }
         catch (Exception exception) when (exception is InvalidOperationException or HttpRequestException)
         {
-            return new PreflightCheck(name, false, exception.Message);
+            return new PreflightCheck(name, false, ErrorCodes.Unexpected.Format(exception.Message));
         }
     }
 
