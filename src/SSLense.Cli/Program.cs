@@ -386,6 +386,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
 
     rootCommand.Subcommands.Add(CreateNotificationsCommand(services));
     rootCommand.Subcommands.Add(CreateRemindersCommand(services));
+    rootCommand.Subcommands.Add(CreateWindowCommand(services));
     AddImportedCertificateCommands(rootCommand, services);
 
     return rootCommand;
@@ -1673,6 +1674,93 @@ static Command CreateNotificationsCommand(IServiceProvider services)
         () => Settings().ClearAsync(token), "All notification channels were removed. The Windows Event Log stays on."));
     command.Subcommands.Add(clearCommand);
     return command;
+}
+
+static Command CreateWindowCommand(IServiceProvider services)
+{
+    ISettingsService Settings() => services.GetRequiredService<ISettingsService>();
+    var command = new Command(
+        "window",
+        "Maintenance window: when automatic renewals may run. A renewal close to expiry never waits for it, and 'renew' always runs at once.");
+
+    var showCommand = new Command("show", "Show the maintenance window.");
+    showCommand.SetAction(async (_, token) =>
+    {
+        try
+        {
+            var window = (await Settings().GetAsync(token).ConfigureAwait(false)).MaintenanceWindow;
+            Console.WriteLine(window is null
+                ? "Maintenance window: none. Automatic renewals run when they are due."
+                : $"Maintenance window: {window.Describe()}. A renewal close to expiry does not wait for it.");
+            return 0;
+        }
+        catch (Exception exception)
+        {
+            WriteError(exception);
+            return 1;
+        }
+    });
+    command.Subcommands.Add(showCommand);
+
+    var daysOption = new Option<string>("--days") { Required = true, Description = "Days the window starts on: mon,tue,... or weekdays, weekend, every-day." };
+    var fromOption = new Option<int>("--from") { Required = true, Description = "Hour it opens, 0-23, server time." };
+    var toOption = new Option<int>("--to") { Required = true, Description = "Hour it closes, 0-23; earlier than --from means the next day, as --from 22 --to 4." };
+    var setCommand = new Command("set", "Let automatic renewals run only in this window.");
+    setCommand.Options.Add(daysOption);
+    setCommand.Options.Add(fromOption);
+    setCommand.Options.Add(toOption);
+    setCommand.SetAction(async (parseResult, token) =>
+    {
+        try
+        {
+            var window = new MaintenanceWindow(
+                ParseDays(parseResult.GetRequiredValue(daysOption)),
+                parseResult.GetValue(fromOption),
+                parseResult.GetValue(toOption));
+            await Settings().SaveMaintenanceWindowAsync(window, token).ConfigureAwait(false);
+            Console.WriteLine($"Maintenance window set: {window.Describe()}.");
+            return 0;
+        }
+        catch (Exception exception)
+        {
+            WriteError(exception);
+            return 1;
+        }
+    });
+    command.Subcommands.Add(setCommand);
+
+    var offCommand = new Command("off", "Let automatic renewals run whenever they are due.");
+    offCommand.SetAction(async (_, token) =>
+    {
+        try
+        {
+            await Settings().SaveMaintenanceWindowAsync(null, token).ConfigureAwait(false);
+            Console.WriteLine("Maintenance window removed. Automatic renewals run when they are due.");
+            return 0;
+        }
+        catch (Exception exception)
+        {
+            WriteError(exception);
+            return 1;
+        }
+    });
+    command.Subcommands.Add(offCommand);
+    return command;
+
+    static IReadOnlyList<DayOfWeek> ParseDays(string value) => value.Trim().ToLowerInvariant() switch
+    {
+        "weekdays" => [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday],
+        "weekend" => [DayOfWeek.Saturday, DayOfWeek.Sunday],
+        "every-day" or "daily" => Enum.GetValues<DayOfWeek>(),
+        var list => list.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(day => Enum.GetValues<DayOfWeek>().FirstOrDefault(
+                value => value.ToString().StartsWith(day, StringComparison.OrdinalIgnoreCase) && day.Length >= 2,
+                (DayOfWeek)(-1)))
+            .Select(day => (int)day < 0
+                ? throw new ArgumentException(SSLense.Core.Errors.ErrorCodes.MaintenanceWindowInvalid.Format($"'{value}' is not a list of days. Use mon,tue,... or weekdays, weekend, every-day."))
+                : day)
+            .ToArray()
+    };
 }
 
 static Command CreateRemindersCommand(IServiceProvider services)

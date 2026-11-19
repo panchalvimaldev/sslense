@@ -8,4 +8,7 @@ public interface ISettingsService
         string? defaultEmail,
         int renewalThresholdDays,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Sets when automatic renewals may run, or null to let them run at any time.</summary>
+    Task SaveMaintenanceWindowAsync(MaintenanceWindow? window, CancellationToken cancellationToken = default);
 }

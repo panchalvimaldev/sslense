@@ -24,4 +24,7 @@ public sealed record AppConfig
 
     /// <summary>DNS zones SSLense can publish validation records in.</summary>
     public IReadOnlyList<DnsValidation.DnsProviderProfile> DnsProviders { get; init; } = [];
+
+    /// <summary>When automatic renewals may run; null for any time (docs/design/maintenance-windows.md).</summary>
+    public MaintenanceWindow? MaintenanceWindow { get; init; }
 }

@@ -231,3 +231,4 @@ SSL9004 NotALogFile
 SSL9005 LogBusy
 SSL9006 NotAdministrator
 SSL9999 Unexpected
+SSL5022 MaintenanceWindowInvalid
