@@ -560,21 +560,35 @@ public sealed class SharedCertificateTests
         Assert.Equal(["Shop", "Blog"], harness.SavedRecord().AllSiteNames());
     }
 
-    [Theory]
-    [InlineData("Shop", "Blog")]
-    [InlineData("Blog", "Shop")]
-    public async Task Add_WithASiteThatHasSeveralCertificates_IsRefused_EitherWay(string from, string to)
+    [Fact]
+    public async Task Add_ToASiteThatHasSeveralCertificates_IsRefused()
     {
         // docs/design/multiple-certificates-per-site.md, section 9.5: Shop has two ACME certificates.
         var second = SingleSite() with { SiteName = "Shop/www.example.com", Hosts = ["www.example.com"], Thumbprint = "SECOND" };
         var harness = new SharingHarness([SingleSite(), second, SingleSite(site: "Blog")],
             Site("Shop", "shop.example.com"), Site("Blog", "blog.example.com"));
 
-        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.AddSiteAsync(from, to, []));
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => harness.Service.AddSiteAsync("Blog", "Shop", []));
 
         Assert.Contains("'Shop/www.example.com'", exception.Message, StringComparison.Ordinal);
         Assert.Contains("Issue a certificate for the host names instead", exception.Message, StringComparison.Ordinal);
         harness.VerifyNothingChanged();
+    }
+
+    [Fact]
+    public async Task Add_FromACertificateOnASiteWithSeveral_SharesThatCertificate()
+    {
+        // 9.5: the second certificate on Shop holds only its own host names, so it can go to another site.
+        var second = SingleSite() with { SiteName = "Shop/www.example.com", Hosts = ["www.example.com"], Thumbprint = "SECOND" };
+        var harness = new SharingHarness([SingleSite(), second],
+            Site("Shop", "shop.example.com"), Site("Admin", "admin.example.com", thumbprint: null));
+        harness.Store.Setup(value => value.FindByThumbprintAsync("SECOND", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new InstalledCertificate("SECOND", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(60), true));
+
+        await harness.Service.AddSiteAsync("Shop/www.example.com", "Admin", []);
+
+        harness.Iis.Verify(value => value.ConfigureHttpsBindingsAsync("Admin", It.IsAny<IReadOnlyList<string>>(), "SECOND", "My", It.IsAny<CancellationToken>()), Times.Once);
+        Assert.Equal(["Shop/www.example.com", "Admin"], harness.SavedRecord().AllSiteNames());
     }
 
     [Fact]

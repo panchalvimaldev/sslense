@@ -43,7 +43,7 @@ Already done and only to be marked on the roadmap: private-key permissions for I
 | 11 | Certificates for IP addresses **(done)** | M | Let's Encrypt issues them with short-lived profiles; validated over HTTP or TLS-ALPN, bound in IIS by IP |
 | 12 | TLS-ALPN-01 validation | Design first | IIS owns port 443 through HTTP.sys, which cannot answer this challenge. The design decides whether a safe way exists, for example briefly on a server without HTTPS sites, or records that it does not |
 | 13 | Newer DNS methods such as dns-persist-01 | S | Built only once a certificate authority offers it; until then, a design note |
-| 14 | Sharing a certificate with a site that has several certificates | M | Deferred in phase 2 (design section 9.5) |
+| 14 | Sharing a certificate with a site that has several certificates **(done: from such a site; to one stays refused, see design 9.5)** | M | Deferred in phase 2 (design section 9.5) |
 
 ### Wave 3: day-to-day operations (ROADMAP 4, After 1.0)
 

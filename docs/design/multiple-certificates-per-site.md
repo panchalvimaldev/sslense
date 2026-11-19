@@ -120,6 +120,8 @@ Status: **approved** November 19, 2026. Target release: 0.24. Branch: `feature/a
 
 ### 9.5 Sharing waits for demand
 
+**Update, November 19, 2026 (feature 14 of the delivery plan):** a certificate on a site with several certificates can now be shared **from** that site to another, because its record holds only its own host names. Sharing **to** a site that has several certificates of its own stays refused (SSL4026): it would make the host-name checks on that site count hosts held by another site's certificate, the risk this section describes.
+
 Sharing (`share add`) moves whole IIS sites onto another site's certificate, with a trial and a checked move per site. With several certificates on a site, the unit would become the host name, which reopens the most careful code in SSLense for a combination no one has asked for. Proposed: **keep the phase 1 refusal for sharing**, with a clearer message: "Sharing a certificate with a site that has several certificates is not supported. Issue a certificate for the host names instead."
 
 ### 9.6 Delivery and testing

@@ -40,7 +40,8 @@ internal sealed class CertificateSharingService(
         }
 
         ThrowIfCannotShare(owner);
-        ThrowIfSeveralCertificates(records, owner.SiteName);
+        // A certificate on a site with several certificates holds only its own host names, so it can be shared from there;
+        // a site that receives it must have no certificates of its own besides (docs/design/multiple-certificates-per-site.md, 9.5).
         ThrowIfSeveralCertificates(records, toSite);
         var sites = await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
         var site = sites.FirstOrDefault(value => string.Equals(value.Name, toSite.Trim(), StringComparison.OrdinalIgnoreCase))
@@ -214,8 +215,8 @@ internal sealed class CertificateSharingService(
         {
             throw new SslenseException(ErrorCodes.SeveralCertificatesCannotShare, 
                 $"IIS site '{ManagedCertificateNames.IisSiteOf(siteName)}' has several certificates " +
-                $"({string.Join(", ", onSite.Select(record => $"'{record.SiteName}'"))}). A site with several certificates cannot share one with other sites. " +
-                "Issue a certificate for the host names instead.");
+                $"({string.Join(", ", onSite.Select(record => $"'{record.SiteName}'"))}). A certificate cannot be shared to a site that has several of its own. " +
+                "Issue a certificate for the host names instead, or share it from that site to another.");
         }
     }
 
