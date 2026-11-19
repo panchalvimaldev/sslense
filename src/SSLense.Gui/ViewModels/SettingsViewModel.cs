@@ -593,7 +593,7 @@ public partial class SettingsViewModel : ObservableObject
         try { await action(token).ConfigureAwait(true); }
         catch (Exception exception)
         {
-            _logger.LogError(exception, "Settings operation failed"); ErrorMessage = exception.Message;
+            _logger.LogError(exception, "Settings operation failed"); ErrorMessage = SSLense.Core.Errors.ErrorCode.Describe(exception);
         }
         finally { IsBusy = false; }
     }

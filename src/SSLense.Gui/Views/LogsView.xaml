@@ -1,6 +1,7 @@
 <UserControl x:Class="SSLense.Gui.Views.LogsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:SSLense.Gui.Controls">
     <!-- Activity › Log: what SSLense, its service, and the CLI did. -->
     <Border Style="{StaticResource Card}">
         <Grid>
@@ -45,7 +46,7 @@
             <StackPanel Grid.Row="2" Margin="0,0,0,8">
                 <TextBlock Text="{Binding Summary}" Style="{StaticResource WhenSet}" Foreground="{StaticResource MutedTextBrush}" TextTrimming="CharacterEllipsis" />
                 <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource WhenSet}" Foreground="{StaticResource SuccessBrush}" FontWeight="SemiBold" TextWrapping="Wrap" />
-                <TextBlock Text="{Binding ErrorMessage}" Style="{StaticResource WhenSet}" Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <controls:ErrorText Message="{Binding ErrorMessage}" Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold" TextWrapping="Wrap" />
             </StackPanel>
 
             <Border Grid.Row="3" CornerRadius="6" ClipToBounds="True" Background="#F8FAFC" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">

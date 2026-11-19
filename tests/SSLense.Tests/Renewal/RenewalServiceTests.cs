@@ -367,7 +367,7 @@ public sealed class RenewalServiceTests
             .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(5))]);
         DateTimeOffset? recordedRetry = null;
         managed.Setup(value => value.RecordRenewalFailureAsync(
-                "My Site", It.IsAny<DateTimeOffset>(), "ACME unavailable", It.IsAny<DateTimeOffset>(), CancellationToken.None))
+                "My Site", It.IsAny<DateTimeOffset>(), "SSL9999: ACME unavailable", It.IsAny<DateTimeOffset>(), CancellationToken.None))
             .Callback<string, DateTimeOffset, string, DateTimeOffset, CancellationToken>(
                 (_, _, _, retryAt, _) => recordedRetry = retryAt)
             .ReturnsAsync(CreateCertificate(DateTimeOffset.UtcNow.AddDays(5)) with { ConsecutiveFailures = 1 });

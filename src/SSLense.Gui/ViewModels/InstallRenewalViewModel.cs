@@ -184,7 +184,7 @@ public partial class InstallRenewalViewModel : ObservableObject
         catch (Exception exception)
         {
             _logger.LogError(exception, "Installing the renewal for {Certificate} failed", row.SiteName);
-            ErrorMessage = exception.Message;
+            ErrorMessage = SSLense.Core.Errors.ErrorCode.Describe(exception);
         }
         finally
         {

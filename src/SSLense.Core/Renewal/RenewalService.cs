@@ -315,13 +315,13 @@ internal sealed class RenewalService : IRenewalService
         var updated = await _managedStore.RecordRenewalFailureAsync(
                 certificate.SiteName,
                 now,
-                exception.Message,
+                ErrorCode.Describe(exception),
                 nextRetryAt,
                 CancellationToken.None)
             .ConfigureAwait(false);
         failures = updated?.ConsecutiveFailures ?? failures;
 
-        var message = $"{exception.Message} Next automatic attempt: {nextRetryAt:yyyy-MM-dd HH:mm} UTC.";
+        var message = $"{ErrorCode.Describe(exception)} Next automatic attempt: {nextRetryAt:yyyy-MM-dd HH:mm} UTC.";
         progress?.Report(new ProgressEvent("retry", $"Renewal failed for {certificate.SiteName}. {message}"));
         if (ShouldNotifyFailure(failures, scheduled, rateLimited))
         {

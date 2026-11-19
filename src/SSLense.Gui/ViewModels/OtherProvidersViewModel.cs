@@ -137,7 +137,7 @@ public partial class OtherProvidersViewModel : ObservableObject
         }
         catch (Exception exception)
         {
-            ErrorMessage = exception.Message;
+            ErrorMessage = SSLense.Core.Errors.ErrorCode.Describe(exception);
         }
     }
 
@@ -330,7 +330,7 @@ public partial class OtherProvidersViewModel : ObservableObject
         catch (Exception exception)
         {
             _logger.LogError(exception, "Other providers operation failed");
-            ErrorMessage = exception.Message;
+            ErrorMessage = SSLense.Core.Errors.ErrorCode.Describe(exception);
             AddProgress("error", exception.Message);
         }
         finally { IsBusy = false; }

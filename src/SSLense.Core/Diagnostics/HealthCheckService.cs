@@ -86,7 +86,7 @@ internal sealed class HealthCheckService(
             }
             catch (Exception exception)
             {
-                results.Add(new HealthCheckResult(name, HealthStatus.Fail, exception.Message));
+                results.Add(new HealthCheckResult(name, HealthStatus.Fail, ErrorCode.Describe(exception)));
             }
         }
 
@@ -204,7 +204,7 @@ internal sealed class HealthCheckService(
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
-                    results.Add(new HealthCheckResult($"Pre-flight ({site})", HealthStatus.Fail, exception.Message));
+                    results.Add(new HealthCheckResult($"Pre-flight ({site})", HealthStatus.Fail, ErrorCode.Describe(exception)));
                 }
             }
 

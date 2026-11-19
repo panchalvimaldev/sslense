@@ -1,6 +1,7 @@
 <UserControl x:Class="SSLense.Gui.Views.HealthView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:SSLense.Gui.Controls">
     <!-- Activity › Health checks: one card, each check a line with what to do about it. -->
     <Border Style="{StaticResource Card}">
         <StackPanel>
@@ -10,7 +11,7 @@
                     <TextBlock Text="Health checks" Style="{StaticResource SectionTitle}" FontSize="15" />
                     <TextBlock Text="{Binding Summary}" Style="{StaticResource CaptionWhenSet}" TextWrapping="Wrap" Margin="0,3,0,0" />
                     <TextBlock Text="{Binding StatusMessage}" Style="{StaticResource CaptionWhenSet}" TextWrapping="Wrap" />
-                    <TextBlock Text="{Binding ErrorMessage}" Style="{StaticResource WhenSet}" Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <controls:ErrorText Message="{Binding ErrorMessage}" Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold" TextWrapping="Wrap" />
                 </StackPanel>
             </DockPanel>
 

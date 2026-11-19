@@ -1,6 +1,6 @@
 # Design: stable, searchable error codes
 
-Status: **proposed** November 19, 2026, for the owner's review. Feature 1 of [the delivery plan](../delivery-plan.md); ROADMAP section 5.2.
+Status: **approved** November 19, 2026 (the owner approved the whole delivery plan in advance). Feature 1 of [the delivery plan](../delivery-plan.md); ROADMAP section 5.2.
 
 ## 1. Problem
 
@@ -64,5 +64,5 @@ When something goes wrong, SSLense explains it in a sentence: "Host name 'shop.e
 | Step | Contents |
 |---|---|
 | 1 | This design |
-| 2 | Core: the catalogue, `SslenseException`, codes on every user-facing error and failed check, `docs/errors.md`, and the tests that keep codes stable and documented |
-| 3 | App, CLI and service: the code shown as a link in the app, `SSL9999` for unexpected errors, the code in notifications; README section on error codes; manual test steps in `docs/testing/` |
+| 2 | Core: the catalogue, `SslenseException`, codes on every user-facing error and failed check, `docs/errors.md`, and the tests that keep codes stable and documented. **Built** November 19, 2026: 232 codes |
+| 3 | App, CLI and service: the code shown as a link in the app, `SSL9999` for unexpected errors, the code in notifications; README section on error codes; manual test steps in `docs/testing/`. **Built** November 19, 2026 |

@@ -698,6 +698,8 @@ The GUI's **Health** page runs the same checks and saves the bundle to your Desk
 
 ## Troubleshooting
 
+**Error codes.** Every error SSLense explains starts with a code, such as `SSL1003`, in the app, the CLI, the log, notifications and the Event Log. [docs/errors.md](docs/errors.md) lists every code with what it means and what to do; in the app, the code is a link to its entry. `SSL9999` marks an error SSLense did not expect: run the health check, and report it with a diagnostic bundle if it happens again.
+
 When certificate issuance fails, run the pre-flight checks for the selected IIS site and requested host names:
 
 ```powershell

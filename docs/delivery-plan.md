@@ -21,13 +21,13 @@ Grouped into waves; each line is one pull request unless it says otherwise. Size
 
 | # | Feature | Size | Notes |
 |---|---|---|---|
-| 0 | Several ACME certificates on one IIS site (phase 2) | — | Built; pull request #38 |
+| 0 | Several ACME certificates on one IIS site (phase 2) | — | **Done**: pull request #38 |
 
 ### Wave 1: safety before 1.0 (ROADMAP 5.1, 5.2)
 
 | # | Feature | Size | Notes |
 |---|---|---|---|
-| 1 | Stable, searchable error codes | M | First, so every later feature uses them. Each message gets a code such as `SSL1042`, with a page in the docs |
+| 1 | Stable, searchable error codes **(done)** | M | First, so every later feature uses them. Each message gets a code such as `SSL1042`, with a page in the docs |
 | 2 | Maintenance windows | M | Renewals wait for an allowed time, but never so long that a certificate could expire |
 | 3 | Recovery from a compromised private key or ACME account | M | Revoke and replace a certificate at once; roll over the ACME account key; written procedures |
 | 4 | ARI `replaces` field on renewal orders | S–M | Certes does not expose it. Either a newer Certes version (a package change, needs approval) or sending the order request ourselves |

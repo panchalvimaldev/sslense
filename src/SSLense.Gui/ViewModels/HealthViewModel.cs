@@ -91,7 +91,7 @@ public partial class HealthViewModel : ObservableObject
         catch (Exception exception)
         {
             _logger.LogError(exception, "Health check failed");
-            ErrorMessage = exception.Message;
+            ErrorMessage = SSLense.Core.Errors.ErrorCode.Describe(exception);
             StatusMessage = null;
         }
         finally
@@ -119,7 +119,7 @@ public partial class HealthViewModel : ObservableObject
         catch (Exception exception)
         {
             _logger.LogError(exception, "Failed to create the diagnostic bundle");
-            ErrorMessage = exception.Message;
+            ErrorMessage = SSLense.Core.Errors.ErrorCode.Describe(exception);
         }
         finally
         {

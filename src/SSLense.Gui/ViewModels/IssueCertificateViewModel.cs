@@ -227,7 +227,7 @@ public partial class IssueCertificateViewModel : ObservableObject
         catch (Exception exception)
         {
             _logger.LogError(exception, "Could not initialize the issue wizard");
-            ErrorMessage = exception.Message;
+            ErrorMessage = SSLense.Core.Errors.ErrorCode.Describe(exception);
         }
     }
 
@@ -563,7 +563,7 @@ public partial class IssueCertificateViewModel : ObservableObject
         catch (Exception exception)
         {
             _logger.LogError(exception, "Issue wizard operation failed");
-            ErrorMessage = exception.Message;
+            ErrorMessage = SSLense.Core.Errors.ErrorCode.Describe(exception);
         }
         finally { IsBusy = false; }
     }

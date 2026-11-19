@@ -275,7 +275,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
         {
             _suppressSelectionRefresh = false;
             _logger.LogError(exception, "Could not initialize certificate details");
-            ErrorMessage = exception.Message;
+            ErrorMessage = SSLense.Core.Errors.ErrorCode.Describe(exception);
         }
     }
 
@@ -684,7 +684,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
         catch (Exception exception)
         {
             _logger.LogError(exception, "Certificate details operation failed");
-            if (!Superseded) ErrorMessage = exception.Message;
+            if (!Superseded) ErrorMessage = SSLense.Core.Errors.ErrorCode.Describe(exception);
         }
         finally { IsBusy = --_running > 0; }
     }
