@@ -554,6 +554,71 @@ public sealed class RenewalServiceTests
         Assert.Equal(expected, RenewalService.ShouldNotifyFailure(failures, scheduled, rateLimited));
     }
 
+    /// <summary>A window two days from now, so it is closed now (docs/design/maintenance-windows.md).</summary>
+    private static Mock<IConfigStore> ConfigWithClosedWindow()
+    {
+        var config = new Mock<IConfigStore>(MockBehavior.Strict);
+        var opens = DateTimeOffset.UtcNow.AddDays(2);
+        config.Setup(value => value.LoadAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AppConfig { RenewalThresholdDays = 30, MaintenanceWindow = new MaintenanceWindow([opens.DayOfWeek], 1, 2) });
+        return config;
+    }
+
+    [Fact]
+    public async Task RenewAsync_ScheduledDueRenewal_WaitsForTheMaintenanceWindow_AndOneCloseToExpiryDoesNot()
+    {
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                CreateCertificate(DateTimeOffset.UtcNow.AddDays(20)),
+                CreateCertificate(DateTimeOffset.UtcNow.AddDays(1)) with { SiteName = "Urgent Site" }
+            ]);
+        var acme = new Mock<IAcmeService>(MockBehavior.Strict);
+        acme.Setup(value => value.IssueAsync(
+                It.Is<AcmeIssueRequest>(request => request.SiteName == "Urgent Site"), It.IsAny<IProgress<SSLense.Core.ProgressEvent>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AcmeIssueResult("pem", "pfx", ["example.com"], "OLD"));
+        var service = new RenewalService(managed.Object, ConfigWithClosedWindow().Object, acme.Object,
+            new Mock<IIisService>(MockBehavior.Strict).Object, new Mock<ICertificateStore>(MockBehavior.Strict).Object, new Mock<INotifier>().Object)
+        {
+            TimeZone = TimeZoneInfo.Utc
+        };
+        var progress = new List<string>();
+
+        var results = await service.RenewAsync(new RenewalRequest(All: true, Scheduled: true), new SynchronousProgress(value => progress.Add(value.Message)));
+
+        Assert.Collection(
+            results,
+            waiting =>
+            {
+                Assert.False(waiting.Attempted);
+                Assert.StartsWith("Waiting for the maintenance window", waiting.Message, StringComparison.Ordinal);
+            },
+            urgent => Assert.True(urgent.Succeeded));
+        Assert.Contains(progress, line => line.Contains("outside the maintenance window", StringComparison.Ordinal));
+        acme.VerifyAll();
+    }
+
+    [Fact]
+    public async Task RenewAsync_ByAnAdministrator_IgnoresTheMaintenanceWindow()
+    {
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(20))]);
+        var acme = new Mock<IAcmeService>(MockBehavior.Strict);
+        acme.Setup(value => value.IssueAsync(It.IsAny<AcmeIssueRequest>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AcmeIssueResult("pem", "pfx", ["example.com"], "OLD"));
+        var service = CreateService(managed, ConfigWithClosedWindow(), acme);
+
+        var result = Assert.Single(await service.RenewAsync(new RenewalRequest(SiteName: "My Site")));
+
+        Assert.True(result.Succeeded);
+    }
+
+    private sealed class SynchronousProgress(Action<SSLense.Core.ProgressEvent> report) : IProgress<SSLense.Core.ProgressEvent>
+    {
+        public void Report(SSLense.Core.ProgressEvent value) => report(value);
+    }
+
     private static RenewalService CreateService(
         Mock<IManagedCertificateStore> managed,
         Mock<IConfigStore> config,

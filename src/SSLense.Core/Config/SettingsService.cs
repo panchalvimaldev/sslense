@@ -43,4 +43,14 @@ internal sealed class SettingsService(IConfigStore configStore) : ISettingsServi
                 cancellationToken)
             .ConfigureAwait(false);
     }
+
+    public async Task SaveMaintenanceWindowAsync(MaintenanceWindow? window, CancellationToken cancellationToken = default)
+    {
+        window?.Validate();
+        var config = await configStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+        await configStore.SaveAsync(
+                config with { MaintenanceWindow = window is null ? null : window with { Days = [.. window.Days.Distinct().Order()] } },
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
 }

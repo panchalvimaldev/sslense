@@ -544,6 +544,8 @@ dotnet run --project .\src\SSLense.Cli -- install-service `
 
 The `SSLense` service checks immediately after startup and then every hour. Each check is cheap: certificates that are not due are skipped, and ACME Renewal Information is cached for the period the CA requests (6 hours by default).
 
+**Maintenance window.** To keep renewals, and the service restarts their deployment steps may do, out of working hours, set a window under **Settings › General**, or with `SSLense.Cli window set --days weekdays --from 1 --to 5` (server time; `--from 22 --to 4` runs into the next day). A due renewal waits for it, but never when the certificate is close to expiry: within 2 days, or a tenth of its lifetime, it renews at once. **Renew now** always runs at once. `window show` and `window off` show and remove it ([design](docs/design/maintenance-windows.md)).
+
 Failed renewals are retried from a saved schedule, so retries survive service restarts and reboots:
 
 | Consecutive failures | Next automatic attempt |

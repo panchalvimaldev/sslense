@@ -489,6 +489,9 @@ public static class ErrorCodes
     public static readonly ErrorCode RenewalFailing = new("SSL5021", nameof(RenewalFailing), "Renewals failing",
         "The message gives the last error. Fix it; SSLense retries on its schedule.");
 
+    public static readonly ErrorCode MaintenanceWindowInvalid = new("SSL5022", nameof(MaintenanceWindowInvalid), "Maintenance window not valid",
+        "Choose at least one day, and hours from 0 to 23 with the end different from the start. An end earlier than the start means the next day, as 22 to 4.");
+
     public static readonly ErrorCode HostsOfSeveralCertificates = new("SSL6001", nameof(HostsOfSeveralCertificates), "Host names belong to several certificates",
         "Choose the host names of one certificate on the site.");
 
@@ -866,6 +869,7 @@ public static class ErrorCodes
         ManualDnsCertificateExpiring,
         AutomaticCertificateNotRenewed,
         RenewalFailing,
+        MaintenanceWindowInvalid,
         HostsOfSeveralCertificates,
         CertificateNameTaken,
         HostsTaken,

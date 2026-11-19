@@ -980,6 +980,12 @@ Check the renewal history for the reason, fix it, and renew now.
 
 The message gives the last error. Fix it; SSLense retries on its schedule.
 
+<a id="ssl5022"></a>
+
+### SSL5022: Maintenance window not valid
+
+Choose at least one day, and hours from 0 to 23 with the end different from the start. An end earlier than the start means the next day, as 22 to 4.
+
 ## SSL6xxx: Settings, names and stored data
 
 <a id="ssl6001"></a>

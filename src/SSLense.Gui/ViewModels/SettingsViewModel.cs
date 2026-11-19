@@ -24,6 +24,11 @@ public partial class SettingsViewModel : ObservableObject
     private readonly ILogger<SettingsViewModel> _logger;
 
     [ObservableProperty] private string defaultEmail = string.Empty;
+
+    // The maintenance window (docs/design/maintenance-windows.md).
+    [ObservableProperty] private bool useMaintenanceWindow;
+    [ObservableProperty] private HourOption? windowFrom;
+    [ObservableProperty] private HourOption? windowTo;
     [ObservableProperty] private int renewalThresholdDays = 30;
 
     [ObservableProperty] private DnsProviderOverview? selectedDnsProvider;
@@ -147,6 +152,7 @@ public partial class SettingsViewModel : ObservableObject
         _serviceManager = serviceManager;
         _logger = logger;
         SaveGeneralCommand = Command(SaveGeneralAsync);
+        SaveMaintenanceWindowCommand = Command(SaveMaintenanceWindowAsync);
         SaveEmailCommand = Command(SaveEmailAsync);
         RemoveEmailCommand = Command(token => ChangeNotificationsAsync(
             ct => _notificationSettingsService.RemoveEmailAsync(ct), "Email settings removed.", token));
@@ -196,6 +202,12 @@ public partial class SettingsViewModel : ObservableObject
     public string PresetHint => SelectedPreset?.Hint ?? string.Empty;
 
     public IAsyncRelayCommand SaveGeneralCommand { get; }
+    public IAsyncRelayCommand SaveMaintenanceWindowCommand { get; }
+
+    /// <summary>Monday first, as people read a week.</summary>
+    public IReadOnlyList<DayChoice> WindowDays { get; } =
+        [.. new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday }
+            .Select(day => new DayChoice(day))];
     public IAsyncRelayCommand SaveEmailCommand { get; }
     public IAsyncRelayCommand RemoveEmailCommand { get; }
     public IAsyncRelayCommand AddChatCommand { get; }
@@ -216,6 +228,11 @@ public partial class SettingsViewModel : ObservableObject
             var config = await _settingsService.GetAsync(token).ConfigureAwait(true);
             DefaultEmail = config.DefaultEmail ?? string.Empty;
             RenewalThresholdDays = config.RenewalThresholdDays;
+            var window = config.MaintenanceWindow;
+            UseMaintenanceWindow = window is not null;
+            foreach (var day in WindowDays) day.IsChecked = window?.Days.Contains(day.Day) ?? day.Day is not (DayOfWeek.Saturday or DayOfWeek.Sunday);
+            WindowFrom = Hours[window?.StartHour ?? 1];
+            WindowTo = Hours[window?.EndHour ?? 5];
             var reminders = config.Reminders;
             ReminderStartDays = reminders.StartDays;
             ReminderRepeatDays = reminders.RepeatDays;
@@ -488,6 +505,17 @@ public partial class SettingsViewModel : ObservableObject
         ResultMessage = "General settings saved. Staging remains the default for new issuance.";
     }, token);
 
+    private Task SaveMaintenanceWindowAsync(CancellationToken token) => RunAsync(async ct =>
+    {
+        var window = UseMaintenanceWindow
+            ? new MaintenanceWindow([.. WindowDays.Where(day => day.IsChecked).Select(day => day.Day)], WindowFrom?.Hour ?? 1, WindowTo?.Hour ?? 5)
+            : null;
+        await _settingsService.SaveMaintenanceWindowAsync(window, ct).ConfigureAwait(true);
+        ResultMessage = window is null
+            ? "Maintenance window removed. Automatic renewals run when they are due."
+            : $"Maintenance window saved: {window.Describe()}. A renewal close to expiry does not wait for it.";
+    }, token);
+
     private Task SaveEmailAsync(CancellationToken token) => ChangeNotificationsAsync(ct => _notificationSettingsService.SetEmailAsync(
             new EmailSettingsRequest(
                 EmailHost, EmailPort, EmailSecurity, EmailAuthentication,
@@ -600,7 +628,7 @@ public partial class SettingsViewModel : ObservableObject
 
     private IEnumerable<AsyncRelayCommand> AllCommands() =>
     [
-        (AsyncRelayCommand)SaveGeneralCommand, (AsyncRelayCommand)SaveEmailCommand, (AsyncRelayCommand)RemoveEmailCommand,
+        (AsyncRelayCommand)SaveGeneralCommand, (AsyncRelayCommand)SaveMaintenanceWindowCommand, (AsyncRelayCommand)SaveEmailCommand, (AsyncRelayCommand)RemoveEmailCommand,
         (AsyncRelayCommand)AddChatCommand, (AsyncRelayCommand)RemoveChatCommand, (AsyncRelayCommand)SaveHeartbeatCommand,
         (AsyncRelayCommand)RemoveHeartbeatCommand, (AsyncRelayCommand)SaveOptionsCommand, (AsyncRelayCommand)TestNotificationCommand,
         (AsyncRelayCommand)RefreshServiceCommand, (AsyncRelayCommand)RestartServiceCommand,
@@ -615,4 +643,14 @@ public partial class SettingsViewModel : ObservableObject
 public sealed record HourOption(int Hour)
 {
     public override string ToString() => $"{Hour:00}:00";
+}
+
+/// <summary>A day that can be ticked for the maintenance window.</summary>
+public sealed partial class DayChoice(DayOfWeek day) : ObservableObject
+{
+    [ObservableProperty] private bool isChecked;
+
+    public DayOfWeek Day { get; } = day;
+
+    public string Label { get; } = day.ToString()[..3];
 }

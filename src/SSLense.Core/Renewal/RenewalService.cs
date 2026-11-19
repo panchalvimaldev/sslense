@@ -38,6 +38,9 @@ internal sealed class RenewalService : IRenewalService
     private readonly ICertificateAuthorityRegistry _authorities;
     private readonly ICertificateSharingService? _sharing;
 
+    /// <summary>The server's time zone, in which the maintenance window is set; tests choose one.</summary>
+    internal TimeZoneInfo TimeZone { get; init; } = TimeZoneInfo.Local;
+
     public RenewalService(
         IManagedCertificateStore managedStore,
         IConfigStore configStore,
@@ -189,6 +192,25 @@ internal sealed class RenewalService : IRenewalService
                     $"(certificate expires {certificate.NotAfter:yyyy-MM-dd}).",
                     certificate.Thumbprint));
                 continue;
+            }
+
+            // A scheduled renewal that is due waits for the maintenance window, but never so close to expiry that it
+            // could expire waiting. A renewal started by an administrator runs now.
+            if (request.Scheduled && !request.Force && config.MaintenanceWindow is { } maintenance)
+            {
+                if (maintenance.Wait(certificate, DateTimeOffset.UtcNow, TimeZone) is { } wait)
+                {
+                    results.Add(new RenewalResult(certificate.SiteName, false, false, wait.Reason, certificate.Thumbprint));
+                    continue;
+                }
+
+                if (!maintenance.IsOpen(DateTimeOffset.UtcNow, TimeZone))
+                {
+                    progress?.Report(new ProgressEvent(
+                        "schedule",
+                        $"Renewing {certificate.SiteName} outside the maintenance window: it expires {certificate.NotAfter:yyyy-MM-dd HH:mm} UTC, " +
+                        "too soon to wait for the next one."));
+                }
             }
 
             results.Add(await RenewOneAsync(certificate, request.Scheduled, progress, cancellationToken)
