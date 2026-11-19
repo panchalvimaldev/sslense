@@ -609,6 +609,9 @@ public static class ErrorCodes
     public static readonly ErrorCode RemoteNameTaken = new("SSL6028", nameof(RemoteNameTaken), "Name already used",
         "A certificate on another machine needs a name that no other certificate or IIS site has.");
 
+    public static readonly ErrorCode BulkFileInvalid = new("SSL6029", nameof(BulkFileInvalid), "Bulk file not valid",
+        "Each row needs a site and an email (or the default ACME email in Settings), and a validation of http, http-self or dns. A header row may name the columns: site, hosts, validation, names, email, ca, profile, key.");
+
     public static readonly ErrorCode ChatRejected = new("SSL7001", nameof(ChatRejected), "Chat message rejected",
         "The chat service refused the message. Check the webhook URL still exists, and send a test.");
 
@@ -951,6 +954,7 @@ public static class ErrorCodes
         DataFolderPermissions,
         IpCertificateNeedsHttpSelf,
         RemoteNameTaken,
+        BulkFileInvalid,
         ChatRejected,
         SmtpUsernameMissing,
         SmtpPasswordMissing,

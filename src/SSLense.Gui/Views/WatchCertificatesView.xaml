@@ -11,7 +11,10 @@
                 <TextBlock Text="Tick the HTTPS bindings to watch. SSLense adds reminders and checks; nothing in IIS changes." Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" VerticalAlignment="Center" />
             </DockPanel>
             <DockPanel DockPanel.Dock="Bottom" Margin="20,14">
-                <Button Content="{Binding AdoptCheckedLabel}" Command="{Binding AdoptCheckedCommand}" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" />
+<StackPanel Orientation="Horizontal">
+                                <Button Content="{Binding AdoptCheckedLabel}" Command="{Binding AdoptCheckedCommand}" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" />
+                <Button Content="Tick all" Command="{Binding TickAllCommand}" Style="{StaticResource LinkButton}" Margin="14,0,0,0" VerticalAlignment="Center" AutomationProperties.Name="Tick every binding that can be watched" />
+                </StackPanel>
             </DockPanel>
             <DataGrid ItemsSource="{Binding Bindings}" SelectionMode="Single" MaxHeight="440" AutomationProperties.Name="HTTPS bindings"
                       BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1">
