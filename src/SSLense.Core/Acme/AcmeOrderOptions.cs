@@ -15,10 +15,15 @@ public enum CertificateKeyType
 /// <summary>How an order differs from the CA's defaults.</summary>
 /// <param name="PreferredChain">The root the chain should end at, as the CA names it; the default chain when the CA offers none to it.</param>
 /// <param name="Profile">An ACME profile the CA lists in its directory, such as Let's Encrypt's <c>shortlived</c>.</param>
+/// <param name="Replaces">
+/// The ARI identifier of the certificate a renewal replaces (RFC 9773), so the CA can treat the order as its renewal. Only a
+/// hint: an order the CA refuses with it is sent again without it.
+/// </param>
 public sealed record AcmeOrderOptions(
     CertificateKeyType KeyType = CertificateKeyType.EcdsaP256,
     string? PreferredChain = null,
-    string? Profile = null)
+    string? Profile = null,
+    string? Replaces = null)
 {
     public static AcmeOrderOptions Default { get; } = new();
 

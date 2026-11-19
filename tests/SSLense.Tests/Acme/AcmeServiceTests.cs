@@ -910,6 +910,42 @@ public sealed class AcmeServiceTests
         managed.Verify(value => value.UpsertAsync(It.Is<ManagedCertificate>(record => record.SiteName == "My Site/b.example.com"), CancellationToken.None));
     }
 
+    [Theory]
+    [InlineData(CertificateSource.Acme, CertificateAuthorities.LetsEncryptStagingId, true)]
+    [InlineData(CertificateSource.Acme, CertificateAuthorities.LetsEncryptId, false)]
+    [InlineData(CertificateSource.Imported, CertificateAuthorities.LetsEncryptStagingId, false)]
+    public async Task IssueAsync_ARenewal_TellsTheCaWhichCertificateItReplaces_OnlyForItsOwnCertificate(
+        CertificateSource source, string previousAuthority, bool replaces)
+    {
+        using var ca = new SSLense.Tests.Certificates.TestCertificateAuthority();
+        var (current, key) = ca.IssueWithNewKey("example.com");
+        key.Dispose();
+        using var currentCertificate = current;
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", current.Thumbprint, "My", true));
+        harness.SetManaged(new ManagedCertificate(
+            "My Site", ["example.com"], "admin@example.com", current.Thumbprint, current.NotBefore, current.NotAfter,
+            AuthorityId: previousAuthority, Source: source, ValidationMethod: ValidationMethod.Dns01Provider));
+        harness.Store.Setup(value => value.OpenAsync(current.Thumbprint, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => X509CertificateLoader.LoadCertificate(current.RawData));
+        AcmeOrderOptions? sent = null;
+        harness.Protocol.Setup(value => value.CreateDnsOrderAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateAuthority>(), It.IsAny<AcmeOrderOptions>(), It.IsAny<CancellationToken>()))
+            .Callback<string, IReadOnlyList<string>, CertificateAuthority, AcmeOrderOptions, CancellationToken>((_, _, _, options, _) => sent = options)
+            .ReturnsAsync(harness.Order.Object);
+
+        await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider));
+
+        if (replaces)
+        {
+            Assert.Equal(SSLense.Core.Renewal.AcmeRenewalInfoProvider.CreateCertificateId(current), sent!.Replaces);
+        }
+        else
+        {
+            Assert.Null(sent?.Replaces);
+        }
+    }
+
     [Fact]
     public async Task IssueAsync_HostsOnly_RecordsNoCertificateNames()
     {

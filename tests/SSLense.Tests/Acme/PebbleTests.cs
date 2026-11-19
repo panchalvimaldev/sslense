@@ -379,6 +379,34 @@ public sealed class PebbleTests(PebbleServer pebble) : IClassFixture<PebbleServe
         Assert.NotEmpty(next.Challenges);
     }
 
+    /// <summary>The ARI replaces field (RFC 9773) on a renewal order; a refused hint falls back to a plain order.</summary>
+    [PebbleFact]
+    public async Task ARenewalOrder_SaysWhichCertificateItReplaces_AndARefusedHintStillOrders()
+    {
+        var client = Client(new MemoryAccountStore());
+        var first = await client.CreateOrderAsync(Email, ["ari.example.com"], Authority(), CancellationToken.None);
+        foreach (var challenge in first.Challenges)
+        {
+            await first.ValidateAsync(challenge, CancellationToken.None);
+        }
+
+        using var current = X509Certificate2.CreateFromPem((await first.FinalizeAsync("ari.example.com", "password", CancellationToken.None)).CertificatePem);
+        var replaces = SSLense.Core.Renewal.AcmeRenewalInfoProvider.CreateCertificateId(current);
+
+        foreach (var hint in new[] { replaces, replaces, "bm90LWEta2V5.AQID" })
+        {
+            // The second use of the same certificate is refused by the CA, as is a certificate it never issued.
+            var renewal = await client.CreateOrderAsync(Email, ["ari.example.com"], Authority(), new AcmeOrderOptions(Replaces: hint), CancellationToken.None);
+            foreach (var challenge in renewal.Challenges)
+            {
+                await renewal.ValidateAsync(challenge, CancellationToken.None);
+            }
+
+            var bundle = await renewal.FinalizeAsync("ari.example.com", "password", CancellationToken.None);
+            Assert.Equal(["ari.example.com"], DnsNames(bundle));
+        }
+    }
+
     private static string[] DnsNames(CertificateBundle bundle)
     {
         using var certificate = X509Certificate2.CreateFromPem(bundle.CertificatePem);
