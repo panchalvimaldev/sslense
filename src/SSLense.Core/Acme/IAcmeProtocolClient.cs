@@ -37,4 +37,20 @@ public interface IAcmeProtocolClient
         options.IsDefault
             ? CreateDnsOrderAsync(email, names, authority, cancellationToken)
             : throw new NotSupportedException("This ACME client cannot change the key, chain, or profile.");
+
+    /// <summary>
+    /// Revokes a certificate this server's account for <paramref name="authority"/> issued, signed with the account key
+    /// (docs/design/compromise-recovery.md).
+    /// </summary>
+    Task RevokeAsync(
+        string email,
+        CertificateAuthority authority,
+        byte[] certificateDer,
+        CertificateRevocationReason reason,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException("This ACME client cannot revoke certificates.");
+
+    /// <summary>Replaces the account's key with a new one at the CA, then saves the new key in its place.</summary>
+    Task ChangeAccountKeyAsync(CertificateAuthority authority, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("This ACME client cannot change the account key.");
 }

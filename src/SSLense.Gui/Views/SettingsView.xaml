@@ -159,6 +159,7 @@
         <DockPanel>
          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
           <Button Content="Test" Tag="test" Click="OnCaRowClick" Margin="0,0,8,0" ToolTip="Reads the CA's directory and reports what it requires and offers. Creates no account."/>
+          <Button Content="Replace account key" Tag="account-key" Click="OnCaRowClick" Margin="0,0,8,0" Style="{StaticResource LinkButton}" ToolTip="For an ACME account key that may have been copied: the certificate authority switches the account to a new key, and the old one stops working. Certificates are not affected."/>
           <Button Content="Remove" Tag="remove" Click="OnCaRowClick" Visibility="{Binding IsBuiltIn, Converter={StaticResource InverseBooleanToVisibilityConverter}}" Style="{StaticResource LinkButton}" Foreground="{StaticResource DangerBrush}" ToolTip="Refused while a certificate renews with it. Let's Encrypt cannot be removed."/>
          </StackPanel>
          <StackPanel>

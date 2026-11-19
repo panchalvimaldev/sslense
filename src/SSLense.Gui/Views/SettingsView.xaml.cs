@@ -89,7 +89,8 @@ public partial class SettingsView : UserControl
         if (ViewModel is not { } vm || sender is not FrameworkElement { DataContext: SSLense.Core.Acme.CertificateAuthorityOverview authority, Tag: string action }) return;
         vm.SelectedCertificateAuthority = authority;
         if (action == "remove" && !Confirm($"Remove the certificate authority '{authority.Name}'? Its ACME account key on this server is deleted.")) return;
-        var command = action == "remove" ? vm.RemoveCaCommand : vm.TestCaCommand;
+        if (action == "account-key" && !Confirm($"Replace this server's ACME account key for '{authority.Name}'? The old key stops working at once. Certificates are not affected.")) return;
+        var command = action switch { "remove" => vm.RemoveCaCommand, "account-key" => vm.ChangeAccountKeyCommand, _ => vm.TestCaCommand };
         if (command.CanExecute(null)) await command.ExecuteAsync(null);
     }
 

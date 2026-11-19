@@ -55,6 +55,7 @@ public static class DependencyInjection
         services.AddSingleton<ITlsBindingProbe, TlsBindingProbe>();
         services.AddTransient<IIisService, IisService>();
         services.AddTransient<ICertificateSharingService, CertificateSharingService>();
+        services.AddTransient<IRevocationService, RevocationService>();
         services.AddTransient<DeploymentService>(provider => new DeploymentService(
             provider.GetRequiredService<IManagedCertificateStore>(),
             new PrivateKeyAccess(provider.GetRequiredService<ICertificateStore>()),

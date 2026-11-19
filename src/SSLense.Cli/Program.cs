@@ -387,6 +387,8 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     rootCommand.Subcommands.Add(CreateNotificationsCommand(services));
     rootCommand.Subcommands.Add(CreateRemindersCommand(services));
     rootCommand.Subcommands.Add(CreateWindowCommand(services));
+    rootCommand.Subcommands.Add(CreateRevokeCommand(services));
+    rootCommand.Subcommands.Add(CreateAccountCommand(services));
     AddImportedCertificateCommands(rootCommand, services);
 
     return rootCommand;
@@ -1673,6 +1675,96 @@ static Command CreateNotificationsCommand(IServiceProvider services)
     clearCommand.SetAction((_, token) => RunNotificationChangeAsync(
         () => Settings().ClearAsync(token), "All notification channels were removed. The Windows Event Log stays on."));
     command.Subcommands.Add(clearCommand);
+    return command;
+}
+
+// Recovery from a compromised key or account (docs/design/compromise-recovery.md).
+static Command CreateRevokeCommand(IServiceProvider services)
+{
+    var siteOption = new Option<string?>("--site") { Description = "The certificate SSLense manages, by its name." };
+    var fileOption = new Option<string?>("--file") { Description = "A certificate file (PEM or DER) this server's account issued, such as one SSLense saved after a failed revocation." };
+    var caOption = new Option<string?>("--ca") { Description = "With --file: the certificate authority that issued it." };
+    var reasonOption = new Option<string>("--reason") { Description = "key-compromise (default), superseded, cessation, or unspecified.", DefaultValueFactory = _ => "key-compromise" };
+    reasonOption.AcceptOnlyFromAmong("key-compromise", "superseded", "cessation", "unspecified");
+    var noReplaceOption = new Option<bool>("--no-replace") { Description = "Revoke without installing a replacement first. Its sites keep serving the revoked certificate, which browsers refuse." };
+    var yesOption = new Option<bool>("--yes") { Description = "Confirm: revocation cannot be undone." };
+    var command = new Command(
+        "revoke",
+        "Revoke a certificate at its certificate authority. By default a new certificate with a new key is installed first, so no site serves a revoked certificate.");
+    foreach (var option in new Option[] { siteOption, fileOption, caOption, reasonOption, noReplaceOption, yesOption })
+    {
+        command.Options.Add(option);
+    }
+
+    command.SetAction(async (parseResult, token) =>
+    {
+        var site = parseResult.GetValue(siteOption);
+        var file = parseResult.GetValue(fileOption);
+        if ((site is null) == (file is null) || (file is not null && parseResult.GetValue(caOption) is null))
+        {
+            Console.Error.WriteLine("Error: give --site, or --file with --ca.");
+            return 1;
+        }
+
+        if (!parseResult.GetValue(yesOption))
+        {
+            Console.Error.WriteLine("Error: --yes is required, because revocation cannot be undone.");
+            return 1;
+        }
+
+        var reason = parseResult.GetValue(reasonOption) switch
+        {
+            "superseded" => CertificateRevocationReason.Superseded,
+            "cessation" => CertificateRevocationReason.CessationOfOperation,
+            "unspecified" => CertificateRevocationReason.Unspecified,
+            _ => CertificateRevocationReason.KeyCompromise
+        };
+        try
+        {
+            var revocation = services.GetRequiredService<IRevocationService>();
+            Console.WriteLine(site is not null
+                ? (await revocation.RevokeAsync(site, reason, !parseResult.GetValue(noReplaceOption), new ConsoleProgress(), token).ConfigureAwait(false)).Message
+                : await revocation.RevokeFileAsync(file!, parseResult.GetValue(caOption)!, reason, token).ConfigureAwait(false));
+            return 0;
+        }
+        catch (Exception exception)
+        {
+            WriteError(exception);
+            return 1;
+        }
+    });
+    return command;
+}
+
+static Command CreateAccountCommand(IServiceProvider services)
+{
+    var command = new Command("account", "This server's ACME accounts.");
+    var caOption = new Option<string>("--ca") { Required = true, Description = "The certificate authority, such as letsencrypt-staging." };
+    var yesOption = new Option<bool>("--yes") { Description = "Confirm: the old key stops working at once." };
+    var changeKey = new Command("change-key", "Replace the account key, for example if it may have been copied. Certificates are not affected.");
+    changeKey.Options.Add(caOption);
+    changeKey.Options.Add(yesOption);
+    changeKey.SetAction(async (parseResult, token) =>
+    {
+        if (!parseResult.GetValue(yesOption))
+        {
+            Console.Error.WriteLine("Error: --yes is required, because the old key stops working at once.");
+            return 1;
+        }
+
+        try
+        {
+            Console.WriteLine(await services.GetRequiredService<IRevocationService>()
+                .ChangeAccountKeyAsync(parseResult.GetRequiredValue(caOption), token).ConfigureAwait(false));
+            return 0;
+        }
+        catch (Exception exception)
+        {
+            WriteError(exception);
+            return 1;
+        }
+    });
+    command.Subcommands.Add(changeKey);
     return command;
 }
 

@@ -33,6 +33,8 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private readonly AsyncRelayCommand _renewCommand;
     private readonly AsyncRelayCommand _removeCommand;
     private readonly AsyncRelayCommand _unmanageCommand;
+    private readonly AsyncRelayCommand _revokeCommand;
+    private readonly IRevocationService? _revocationService;
     private bool _suppressSelectionRefresh;
     private bool _isNoSite;
 
@@ -81,8 +83,10 @@ public partial class CertificateDetailsViewModel : ObservableObject
         ICertificateSharingService sharingService,
         IIisService iisService,
         IDeploymentService deploymentService,
-        InstallRenewalViewModel installRenewal)
+        InstallRenewalViewModel installRenewal,
+        IRevocationService? revocationService = null)
     {
+        _revocationService = revocationService;
         _deploymentService = deploymentService;
         InstallRenewal = installRenewal;
         installRenewal.Installed += () =>
@@ -113,6 +117,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
         _renewCommand = new AsyncRelayCommand(RenewAsync, () => CanOperate() && !IsImported && !IsManualDns);
         _removeCommand = new AsyncRelayCommand(RemoveAsync, CanOperate);
         _unmanageCommand = new AsyncRelayCommand(UnmanageAsync, CanOperate);
+        _revokeCommand = new AsyncRelayCommand(RevokeAndReplaceAsync, () => CanOperate() && _revocationService is not null);
         RenewByHandCommand = new RelayCommand(() => _navigation.Navigate("Issue", SelectedSite), () => !IsBusy && IsManualDns);
 
         SharedSites.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowSites));
@@ -232,6 +237,9 @@ public partial class CertificateDetailsViewModel : ObservableObject
 
     /// <summary>SSLense stops managing the certificate and leaves IIS and the certificate store as they are.</summary>
     public IAsyncRelayCommand UnmanageCommand => _unmanageCommand;
+
+    /// <summary>Revoke and replace, for a key that may have leaked (docs/design/compromise-recovery.md).</summary>
+    public IAsyncRelayCommand RevokeAndReplaceCommand => _revokeCommand;
 
     /// <summary>A certificate bought from a provider is renewed by the provider; this installs the renewed one.</summary>
     public IRelayCommand InstallRenewalCommand { get; }
@@ -623,6 +631,19 @@ public partial class CertificateDetailsViewModel : ObservableObject
         }, cancellationToken);
     }
 
+    private async Task RevokeAndReplaceAsync(CancellationToken cancellationToken)
+    {
+        if (SelectedSite is null || _revocationService is null) return;
+        var name = SelectedSite;
+        await RunAsync(async token =>
+        {
+            var result = await _revocationService.RevokeAsync(name, CertificateRevocationReason.KeyCompromise, replace: true, cancellationToken: token).ConfigureAwait(true);
+            _logger.LogWarning("Revoked certificate {Thumbprint} of {Certificate} and replaced it with {NewThumbprint}", result.RevokedThumbprint, name, result.NewThumbprint);
+            CertificatesChanged?.Invoke(result.Message);
+            await RefreshAsync(token).ConfigureAwait(true);
+        }, cancellationToken);
+    }
+
     private async Task UnmanageAsync(CancellationToken cancellationToken)
     {
         if (SelectedSite is null) return;
@@ -700,7 +721,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private void NotifyCommands()
     {
         (RenewByHandCommand as RelayCommand)?.NotifyCanExecuteChanged();
-        _refreshCommand?.NotifyCanExecuteChanged(); _renewCommand?.NotifyCanExecuteChanged(); _removeCommand?.NotifyCanExecuteChanged(); _unmanageCommand?.NotifyCanExecuteChanged();
+        _refreshCommand?.NotifyCanExecuteChanged(); _renewCommand?.NotifyCanExecuteChanged(); _removeCommand?.NotifyCanExecuteChanged(); _unmanageCommand?.NotifyCanExecuteChanged(); _revokeCommand?.NotifyCanExecuteChanged();
         (InstallRenewalCommand as RelayCommand)?.NotifyCanExecuteChanged();
         (CheckCommand as AsyncRelayCommand)?.NotifyCanExecuteChanged();
         (RemindersOffCommand as RelayCommand)?.NotifyCanExecuteChanged();

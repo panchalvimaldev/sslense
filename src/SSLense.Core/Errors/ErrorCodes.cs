@@ -174,6 +174,12 @@ public static class ErrorCodes
     public static readonly ErrorCode EabKeyInvalid = new("SSL2029", nameof(EabKeyInvalid), "EAB HMAC key not valid",
         "Copy the HMAC key again from the certificate authority's account page; it is Base64url text.");
 
+    public static readonly ErrorCode RevocationFailed = new("SSL2030", nameof(RevocationFailed), "Revocation failed",
+        "The certificate authority did not revoke the certificate; the message gives its reason. If SSLense already replaced it, the old certificate was saved so you can try again with 'SSLense.Cli revoke --file <path> --ca <id>'.");
+
+    public static readonly ErrorCode NoAcmeAccount = new("SSL2031", nameof(NoAcmeAccount), "No ACME account for the certificate authority",
+        "SSLense has not created an account with this certificate authority yet; it creates one with the first certificate. There is no key to replace.");
+
     public static readonly ErrorCode DnsValidationUnavailable = new("SSL3001", nameof(DnsValidationUnavailable), "DNS validation not available",
         "This SSLense process cannot use DNS validation. Use the app or the CLI on the server, or HTTP validation.");
 
@@ -425,6 +431,18 @@ public static class ErrorCodes
 
     public static readonly ErrorCode StalePendingRequests = new("SSL4046", nameof(StalePendingRequests), "Old pending requests",
         "A certificate request has waited over 30 days. Complete it with the provider's certificate, or delete it.");
+
+    public static readonly ErrorCode CertificateIsForPendingRequest = new("SSL4049", nameof(CertificateIsForPendingRequest), "Certificate belongs to a pending request",
+        "The file is the certificate your provider issued for a request SSLense created; its key is already on this server. Use Install renewal, or Complete a request ('SSLense.Cli complete').");
+
+    public static readonly ErrorCode CertificateWithoutKey = new("SSL4050", nameof(CertificateWithoutKey), "Certificate without its private key",
+        "A certificate file without its key cannot be installed on its own. Import the PFX that holds both, or complete the request SSLense created.");
+
+    public static readonly ErrorCode RevokeBoughtCertificate = new("SSL4051", nameof(RevokeBoughtCertificate), "Bought certificates are revoked by the provider",
+        "Ask your provider to revoke it (most have a button for a compromised key), get a new certificate with a new key, and install it with Install renewal.");
+
+    public static readonly ErrorCode RevokeManualDnsCertificate = new("SSL4052", nameof(RevokeManualDnsCertificate), "Manual DNS certificate cannot be replaced automatically",
+        "Renew it by hand first (Renew by hand, with a new key), then revoke the old certificate: 'SSLense.Cli revoke --file <old certificate> --ca <id>'.");
 
     public static readonly ErrorCode JournalEntryMissing = new("SSL5001", nameof(JournalEntryMissing), "Operation record missing",
         "An operation record disappeared while it was in use. Check the log, and run the health check.");
@@ -764,6 +782,8 @@ public static class ErrorCodes
         CertificateAuthorityDetailsInvalid,
         EabMissing,
         EabKeyInvalid,
+        RevocationFailed,
+        NoAcmeAccount,
         DnsValidationUnavailable,
         AcmeDnsTooManyValues,
         NoPublicNameServers,
@@ -848,6 +868,10 @@ public static class ErrorCodes
         SharingSiteGone,
         ChainProblem,
         StalePendingRequests,
+        CertificateIsForPendingRequest,
+        CertificateWithoutKey,
+        RevokeBoughtCertificate,
+        RevokeManualDnsCertificate,
         JournalEntryMissing,
         RenewedWithoutThumbprint,
         ServiceDidNotStart,
