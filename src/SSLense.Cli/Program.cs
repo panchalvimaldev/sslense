@@ -168,10 +168,10 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     };
     var validationOption = new Option<string>("--validation")
     {
-        Description = "How to prove control of the host names: http (the default, needs port 80), dns (a provider added with 'dns add'), or dns-manual (records you create by hand; no automatic renewal).",
+        Description = "How to prove control of the host names: http (the default, needs an HTTP binding on port 80), http-self (SSLense answers on port 80 itself, so only a binding for the host is needed), dns (a provider added with 'dns add'), or dns-manual (records you create by hand; no automatic renewal).",
         DefaultValueFactory = _ => "http"
     };
-    validationOption.AcceptOnlyFromAmong("http", "dns", "dns-manual");
+    validationOption.AcceptOnlyFromAmong("http", "http-self", "dns", "dns-manual");
     var issueCommand = new Command("issue", "Obtain and install a certificate, validated over HTTP or DNS.");
     issueCommand.Options.Add(validationOption);
     issueCommand.Options.Add(siteOption);
@@ -288,10 +288,10 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     var preflightHostsOption = new Option<string>("--hosts") { Required = true, Description = "Comma-separated host names." };
     var preflightValidationOption = new Option<string>("--validation")
     {
-        Description = "Which validation to check: http (the default), dns, or dns-manual. DNS checks change nothing in DNS.",
+        Description = "Which validation to check: http (the default), http-self (SSLense answering on port 80), dns, or dns-manual. DNS checks change nothing in DNS.",
         DefaultValueFactory = _ => "http"
     };
-    preflightValidationOption.AcceptOnlyFromAmong("http", "dns", "dns-manual");
+    preflightValidationOption.AcceptOnlyFromAmong("http", "http-self", "dns", "dns-manual");
     var preflightNamesOption = new Option<string?>("--names")
     {
         Description = "Comma-separated names for the certificate to cover, such as \"*.example.com,example.com\". Needs DNS validation."
@@ -399,14 +399,16 @@ static async Task<int> PreflightAsync(IPreflightService service, string site, st
     try
     {
         var hosts = hostsValue.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (validation == "http" && !string.IsNullOrWhiteSpace(namesValue))
+        if (validation is "http" or "http-self" && !string.IsNullOrWhiteSpace(namesValue))
         {
             throw new ArgumentException("--names needs --validation dns or dns-manual.");
         }
 
         // CAA checks are the same for Let's Encrypt staging and production, so the staging profile answers for both.
-        var checks = validation == "http"
-            ? await service.CheckAsync(site, hosts, token).ConfigureAwait(false)
+        var checks = validation is "http" or "http-self"
+            ? validation == "http-self"
+                ? await service.CheckAsync(site, hosts, selfHosted: true, token).ConfigureAwait(false)
+                : await service.CheckAsync(site, hosts, token).ConfigureAwait(false)
             : await service.CheckDnsAsync(
                 new DnsPreflightRequest(
                     site,
@@ -2722,7 +2724,8 @@ static async Task<int> IssueAsync(
                     KeyType: keyType is null ? CertificateKeyType.EcdsaP256 : CertificateKeyTypes.Parse(keyType),
                     PreferredChain: preferredChain,
                     Profile: profile,
-                    ReuseKey: reuseKey),
+                    ReuseKey: reuseKey,
+                    SelfHostedHttp: validation == "http-self"),
                 new ConsoleProgress(),
                 cancellationToken)
             .ConfigureAwait(false);

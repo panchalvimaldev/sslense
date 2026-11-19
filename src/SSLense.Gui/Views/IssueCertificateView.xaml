@@ -61,6 +61,7 @@
       <RadioButton GroupName="Validation" Content="DNS manual (any DNS service)" IsChecked="{Binding UseDnsManual}" AutomationProperties.Name="Manual DNS validation"/>
      </WrapPanel>
      <TextBlock Text="{Binding ValidationHint}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+     <CheckBox Content="SSLense answers the challenge itself, so the site needs no HTTP binding on port 80" IsChecked="{Binding SelfHostedHttp}" Margin="0,8,0,0" Visibility="{Binding UseHttpValidation, Converter={StaticResource BoolToVisibility}}" AutomationProperties.Name="SSLense answers the challenge itself" ToolTip="For sites with only HTTPS bindings, or whose port 80 is used by something else in IIS. SSLense answers /.well-known/acme-challenge/ on port 80 through HTTP.sys, beside IIS, only while a certificate is validated. Port 80 must still be reachable from the internet."/>
      <Border Style="{StaticResource InfoBanner}" Margin="0,10,0,0" Visibility="{Binding UseDnsManual, Converter={StaticResource BoolToVisibility}}">
       <StackPanel>
        <TextBlock Text="This certificate cannot renew automatically" FontWeight="SemiBold"/>

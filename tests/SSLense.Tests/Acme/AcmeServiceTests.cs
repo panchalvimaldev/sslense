@@ -946,6 +946,61 @@ public sealed class AcmeServiceTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IssueAsync_HttpAnsweredBySslense_NeedsNoPort80BindingOrFolder_AndIsRemembered(bool noSite)
+    {
+        // docs/design/self-hosted-http-validation.md: the site has only an HTTPS binding and no physical path.
+        var challenge = new AcmeHttpChallenge("b.example.com", "token", "key-authorization");
+        var iis = MockIis(new IisSite(1, "My Site", "Started", null, [new IisBinding("https", "*", 443, "b.example.com", null, null, true)]));
+        iis.Setup(value => value.ConfigureHttpsBindingsAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var order = new Mock<IAcmeOrderSession>();
+        order.SetupGet(value => value.Challenges).Returns([challenge]);
+        order.Setup(value => value.FinalizeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(CreateBundle());
+        var protocol = new Mock<IAcmeProtocolClient>();
+        protocol.Setup(value => value.CreateOrderAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateAuthority>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order.Object);
+        var served = new List<string>();
+        var selfHosted = new Mock<ISelfHostedChallengeServer>();
+        selfHosted.Setup(value => value.ServeAsync(It.IsAny<AcmeHttpChallenge>(), It.IsAny<CancellationToken>()))
+            .Callback<AcmeHttpChallenge, CancellationToken>((value, _) => served.Add(value.Token))
+            .ReturnsAsync(new TrackingCleanup());
+        var store = new Mock<ICertificateStore>();
+        store.Setup(value => value.ImportPfxAsync(It.IsAny<byte[]>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new InstalledCertificate("AABBCC", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(60), true));
+        var artifacts = new Mock<ICertificateArtifactStore>();
+        artifacts.Setup(value => value.SaveAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateBundle>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AcmeIssueResult("certificate.pem", null, ["b.example.com"]));
+        var managed = EmptyManagedStoreMock();
+        var service = new AcmeService(iis.Object, protocol.Object, new Mock<IChallengeHandler>(MockBehavior.Strict).Object, Mock.Of<IChallengeProbe>(),
+            artifacts.Object, store.Object, managed.Object, selfHosted: selfHosted.Object);
+
+        await service.IssueAsync(noSite
+            ? new AcmeIssueRequest("Remote Desktop", [], "admin@example.com", CertificateNames: ["b.example.com"], NoSite: true, SelfHostedHttp: true)
+            : new AcmeIssueRequest("My Site", ["b.example.com"], "admin@example.com", SelfHostedHttp: true));
+
+        Assert.Equal(["token"], served);
+        managed.Verify(value => value.UpsertAsync(It.Is<ManagedCertificate>(record => record.SelfHostedHttp && record.ValidationMethod == ValidationMethod.Http01), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task IssueAsync_HttpWithoutSslenseAnswering_StillNeedsAPort80Binding()
+    {
+        var iis = MockIis(new IisSite(1, "My Site", "Started", "C:\\inetpub\\site", [new IisBinding("https", "*", 443, "b.example.com", null, null, true)]));
+        var service = new AcmeService(iis.Object, new Mock<IAcmeProtocolClient>(MockBehavior.Strict).Object, Mock.Of<IChallengeHandler>(),
+            Mock.Of<IChallengeProbe>(), Mock.Of<ICertificateArtifactStore>(), Mock.Of<ICertificateStore>(), EmptyManagedStore());
+
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() =>
+            service.IssueAsync(new AcmeIssueRequest("My Site", ["b.example.com"], "admin@example.com")));
+
+        Assert.Contains("HTTP binding on port 80", exception.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task IssueAsync_HostsOnly_RecordsNoCertificateNames()
     {

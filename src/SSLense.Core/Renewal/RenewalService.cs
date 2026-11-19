@@ -248,6 +248,7 @@ internal sealed class RenewalService : IRenewalService
                         PreferredChain: certificate.PreferredChain,
                         Profile: certificate.Profile,
                         ReuseKey: certificate.ReuseKey,
+                        SelfHostedHttp: certificate.SelfHostedHttp,
 
                         // Confirmed when the certificate was first issued from this CA.
                         AcceptProductionRisk: true),

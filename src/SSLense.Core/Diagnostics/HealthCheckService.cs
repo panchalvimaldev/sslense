@@ -193,7 +193,7 @@ internal sealed class HealthCheckService(
                 progress?.Report(new ProgressEvent("health", $"Running pre-flight checks for {site}."));
                 try
                 {
-                    var checks = await preflightService.CheckAsync(site, certificate.Hosts, cancellationToken)
+                    var checks = await (certificate.SelfHostedHttp ? preflightService.CheckAsync(site, certificate.Hosts, selfHosted: true, cancellationToken) : preflightService.CheckAsync(site, certificate.Hosts, cancellationToken))
                         .ConfigureAwait(false);
                     results.AddRange(checks
                         .Where(check => check.Name != "Administrator")

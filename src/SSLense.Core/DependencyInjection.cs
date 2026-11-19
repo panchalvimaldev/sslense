@@ -31,6 +31,7 @@ public static class DependencyInjection
         services.AddSingleton<ICertificateAuthorityLock>(_ => new FileCertificateAuthorityLock());
         services.AddTransient<ICertificateAuthorityService, CertificateAuthorityService>();
         services.AddSingleton<IChallengeProbe, HttpChallengeProbe>();
+        services.AddSingleton<ISelfHostedChallengeServer, SelfHostedChallengeServer>();
         services.AddSingleton<IChallengeJournal, JsonChallengeJournal>();
         services.AddSingleton<IIisSectionLocks, IisSectionLocks>();
         services.AddTransient<IChallengeHandler, Http01Handler>();

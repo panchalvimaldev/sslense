@@ -38,7 +38,7 @@ Already done and only to be marked on the roadmap: private-key permissions for I
 
 | # | Feature | Size | Notes |
 |---|---|---|---|
-| 5 | HTTP validation without a port 80 binding | M | SSLense answers the challenge itself through HTTP.sys, which shares port 80 with IIS |
+| 5 | HTTP validation without a port 80 binding **(done)** | M | SSLense answers the challenge itself through HTTP.sys, which shares port 80 with IIS |
 | 6–10 | Built-in DNS providers: Amazon Route 53, Azure DNS, Google Cloud DNS, DigitalOcean, Hetzner | S–M each | One pull request each, over HTTPS without SDKs. Each stays labelled untested until it has run on a real account |
 | 11 | Certificates for IP addresses | M | Let's Encrypt issues them with short-lived profiles; validated over HTTP or TLS-ALPN, bound in IIS by IP |
 | 12 | TLS-ALPN-01 validation | Design first | IIS owns port 443 through HTTP.sys, which cannot answer this challenge. The design decides whether a safe way exists, for example briefly on a server without HTTPS sites, or records that it does not |

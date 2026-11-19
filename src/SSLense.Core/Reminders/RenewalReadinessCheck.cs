@@ -59,7 +59,7 @@ internal sealed class RenewalReadinessCheck(
             try
             {
                 var failed = certificate.ValidationMethod == ValidationMethod.Http01
-                    ? (await preflight.CheckAsync(certificate.SiteName, certificate.Hosts, cancellationToken).ConfigureAwait(false))
+                    ? (await (certificate.SelfHostedHttp ? preflight.CheckAsync(certificate.SiteName, certificate.Hosts, selfHosted: true, cancellationToken) : preflight.CheckAsync(certificate.SiteName, certificate.Hosts, cancellationToken)).ConfigureAwait(false))
                         .Where(check => !check.Succeeded)
                         .Select(check => $"'{check.Name}' failed: {check.Message}")
                         .ToArray()

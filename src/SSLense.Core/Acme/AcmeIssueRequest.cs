@@ -36,7 +36,8 @@ public sealed record AcmeIssueRequest(
     CertificateKeyType KeyType = CertificateKeyType.EcdsaP256,
     string? PreferredChain = null,
     string? Profile = null,
-    bool ReuseKey = false)
+    bool ReuseKey = false,
+    bool SelfHostedHttp = false)
 {
     public AcmeOrderOptions OrderOptions => new(KeyType, string.IsNullOrWhiteSpace(PreferredChain) ? null : PreferredChain.Trim(), string.IsNullOrWhiteSpace(Profile) ? null : Profile.Trim());
 }
