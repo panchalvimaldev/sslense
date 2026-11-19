@@ -592,6 +592,12 @@ SSLense refused to pass an unexpected zone, record name or value to the script. 
 
 Add an A or AAAA record for the host name at your DNS host.
 
+<a id="ssl3039"></a>
+
+### SSL3039: The DNS service refused the request
+
+The message gives the service's answer. Check the credentials and that they may change records in this zone: for Route 53 the IAM policy (route53:ChangeResourceRecordSets, ListResourceRecordSets, GetHostedZone), for Azure the DNS Zone Contributor role, for Google the DNS Administrator role, and that the zone ID is right.
+
 ## SSL4xxx: Certificates: import, requests, the Windows store, keys and sharing
 
 <a id="ssl4001"></a>

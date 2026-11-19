@@ -53,8 +53,50 @@ public partial class SettingsViewModel : ObservableObject
     private const string ScriptService = "Script";
     private const string AcmeDnsService = "acme-dns";
 
-    /// <summary>Cloudflare is built in; a script works with any DNS service that has an API; acme-dns works with any DNS host.</summary>
-    public IReadOnlyList<string> DnsServices { get; } = [CloudflareService, ScriptService, AcmeDnsService];
+    /// <summary>The built-in services, each with its own credentials (docs/design/dns-providers.md).</summary>
+    private static readonly IReadOnlyDictionary<string, DnsProviderType> BuiltIn = new Dictionary<string, DnsProviderType>
+    {
+        [CloudflareService] = DnsProviderType.Cloudflare,
+        ["Amazon Route 53"] = DnsProviderType.Route53,
+        ["Azure DNS"] = DnsProviderType.AzureDns,
+        ["Google Cloud DNS"] = DnsProviderType.GoogleCloudDns,
+        ["DigitalOcean"] = DnsProviderType.DigitalOcean,
+        ["Hetzner"] = DnsProviderType.Hetzner
+    };
+
+    /// <summary>The built-in services; a script works with any DNS service that has an API; acme-dns works with any DNS host.</summary>
+    public IReadOnlyList<string> DnsServices { get; } = [.. BuiltIn.Keys, ScriptService, AcmeDnsService];
+
+    /// <summary>A built-in service, which needs a token or credentials.</summary>
+    public bool NewDnsIsBuiltIn => BuiltIn.ContainsKey(NewDnsService);
+
+    public bool NewDnsNeedsZoneId => BuiltIn.GetValueOrDefault(NewDnsService) is DnsProviderType.Cloudflare or DnsProviderType.Route53 or DnsProviderType.AzureDns or DnsProviderType.GoogleCloudDns && NewDnsIsBuiltIn;
+
+    public string NewDnsZoneIdLabel => BuiltIn.GetValueOrDefault(NewDnsService) switch
+    {
+        DnsProviderType.Route53 => "Hosted zone ID",
+        DnsProviderType.AzureDns => "Subscription ID/resource group",
+        DnsProviderType.GoogleCloudDns => "Managed zone name",
+        _ => "Cloudflare zone ID"
+    };
+
+    public string NewDnsTokenLabel => BuiltIn.GetValueOrDefault(NewDnsService) switch
+    {
+        DnsProviderType.Route53 => "Access key ID:secret access key",
+        DnsProviderType.AzureDns => "Tenant ID:client ID:client secret",
+        DnsProviderType.GoogleCloudDns => "Service account key (JSON)",
+        _ => "API token"
+    };
+
+    public string NewDnsHint => BuiltIn.GetValueOrDefault(NewDnsService) switch
+    {
+        DnsProviderType.Route53 => "Use an IAM access key whose policy allows route53:GetHostedZone, ListResourceRecordSets and ChangeResourceRecordSets on this hosted zone only. Enter it as the access key ID, a colon, and the secret access key. Not yet tested on a real account.",
+        DnsProviderType.AzureDns => "Use an app registration with the DNS Zone Contributor role on this zone only. Enter the tenant ID, client ID and a client secret, separated by colons; the zone ID is the zone's subscription ID and resource group, as <subscription ID>/<resource group>. Not yet tested on a real account.",
+        DnsProviderType.GoogleCloudDns => "Use a service account with the DNS Administrator role, and paste the contents of its JSON key file. The managed zone name is shown in the Cloud DNS console, such as example-com. Not yet tested on a real account.",
+        DnsProviderType.DigitalOcean => "Use a personal access token with read and write access to Domains. The zone is the domain as DigitalOcean lists it. Not yet tested on a real account.",
+        DnsProviderType.Hetzner => "Use a Hetzner Cloud API token with read and write permission, of the project that holds the zone. Not yet tested on a real account.",
+        _ => "The zone ID is on the domain's Overview page in Cloudflare."
+    } + " The credentials are encrypted on this server and are never shown again.";
 
     public bool NewDnsIsScript => NewDnsService == ScriptService;
 
@@ -73,6 +115,11 @@ public partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(NewDnsIsCloudflare));
         OnPropertyChanged(nameof(NewDnsIsAcmeDns));
         OnPropertyChanged(nameof(NewDnsUsesZone));
+        OnPropertyChanged(nameof(NewDnsIsBuiltIn));
+        OnPropertyChanged(nameof(NewDnsNeedsZoneId));
+        OnPropertyChanged(nameof(NewDnsZoneIdLabel));
+        OnPropertyChanged(nameof(NewDnsTokenLabel));
+        OnPropertyChanged(nameof(NewDnsHint));
         OnPropertyChanged(nameof(NewAcmeDnsShowsImport));
     }
 
@@ -373,7 +420,7 @@ public partial class SettingsViewModel : ObservableObject
         await _dnsProviders.AddAsync(
                 isScript
                     ? new DnsProviderRequest(NewDnsName, DnsProviderType.Script, NewDnsZone, null, NewDnsToken, NewDnsScriptPath, timeout)
-                    : new DnsProviderRequest(NewDnsName, DnsProviderType.Cloudflare, NewDnsZone, NewDnsZoneId, NewDnsToken),
+                    : new DnsProviderRequest(NewDnsName, BuiltIn[NewDnsService], NewDnsZone, NewDnsNeedsZoneId ? NewDnsZoneId : null, NewDnsToken),
                 ct)
             .ConfigureAwait(true);
         var name = NewDnsName.Trim();

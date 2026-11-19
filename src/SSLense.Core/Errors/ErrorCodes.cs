@@ -297,6 +297,9 @@ public static class ErrorCodes
     public static readonly ErrorCode HostDoesNotResolve = new("SSL3038", nameof(HostDoesNotResolve), "Host name does not resolve",
         "Add an A or AAAA record for the host name at your DNS host.");
 
+    public static readonly ErrorCode DnsProviderRequestFailed = new("SSL3039", nameof(DnsProviderRequestFailed), "The DNS service refused the request",
+        "The message gives the service's answer. Check the credentials and that they may change records in this zone: for Route 53 the IAM policy (route53:ChangeResourceRecordSets, ListResourceRecordSets, GetHostedZone), for Azure the DNS Zone Contributor role, for Google the DNS Administrator role, and that the zone ID is right.");
+
     public static readonly ErrorCode AdoptOtherPort = new("SSL4001", nameof(AdoptOtherPort), "Certificate served on another port",
         "SSLense manages HTTPS bindings on port 443. Watch it by its port-443 binding, or move the binding to port 443.");
 
@@ -826,6 +829,7 @@ public static class ErrorCodes
         DnsProviderDetailsInvalid,
         DnsScriptInputRefused,
         HostDoesNotResolve,
+        DnsProviderRequestFailed,
         AdoptOtherPort,
         AdoptNothingBound,
         AdoptSeveralCertificates,
