@@ -14,7 +14,8 @@ internal sealed class CertificateManagementService(
     ILogService logService,
     ICertificateAuthorityRegistry? authorities = null,
     IServedCertificateCheck? servedCheck = null,
-    ICertificateOperationLock? operationLock = null) : ICertificateManagementService
+    ICertificateOperationLock? operationLock = null,
+    IRemoteCertificateReader? remoteReader = null) : ICertificateManagementService
 {
     private readonly ICertificateAuthorityRegistry _authorities = authorities ?? CertificateAuthorityRegistry.BuiltInOnly;
     private readonly ICertificateOperationLock _operationLock = operationLock ?? new NoOpCertificateOperationLock();
@@ -37,7 +38,7 @@ internal sealed class CertificateManagementService(
             record.SiteName,
             record.Hosts,
             record.Thumbprint,
-            installed?.Issuer ?? "Unknown",
+            installed?.Issuer ?? record.Issuer ?? "Unknown",
             installed?.NotBefore ?? record.NotBefore,
             installed?.NotAfter ?? record.NotAfter,
             boundSites,
@@ -137,6 +138,24 @@ internal sealed class CertificateManagementService(
     {
         var check = servedCheck ?? throw new SslenseException(ErrorCodes.CheckUnavailable, "The served-certificate check is not available.");
         var record = await FindRecordAsync(name, cancellationToken).ConfigureAwait(false);
+        if (record.Source == CertificateSource.Remote && remoteReader is not null)
+        {
+            // On another machine: read what it serves now (docs/design/remote-certificates.md).
+            var endpoint = $"{record.Hosts[0]}:{record.RemotePort ?? 443}";
+            try
+            {
+                using var served = await remoteReader.ReadAsync(record.Hosts[0], record.RemotePort ?? 443, cancellationToken).ConfigureAwait(false);
+                return string.Equals(served.Thumbprint, record.Thumbprint, StringComparison.OrdinalIgnoreCase)
+                    ? new CertificateCheckResult(true, $"{endpoint} serves the watched certificate.")
+                    : new CertificateCheckResult(false, ErrorCodes.ServedCertificateMismatch.Format(
+                        $"{endpoint} now serves another certificate, which expires {served.NotAfter.ToUniversalTime():yyyy-MM-dd}. The daily check takes it over."));
+            }
+            catch (SslenseException exception)
+            {
+                return new CertificateCheckResult(false, exception.Message);
+            }
+        }
+
         if (record.NoSite)
         {
             return new CertificateCheckResult(true, "This certificate is not on an IIS site, so there is no binding to check. Its deployment steps hand it to its services.");

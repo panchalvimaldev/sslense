@@ -157,7 +157,11 @@ public sealed record ReminderDigest(
     {
         var certificate = item.Certificate;
         var name = Name(certificate);
-        var source = certificate.Source == CertificateSource.Imported
+        var remote = certificate.Source == CertificateSource.Remote;
+        var where = $"{certificate.Hosts.FirstOrDefault()}:{certificate.RemotePort ?? 443}";
+        var source = remote
+            ? $"on {where}"
+            : certificate.Source == CertificateSource.Imported
             ? certificate.Issuer ?? "another provider"
             : certificate.AuthorityId switch
             {
@@ -171,7 +175,9 @@ public sealed record ReminderDigest(
         {
             ReminderItemKind.Expired =>
                 $"{name} ({source}): EXPIRED on {Date(certificate.NotAfter)}. Browsers now reject this site's certificate. " +
-                (certificate.Source == CertificateSource.Imported
+                (remote
+                    ? $"Renew it on the machine that serves it; SSLense notices the new certificate at its next daily check."
+                    : certificate.Source == CertificateSource.Imported
                     ? "Order a replacement from your provider, then select the certificate in SSLense and use Install renewal."
                     : certificate.ValidationMethod == ValidationMethod.Dns01Manual
                         ? $"It uses manual DNS validation, so renew it by hand: {Renewal.ManualDnsRenewal.Command(certificate)}"
@@ -179,6 +185,9 @@ public sealed record ReminderDigest(
             ReminderItemKind.ManualDnsRenewalDue =>
                 $"{name} ({source}): expires {Date(certificate.NotAfter)}, {item.DaysLeft} days left. It uses manual DNS validation, " +
                 $"so SSLense cannot renew it on its own. Renew it by hand: {Renewal.ManualDnsRenewal.Command(certificate)}",
+            ReminderItemKind.ManualRenewalDue when remote =>
+                $"{name} ({source}): expires {Date(certificate.NotAfter)}, {item.DaysLeft} days left. Renew it on the machine that serves it; " +
+                "SSLense notices the new certificate at its next daily check.",
             ReminderItemKind.ManualRenewalDue =>
                 $"{name} ({source}): expires {Date(certificate.NotAfter)}, {item.DaysLeft} days left. Order the renewal from " +
                 "your provider. When it arrives, select the certificate in SSLense and use Install renewal. If the provider needs a certificate request (CSR) first, create one with Add certificate.",
@@ -335,7 +344,7 @@ public static class ReminderDigestBuilder
         }
 
         var interval = RepeatInterval(certificate, settings, now);
-        if (certificate.Source == CertificateSource.Imported)
+        if (certificate.Source is CertificateSource.Imported or CertificateSource.Remote)
         {
             if (!inWindow)
             {

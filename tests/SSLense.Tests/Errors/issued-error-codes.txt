@@ -241,3 +241,5 @@ SSL4052 RevokeManualDnsCertificate
 SSL1028 SelfHostedPortUnavailable
 SSL3039 DnsProviderRequestFailed
 SSL6027 IpCertificateNeedsHttpSelf
+SSL4053 RemoteUnreachable
+SSL6028 RemoteNameTaken

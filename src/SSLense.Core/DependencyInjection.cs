@@ -62,6 +62,8 @@ public static class DependencyInjection
         services.AddTransient<IIisService, IisService>();
         services.AddTransient<ICertificateSharingService, CertificateSharingService>();
         services.AddTransient<IRevocationService, RevocationService>();
+        services.AddSingleton<IRemoteCertificateReader, RemoteCertificateReader>();
+        services.AddTransient<IRemoteCertificateService, RemoteCertificateService>();
         services.AddTransient<DeploymentService>(provider => new DeploymentService(
             provider.GetRequiredService<IManagedCertificateStore>(),
             new PrivateKeyAccess(provider.GetRequiredService<ICertificateStore>()),

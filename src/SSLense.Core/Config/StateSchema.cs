@@ -20,9 +20,10 @@ internal static class StateSchema
     /// know. Version 9 adds the key type, preferred chain, and profile, which 0.20 would
     /// replace with the defaults at renewal. Version 10 adds reusing the key at renewal, which 0.21 would not do. Version 11 adds
     /// further certificates on an IIS site, named "site/host", which 0.22 would report as sites that do not exist. Version 12
-    /// adds HTTP validation answered by SSLense, which 0.23 would drop on its next save.
+    /// adds HTTP validation answered by SSLense, which 0.23 would drop on its next save. Version 13 adds
+    /// certificates on other machines, which 0.23 would try to renew.
     /// </summary>
-    public const int ManagedCertificates = 12;
+    public const int ManagedCertificates = 13;
 
     /// <summary>
     /// Version 0 had no version field. Version 2 replaced the single SMTP server and generic webhook with

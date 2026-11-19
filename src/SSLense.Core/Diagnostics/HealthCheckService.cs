@@ -36,7 +36,8 @@ internal sealed class HealthCheckService(
     ICertificateAuthorityRegistry authorities,
     IPendingRequestStore pendingRequests,
     Reminders.IServedCertificateCheck servedCheck,
-    DnsValidation.IDnsScriptStore? scripts = null) : IHealthCheckService
+    DnsValidation.IDnsScriptStore? scripts = null,
+    IRemoteCertificateReader? remoteReader = null) : IHealthCheckService
 {
     private readonly DnsValidation.IDnsScriptStore _scripts = scripts ?? new DnsValidation.DnsScriptStore();
 
@@ -134,6 +135,14 @@ internal sealed class HealthCheckService(
             foreach (var certificate in certificates)
             {
                 var site = certificate.SiteName;
+                if (certificate.Source == CertificateSource.Remote)
+                {
+                    // On another machine: only what it serves, and when that expires (docs/design/remote-certificates.md).
+                    await Check($"Served by {certificate.Hosts[0]}:{certificate.RemotePort ?? 443}", () => CheckRemoteAsync(certificate, cancellationToken)).ConfigureAwait(false);
+                    await Check($"Expiry: {site}", () => Task.FromResult(CheckExpiry(certificate))).ConfigureAwait(false);
+                    continue;
+                }
+
                 await Check($"Certificate installed: {site}", () => CheckInstalledAsync(certificate, cancellationToken))
                     .ConfigureAwait(false);
                 if (certificate.NoSite)
@@ -554,6 +563,31 @@ internal sealed class HealthCheckService(
             : certificate.ValidationMethod == ValidationMethod.Dns01Manual
                 ? $"Renew it by hand: '{ManualDnsRenewal.Command(certificate)}'."
                 : acmeFix;
+
+    private async Task<HealthCheckResult> CheckRemoteAsync(ManagedCertificate certificate, CancellationToken cancellationToken)
+    {
+        var host = certificate.Hosts[0];
+        var port = certificate.RemotePort ?? 443;
+        var name = $"Served by {host}:{port}";
+        if (remoteReader is null)
+        {
+            return new HealthCheckResult(name, HealthStatus.Warning, ErrorCodes.RemoteUnreachable.Format("This SSLense process cannot read certificates on other machines."));
+        }
+
+        try
+        {
+            using var served = await remoteReader.ReadAsync(host, port, cancellationToken).ConfigureAwait(false);
+            return string.Equals(served.Thumbprint, certificate.Thumbprint, StringComparison.OrdinalIgnoreCase)
+                ? Pass(name, $"Serves the watched certificate, which expires {certificate.NotAfter:yyyy-MM-dd}.")
+                : new HealthCheckResult(name, HealthStatus.Warning,
+                    ErrorCodes.ServedCertificateMismatch.Format($"Serves another certificate, which expires {served.NotAfter.ToUniversalTime():yyyy-MM-dd}."),
+                    "The daily check takes the new certificate over; or run the reminder check now with 'SSLense.Cli reminders preview'.");
+        }
+        catch (SslenseException exception)
+        {
+            return new HealthCheckResult(name, HealthStatus.Fail, exception.Message, $"Check that this server can reach {host} on port {port}.");
+        }
+    }
 
     private async Task<HealthCheckResult> CheckChainAsync(ManagedCertificate certificate, CancellationToken cancellationToken)
     {
