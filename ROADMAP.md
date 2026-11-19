@@ -66,7 +66,7 @@ References:
 In priority order. Feedback from real users can change the order.
 
 1. **A simpler app window** (released in 0.23). Three tabs, the certificates grouped by IIS site with the selected one beside them, Add certificate starting from where the certificate comes from, and plain words ([design](docs/design/gui-redesign.md)). All four steps are built: the window, the Certificates tab, Add certificate, Install renewal, Check, Activity, Settings with tabs, and Stop managing that keeps IIS as it is.
-2. **Several ACME certificates on one IIS site.** Phase 2 of [the design](docs/design/multiple-certificates-per-site.md): issue and renew a second ACME certificate on a site, including HTTP validation and sharing.
+2. **Several ACME certificates on one IIS site** (built, awaiting release). Phase 2 of [the design](docs/design/multiple-certificates-per-site.md): issue and renew several ACME certificates on a site, with HTTP or DNS validation, each named and renewed on its own. Sharing with a site that has several certificates waits for demand.
 3. **Built-in DNS providers.** The script method (0.15) covers any service with an API; built-in providers save writing one. One at a time, starting with Amazon Route 53, Azure DNS, Google Cloud DNS, DigitalOcean, and Hetzner, then whichever users ask for most. Each stays labelled untested until it has run on a real account. Providers are compiled in, not loaded as plugins, because the service runs as SYSTEM.
 4. **HTTP validation without a port 80 binding.** A short-lived listener of SSLense's own answers the challenge, for sites that have only HTTPS bindings or whose port 80 is used by something else.
 5. **Certificates on other machines.** Add host names that are not on this server, such as load balancers and appliances, to the daily served-certificate check, so one place reminds about every certificate.
@@ -126,7 +126,6 @@ Remaining:
 
 Ordered roughly by expected demand. Community feedback decides the order.
 
-- **Several certificates per site:** move locks, journals, and CLI/GUI selection from site name to the certificate ID every record already has.
 - **Existing-certificate discovery:** adopting a certificate already bound in IIS was added in 0.10. Remaining: find expired, duplicate, self-signed, and staging certificates in `LocalMachine\My` that no binding uses, and suggest clean-up.
 - **Certificate history and one-click rollback:** a timeline for each certificate (issued, renewed, replaced, failed) and a way to go back to the previous certificate while it is still valid.
 - **Web farms and load-balanced sites:** HTTP-01 validation across several servers (shared storage, FTP, SFTP, or WebDAV) and keeping the certificate in step on every server.

@@ -128,5 +128,5 @@ Sharing (`share add`) moves whole IIS sites onto another site's certificate, wit
 |---|---|
 | 1 | This section |
 | 2 | Core: naming at issue, renewal of additional certificates, the refusals relaxed, the wildcard message. Unit tests for each item in 9.3, and an end-to-end test against Pebble in CI that issues and renews two certificates on one site. **Built** November 19, 2026: the issue path resolves the name as imports do and uses it for the record, its files, the certificate it replaces and its deployment steps; the pre-issue and daily readiness checks find a second certificate's site; the result gives the name. 10 more tests, including the Pebble test |
-| 3 | App and CLI as in 9.4; README, roadmap, website |
+| 3 | App and CLI as in 9.4; README, roadmap, website. **Built** November 19, 2026: Free and automatic marks the certificate that has each host name, ticks only new host names on a site with several certificates, says what the choice adds or replaces, and refuses host names of two certificates before Continue; renewing a second certificate by hand keeps its name; `issue` prints "Managed as". 6 tests, and an image of the host list |
 | 4 | Acceptance on Let's Encrypt staging on a test server with two host names on one site: issue the second certificate, renew each, replace a bought one, remove one. Then release as 0.24 |

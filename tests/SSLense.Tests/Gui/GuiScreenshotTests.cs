@@ -135,6 +135,15 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
                 Settle();
                 Assert.Equal(sources[index], add.Source);
                 Save(window, folder, $"{9 + index:00}-add-{sources[index]}");
+                if (sources[index] == AddCertificateViewModel.Automatic)
+                {
+                    // The host names, on a site with three certificates: which certificate has each, and what the choice does.
+                    Assert.Contains("Main/www.domain5.co.uk", provider.GetRequiredService<IssueCertificateViewModel>().Outcome, StringComparison.Ordinal);
+                    Find<ScrollViewer>(window).First(viewer => viewer.IsVisible && viewer.ScrollableHeight > 0).ScrollToEnd();
+                    Settle();
+                    Save(window, folder, "09b-add-automatic-hosts");
+                }
+
             }
 
             Assert.Equal(2, add.OtherProviders.Bindings.Count(row => row.CanAdopt));
@@ -295,10 +304,19 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
         var iis = new Mock<IIisService> { DefaultValue = DefaultValue.Mock };
         iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(
         [
-            new IisSite(1, "Main", "Started", @"C:\inetpub\main", [new IisBinding("https", "*", 443, "www.domain1.co.uk", "AA01", "My", true)]),
+            new IisSite(1, "Main", "Started", @"C:\inetpub\main",
+            [
+                new IisBinding("https", "*", 443, "www.domain1.co.uk", "AA01", "My", true), new IisBinding("http", "*", 80, "www.domain1.co.uk", null, null, false),
+                new IisBinding("https", "*", 443, "www.domain2.co.uk", "AA02", "My", true), new IisBinding("http", "*", 80, "www.domain2.co.uk", null, null, false),
+                new IisBinding("https", "*", 443, "www.domain3.co.uk", "AA03", "My", true), new IisBinding("http", "*", 80, "www.domain3.co.uk", null, null, false),
+                new IisBinding("http", "*", 80, "www.domain5.co.uk", null, null, false)
+            ]),
             new IisSite(2, "Blog", "Started", @"C:\inetpub\blog", [new IisBinding("http", "*", 80, "blog.example.com", null, null, false)])
         ]);
         services.AddSingleton(iis.Object);
+        var managedStore = new Mock<IManagedCertificateStore> { DefaultValue = DefaultValue.Mock };
+        managedStore.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync(() => records.ToArray());
+        services.AddSingleton(managedStore.Object);
         var authorities = new Mock<SSLense.Core.Acme.ICertificateAuthorityService> { DefaultValue = DefaultValue.Mock };
         authorities.Setup(value => value.ListAsync(It.IsAny<CancellationToken>())).ReturnsAsync(
         [
@@ -340,7 +358,7 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
         services.AddSingleton(deployment.Object);
         services.AddSingleton(health.Object);
 
-        var configured = new HashSet<Type> { typeof(IRenewalService), typeof(ICertificateManagementService), typeof(IReminderService), typeof(IDeploymentService), typeof(IHealthCheckService), typeof(ISettingsService), typeof(SSLense.Core.Notifications.INotificationSettingsService), typeof(IImportedCertificateService), typeof(IPendingRequestStore), typeof(IIisService), typeof(SSLense.Core.Acme.ICertificateAuthorityService), typeof(SSLense.Core.DnsValidation.IDnsProviderService) };
+        var configured = new HashSet<Type> { typeof(IManagedCertificateStore), typeof(IRenewalService), typeof(ICertificateManagementService), typeof(IReminderService), typeof(IDeploymentService), typeof(IHealthCheckService), typeof(ISettingsService), typeof(SSLense.Core.Notifications.INotificationSettingsService), typeof(IImportedCertificateService), typeof(IPendingRequestStore), typeof(IIisService), typeof(SSLense.Core.Acme.ICertificateAuthorityService), typeof(SSLense.Core.DnsValidation.IDnsProviderService) };
         var coreServices = typeof(MainViewModel).Assembly.GetTypes()
             .Where(type => type.Namespace == typeof(MainViewModel).Namespace && type.IsClass && !type.IsAbstract)
             .SelectMany(type => type.GetConstructors())
