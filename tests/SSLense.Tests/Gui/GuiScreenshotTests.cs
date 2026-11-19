@@ -91,9 +91,9 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
             Save(window, folder, "05c-checked");
             var more = Find<Button>(window).Single(button => button.IsVisible && System.Windows.Automation.AutomationProperties.GetName(button) == "More actions");
             more.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
-            Settle();
+            WaitFor(() => more.ContextMenu?.IsOpen == true);
             Assert.True(more.ContextMenu!.IsOpen);
-            Assert.Equal(6, more.ContextMenu.Items.OfType<MenuItem>().Count());
+            Assert.Equal(8, more.ContextMenu.Items.OfType<MenuItem>().Count());
             Assert.Contains(more.ContextMenu.Items.OfType<MenuItem>(), item => (string)item.Header == "Stop managing, keep it in IIS…" && item.IsVisible);
             Assert.Contains(more.ContextMenu.Items.OfType<MenuItem>(), item => (string)item.Header == "Revoke and replace (key compromised)…" && item.IsVisible);
             more.ContextMenu.IsOpen = false;

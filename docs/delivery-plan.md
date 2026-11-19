@@ -50,7 +50,7 @@ Already done and only to be marked on the roadmap: private-key permissions for I
 | # | Feature | Size | Notes |
 |---|---|---|---|
 | 15 | Certificates on other machines **(done)** | M | Host names not on this server, such as load balancers, in the daily served-certificate check and reminders |
-| 16 | HTTP-to-HTTPS redirect helper | M | An IIS URL Rewrite rule, checked so it never blocks validation; needs the URL Rewrite module on the server |
+| 16 | HTTP-to-HTTPS redirect helper **(done)** | M | An IIS URL Rewrite rule, checked so it never blocks validation; needs the URL Rewrite module on the server |
 | 17 | Bulk operations | M | Watch every unmanaged certificate at once; issue for many sites from a CSV file |
 | 18 | New version notice | S | Reads GitHub releases; can be turned off; never installs anything |
 | 19 | Clean-up of unused certificates | M | Expired, duplicate, self-signed and staging certificates in `LocalMachine\My` that nothing uses, with a confirmation before each removal |

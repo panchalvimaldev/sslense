@@ -90,6 +90,15 @@ public static class ErrorCodes
     public static readonly ErrorCode SelfHostedPortUnavailable = new("SSL1028", nameof(SelfHostedPortUnavailable), "SSLense cannot answer on port 80",
         "SSLense answers the challenge through HTTP.sys, which IIS also uses. Run SSLense as Administrator. If another program, such as Apache or nginx, holds port 80 outside HTTP.sys, stop it during validation or use DNS validation.");
 
+    public static readonly ErrorCode UrlRewriteMissing = new("SSL1029", nameof(UrlRewriteMissing), "IIS URL Rewrite is not installed",
+        "The HTTPS redirect is an IIS URL Rewrite rule. Install the URL Rewrite module for IIS from Microsoft, then try again.");
+
+    public static readonly ErrorCode RedirectNeedsHttps = new("SSL1030", nameof(RedirectNeedsHttps), "Site has no HTTPS binding",
+        "Redirecting HTTP to HTTPS would send visitors nowhere. Give the site a certificate first.");
+
+    public static readonly ErrorCode RedirectBlocksValidation = new("SSL1031", nameof(RedirectBlocksValidation), "Redirect would block validation",
+        "After the rule was added, a validation path on the site was still redirected, so SSLense removed the rule. Check for another redirect rule or module on the site, or in its parent configuration.");
+
     public static readonly ErrorCode ProductionNotConfirmed = new("SSL2001", nameof(ProductionNotConfirmed), "Production certificate authority not confirmed",
         "Try the site with Let's Encrypt staging first, then confirm production in the app or with --accept-production-risk.");
 
@@ -769,6 +778,9 @@ public static class ErrorCodes
         ChallengeFolderNotWritable,
         ServedCertificateExpired,
         SelfHostedPortUnavailable,
+        UrlRewriteMissing,
+        RedirectNeedsHttps,
+        RedirectBlocksValidation,
         ProductionNotConfirmed,
         CertificateAuthorityUnreachable,
         AcmeUnexpectedChallenges,

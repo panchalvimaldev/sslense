@@ -35,6 +35,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private readonly AsyncRelayCommand _unmanageCommand;
     private readonly AsyncRelayCommand _revokeCommand;
     private readonly IRevocationService? _revocationService;
+    private readonly SSLense.Core.Iis.IHttpsRedirectService? _redirectService;
     private bool _suppressSelectionRefresh;
     private bool _isNoSite;
 
@@ -84,9 +85,13 @@ public partial class CertificateDetailsViewModel : ObservableObject
         IIisService iisService,
         IDeploymentService deploymentService,
         InstallRenewalViewModel installRenewal,
-        IRevocationService? revocationService = null)
+        IRevocationService? revocationService = null,
+        SSLense.Core.Iis.IHttpsRedirectService? redirectService = null)
     {
         _revocationService = revocationService;
+        _redirectService = redirectService;
+        RedirectOnCommand = new AsyncRelayCommand(token => ChangeRedirectAsync(true, token), () => CanOperate() && _redirectService is not null);
+        RedirectOffCommand = new AsyncRelayCommand(token => ChangeRedirectAsync(false, token), () => CanOperate() && _redirectService is not null);
         _deploymentService = deploymentService;
         InstallRenewal = installRenewal;
         installRenewal.Installed += () =>
@@ -240,6 +245,25 @@ public partial class CertificateDetailsViewModel : ObservableObject
 
     /// <summary>Revoke and replace, for a key that may have leaked (docs/design/compromise-recovery.md).</summary>
     public IAsyncRelayCommand RevokeAndReplaceCommand => _revokeCommand;
+
+    /// <summary>The HTTP-to-HTTPS redirect on the certificate's site (docs/design/https-redirect.md).</summary>
+    public IAsyncRelayCommand RedirectOnCommand { get; }
+
+    public IAsyncRelayCommand RedirectOffCommand { get; }
+
+    private async Task ChangeRedirectAsync(bool enabled, CancellationToken cancellationToken)
+    {
+        if (SelectedSite is null || _redirectService is null) return;
+        var name = SelectedSite;
+        await RunAsync(async token =>
+        {
+            var message = enabled
+                ? await _redirectService.EnableAsync(name, token).ConfigureAwait(true)
+                : await _redirectService.DisableAsync(name, token).ConfigureAwait(true);
+            _logger.LogInformation("{Message}", message);
+            Report(message);
+        }, cancellationToken);
+    }
 
     /// <summary>A certificate bought from a provider is renewed by the provider; this installs the renewed one.</summary>
     public IRelayCommand InstallRenewalCommand { get; }
@@ -721,7 +745,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private void NotifyCommands()
     {
         (RenewByHandCommand as RelayCommand)?.NotifyCanExecuteChanged();
-        _refreshCommand?.NotifyCanExecuteChanged(); _renewCommand?.NotifyCanExecuteChanged(); _removeCommand?.NotifyCanExecuteChanged(); _unmanageCommand?.NotifyCanExecuteChanged(); _revokeCommand?.NotifyCanExecuteChanged();
+        _refreshCommand?.NotifyCanExecuteChanged(); _renewCommand?.NotifyCanExecuteChanged(); _removeCommand?.NotifyCanExecuteChanged(); _unmanageCommand?.NotifyCanExecuteChanged(); _revokeCommand?.NotifyCanExecuteChanged(); (RedirectOnCommand as AsyncRelayCommand)?.NotifyCanExecuteChanged(); (RedirectOffCommand as AsyncRelayCommand)?.NotifyCanExecuteChanged();
         (InstallRenewalCommand as RelayCommand)?.NotifyCanExecuteChanged();
         (CheckCommand as AsyncRelayCommand)?.NotifyCanExecuteChanged();
         (RemindersOffCommand as RelayCommand)?.NotifyCanExecuteChanged();
