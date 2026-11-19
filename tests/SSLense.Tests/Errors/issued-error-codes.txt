@@ -240,3 +240,4 @@ SSL4051 RevokeBoughtCertificate
 SSL4052 RevokeManualDnsCertificate
 SSL1028 SelfHostedPortUnavailable
 SSL3039 DnsProviderRequestFailed
+SSL6027 IpCertificateNeedsHttpSelf

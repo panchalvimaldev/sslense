@@ -205,7 +205,15 @@ internal sealed partial class AcmeService : IAcmeService
                 $"Host name '{uncovered}' is not covered by the certificate names {string.Join(", ", names)}.");
         }
 
-        foreach (var host in sharedRecord is null && !request.NoSite ? hosts : [])
+        if (hosts.Any(IsIpAddress) && !selfHosted)
+        {
+            throw new SslenseException(ErrorCodes.IpCertificateNeedsHttpSelf,
+                $"{string.Join(", ", hosts.Where(IsIpAddress))} {(hosts.Count(IsIpAddress) == 1 ? "is an IP address" : "are IP addresses")}, which a certificate authority validates over HTTP: " +
+                "choose HTTP validation with SSLense answering the challenge itself (--validation http-self).");
+        }
+
+        // An IP address needs no host binding: SSLense binds the certificate to the address.
+        foreach (var host in sharedRecord is null && !request.NoSite ? hosts.Where(host => !IsIpAddress(host)) : [])
         {
             var hasBinding = site.Bindings.Any(binding =>
                 IsUsableBinding(binding) &&
@@ -1188,7 +1196,8 @@ internal sealed partial class AcmeService : IAcmeService
                     nameof(requestedHosts));
             }
 
-            if (Uri.CheckHostName(host) != UriHostNameType.Dns)
+            // An IP address is a host too (RFC 8738), bound in IIS by address (docs/design/ip-certificates.md).
+            if (Uri.CheckHostName(host) is not (UriHostNameType.Dns or UriHostNameType.IPv4 or UriHostNameType.IPv6))
             {
                 throw new ArgumentException(
                     ErrorCodes.InvalidHostName.Format($"'{host}' is not a valid DNS host name."),
@@ -1199,7 +1208,16 @@ internal sealed partial class AcmeService : IAcmeService
         return hosts;
     }
 
-    private static string NormalizeHost(string host) => host.Trim().TrimEnd('.').ToLowerInvariant();
+    /// <summary>A host name in lower case without a final dot, or an IP address in its canonical form, without brackets.</summary>
+    private static string NormalizeHost(string host)
+    {
+        var trimmed = host.Trim().TrimEnd('.').Trim('[', ']').ToLowerInvariant();
+        return Uri.CheckHostName(trimmed) is UriHostNameType.IPv4 or UriHostNameType.IPv6 && System.Net.IPAddress.TryParse(trimmed, out var address)
+            ? address.ToString()
+            : trimmed;
+    }
+
+    internal static bool IsIpAddress(string host) => Uri.CheckHostName(host.Trim().Trim('[', ']')) is UriHostNameType.IPv4 or UriHostNameType.IPv6;
 
     private static string NormalizeThumbprint(string thumbprint) =>
         string.Concat(thumbprint.Where(Uri.IsHexDigit)).ToUpperInvariant();

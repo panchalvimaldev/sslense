@@ -189,6 +189,8 @@ SSLense.Cli issue --site "Shop" --hosts shop.example.com --email ops@example.com
 
 SSLense answers `/.well-known/acme-challenge/` on port 80 through HTTP.sys, beside IIS, only while a certificate is validated; IIS keeps serving everything else. The host needs an HTTP or HTTPS binding, and port 80 must still be reachable from the internet. Renewals keep the choice. It also works for a certificate with no IIS site (`--no-site <name> --hosts <host> --validation http-self`). Another program holding port 80 outside HTTP.sys, such as Apache or nginx, prevents it (SSL1028) ([design](docs/design/self-hosted-http-validation.md)).
 
+**A certificate for an IP address.** With HTTP answered by SSLense, a host can be an IP address, bound in IIS by address without SNI. Let's Encrypt issues these as short-lived certificates only: `SSLense.Cli issue --site "Default Web Site" --hosts 203.0.113.10 --validation http-self --profile shortlived --email ops@example.com` ([design](docs/design/ip-certificates.md)).
+
 ### DNS validation and wildcard certificates
 
 Let's Encrypt only issues wildcard certificates through DNS validation. It also suits internal servers and sites that cannot open port 80. There are four ways to use it:

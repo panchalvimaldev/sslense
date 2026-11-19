@@ -1186,6 +1186,12 @@ Run SSLense as Administrator. If it persists, check config.json in the data fold
 
 SSLense's data folder should be limited to Administrators and SYSTEM. Run SSLense as Administrator once to restore them, or reinstall.
 
+<a id="ssl6027"></a>
+
+### SSL6027: IP address certificates need HTTP answered by SSLense
+
+A certificate authority validates an IP address over HTTP (or TLS-ALPN), not DNS. Choose HTTP validation with SSLense answering the challenge itself (--validation http-self); Let's Encrypt also needs a short-lived profile, such as --profile shortlived.
+
 ## SSL7xxx: Notifications
 
 <a id="ssl7001"></a>
