@@ -752,9 +752,9 @@ To stop managing it, use Remove or 'SSLense.Cli remove'.
 
 <a id="ssl4026"></a>
 
-### SSL4026: Site with several certificates cannot share
+### SSL4026: Certificate cannot be shared to a site with several certificates
 
-Issue a certificate for the host names instead.
+A site that has several certificates of its own cannot also take a shared one. Issue a certificate for the host names instead, or share a certificate from that site to another.
 
 <a id="ssl4027"></a>
 

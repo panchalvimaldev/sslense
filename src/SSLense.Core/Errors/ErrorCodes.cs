@@ -375,8 +375,8 @@ public static class ErrorCodes
     public static readonly ErrorCode CertificateNotShared = new("SSL4025", nameof(CertificateNotShared), "Certificate not shared",
         "To stop managing it, use Remove or 'SSLense.Cli remove'.");
 
-    public static readonly ErrorCode SeveralCertificatesCannotShare = new("SSL4026", nameof(SeveralCertificatesCannotShare), "Site with several certificates cannot share",
-        "Issue a certificate for the host names instead.");
+    public static readonly ErrorCode SeveralCertificatesCannotShare = new("SSL4026", nameof(SeveralCertificatesCannotShare), "Certificate cannot be shared to a site with several certificates",
+        "A site that has several certificates of its own cannot also take a shared one. Issue a certificate for the host names instead, or share a certificate from that site to another.");
 
     public static readonly ErrorCode SharingNeedsAcme = new("SSL4027", nameof(SharingNeedsAcme), "Only SSLense's own certificates can be shared",
         "Issue a certificate with SSLense for the sites instead.");
