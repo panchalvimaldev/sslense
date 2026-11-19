@@ -1,3 +1,5 @@
+using SSLense.Core.Errors;
+
 namespace SSLense.Core.Config;
 
 internal static class ManagedCertificateNotFound
@@ -6,7 +8,7 @@ internal static class ManagedCertificateNotFound
     /// Builds the error for an unknown site name, pointing at the right IIS site name when the value
     /// given is one of its host names, which is the most common mix-up.
     /// </summary>
-    public static InvalidOperationException Create(string siteName, IReadOnlyList<ManagedCertificate> records)
+    public static SslenseException Create(string siteName, IReadOnlyList<ManagedCertificate> records)
     {
         var message = $"No managed certificate was found for IIS site '{siteName}'.";
         var byHost = records.FirstOrDefault(record => record.AllTargets().SelectMany(target => target.Hosts).Any(host =>
@@ -23,6 +25,6 @@ internal static class ManagedCertificateNotFound
                 ". Run 'status' to list them.";
         }
 
-        return new InvalidOperationException(message);
+        return new SslenseException(ErrorCodes.NotManaged, message);
     }
 }

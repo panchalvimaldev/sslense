@@ -64,6 +64,19 @@ public partial class CertificateDetailsView : UserControl
         if (answer == MessageBoxResult.Yes) await viewModel.UnmanageCommand.ExecuteAsync(null);
     }
 
+    private async void OnRevokeClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not CertificateDetailsViewModel viewModel || viewModel.Summary is not { } summary) return;
+        var answer = MessageBox.Show(
+            $"Revoke and replace {summary.Title}?\n\nUse this if its private key may have been copied. SSLense first installs a new " +
+            "certificate with a new key, then asks the certificate authority to revoke this one for key compromise. " +
+            "Revocation cannot be undone.",
+            "Revoke and replace",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (answer == MessageBoxResult.Yes) await viewModel.RevokeAndReplaceCommand.ExecuteAsync(null);
+    }
+
     private async void OnRemoveClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is not CertificateDetailsViewModel viewModel || viewModel.SelectedSite is null) return;

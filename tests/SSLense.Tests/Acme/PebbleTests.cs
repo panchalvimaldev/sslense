@@ -351,6 +351,34 @@ public sealed class PebbleTests(PebbleServer pebble) : IClassFixture<PebbleServe
         Assert.Equal([second], removed);
     }
 
+    /// <summary>docs/design/compromise-recovery.md: revocation and a new account key, against a real ACME server.</summary>
+    [PebbleFact]
+    public async Task ACertificate_IsRevoked_AndTheAccountKeyIsReplaced_ThenOrdersUseTheNewKey()
+    {
+        var store = new MemoryAccountStore();
+        var client = Client(store);
+        var order = await client.CreateOrderAsync(Email, ["revoke.example.com"], Authority(), CancellationToken.None);
+        foreach (var challenge in order.Challenges)
+        {
+            await order.ValidateAsync(challenge, CancellationToken.None);
+        }
+
+        var bundle = await order.FinalizeAsync("revoke.example.com", "password", CancellationToken.None);
+        using var certificate = X509Certificate2.CreateFromPem(bundle.CertificatePem);
+
+        await client.RevokeAsync(Email, Authority(), certificate.RawData, CertificateRevocationReason.KeyCompromise, CancellationToken.None);
+        var revokedAgain = await Assert.ThrowsAsync<SSLense.Core.Errors.SslenseException>(() =>
+            client.RevokeAsync(Email, Authority(), certificate.RawData, CertificateRevocationReason.KeyCompromise, CancellationToken.None));
+        Assert.Equal("SSL2030", revokedAgain.Code);
+
+        var oldKey = await store.LoadKeyAsync("pebble", CancellationToken.None);
+        await client.ChangeAccountKeyAsync(Authority(), CancellationToken.None);
+        Assert.NotEqual(oldKey, await store.LoadKeyAsync("pebble", CancellationToken.None));
+
+        var next = await client.CreateOrderAsync(Email, ["after-rollover.example.com"], Authority(), CancellationToken.None);
+        Assert.NotEmpty(next.Challenges);
+    }
+
     private static string[] DnsNames(CertificateBundle bundle)
     {
         using var certificate = X509Certificate2.CreateFromPem(bundle.CertificatePem);

@@ -1,4 +1,5 @@
 using Certes.Acme;
+using Certes.Acme.Resource;
 using Certes;
 using SSLense.Core.Errors;
 
@@ -172,6 +173,44 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
         }
 
         return new CertesOrderSession(order, challenges, authority, options);
+    }
+
+    public async Task RevokeAsync(
+        string email,
+        CertificateAuthority authority,
+        byte[] certificateDer,
+        CertificateRevocationReason reason,
+        CancellationToken cancellationToken)
+    {
+        var context = await OpenAccountAsync(email, authority, cancellationToken).ConfigureAwait(false);
+        var acmeReason = reason switch
+        {
+            CertificateRevocationReason.KeyCompromise => RevocationReason.KeyCompromise,
+            CertificateRevocationReason.Superseded => RevocationReason.Superseded,
+            CertificateRevocationReason.CessationOfOperation => RevocationReason.CessationOfOperation,
+            _ => RevocationReason.Unspecified
+        };
+        try
+        {
+            await context.RevokeCertificate(certificateDer, acmeReason, null).WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is AcmeRequestException or HttpRequestException)
+        {
+            throw new SslenseException(ErrorCodes.RevocationFailed, $"{authority.Name} did not revoke the certificate: {exception.Message}", exception);
+        }
+    }
+
+    public async Task ChangeAccountKeyAsync(CertificateAuthority authority, CancellationToken cancellationToken)
+    {
+        var savedKey = await _accountStore.LoadKeyAsync(authority.Id, cancellationToken).ConfigureAwait(false)
+            ?? throw new SslenseException(ErrorCodes.NoAcmeAccount, $"SSLense has no account with {authority.Name} yet, so there is no key to replace.");
+        var context = new AcmeContext(authority.DirectoryUri, KeyFactory.FromPem(savedKey), Http(authority.DirectoryUri));
+        await context.Account().WaitAsync(cancellationToken).ConfigureAwait(false);
+        var newKey = KeyFactory.NewKey(KeyAlgorithm.ES256);
+
+        // Once the CA accepts the new key, the old one no longer works, so the new key is saved before anything else.
+        await context.ChangeKey(newKey).WaitAsync(cancellationToken).ConfigureAwait(false);
+        await _accountStore.SaveKeyAsync(authority.Id, newKey.ToPem(), CancellationToken.None).ConfigureAwait(false);
     }
 
     private async Task<AcmeContext> OpenAccountAsync(

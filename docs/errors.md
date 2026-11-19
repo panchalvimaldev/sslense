@@ -344,6 +344,18 @@ Enter both the EAB key ID and the HMAC key from your account at the certificate 
 
 Copy the HMAC key again from the certificate authority's account page; it is Base64url text.
 
+<a id="ssl2030"></a>
+
+### SSL2030: Revocation failed
+
+The certificate authority did not revoke the certificate; the message gives its reason. If SSLense already replaced it, the old certificate was saved so you can try again with 'SSLense.Cli revoke --file <path> --ca <id>'.
+
+<a id="ssl2031"></a>
+
+### SSL2031: No ACME account for the certificate authority
+
+SSLense has not created an account with this certificate authority yet; it creates one with the first certificate. There is no key to replace.
+
 ## SSL3xxx: DNS validation
 
 <a id="ssl3001"></a>
@@ -851,6 +863,30 @@ An intermediate certificate is missing or expired, so some visitors may not trus
 ### SSL4046: Old pending requests
 
 A certificate request has waited over 30 days. Complete it with the provider's certificate, or delete it.
+
+<a id="ssl4049"></a>
+
+### SSL4049: Certificate belongs to a pending request
+
+The file is the certificate your provider issued for a request SSLense created; its key is already on this server. Use Install renewal, or Complete a request ('SSLense.Cli complete').
+
+<a id="ssl4050"></a>
+
+### SSL4050: Certificate without its private key
+
+A certificate file without its key cannot be installed on its own. Import the PFX that holds both, or complete the request SSLense created.
+
+<a id="ssl4051"></a>
+
+### SSL4051: Bought certificates are revoked by the provider
+
+Ask your provider to revoke it (most have a button for a compromised key), get a new certificate with a new key, and install it with Install renewal.
+
+<a id="ssl4052"></a>
+
+### SSL4052: Manual DNS certificate cannot be replaced automatically
+
+Renew it by hand first (Renew by hand, with a new key), then revoke the old certificate: 'SSLense.Cli revoke --file <old certificate> --ca <id>'.
 
 ## SSL5xxx: Renewal, reminders and the service
 

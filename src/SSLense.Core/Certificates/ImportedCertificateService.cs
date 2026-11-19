@@ -569,7 +569,7 @@ internal sealed class ImportedCertificateService(
         }
         catch (InvalidDataException)
         {
-            return new InvalidOperationException("The PFX could not be opened. Check the file and its password.", exception);
+            return new SslenseException(ErrorCodes.PfxImportFailed, "The PFX could not be opened. Check the file and its password.", exception);
         }
 
         try
@@ -581,7 +581,7 @@ internal sealed class ImportedCertificateService(
                 if (certificates.Any(certificate =>
                         certificate.PublicKey.ExportSubjectPublicKeyInfo().AsSpan().SequenceEqual(requestKey)))
                 {
-                    return new InvalidOperationException(
+                    return new SslenseException(ErrorCodes.CertificateIsForPendingRequest,
                         $"This is the certificate issued for the pending request of IIS site '{request.SiteName}'. It has no " +
                         "private key of its own: the key is already on this server. Install it with 'Complete a request' " +
                         $"(in the CLI: complete --site \"{request.SiteName}\" --certificate <file>).");
@@ -590,7 +590,7 @@ internal sealed class ImportedCertificateService(
 
             var leaf = certificates.FirstOrDefault(certificate => !CertificateInspector.IsCertificateAuthority(certificate))
                 ?? certificates[0];
-            return new InvalidOperationException(
+            return new SslenseException(ErrorCodes.CertificateWithoutKey,
                 $"This file is a certificate without its private key ({CertificateInspector.Describe(leaf)}), so it cannot be " +
                 "imported on its own; a PFX contains both. If SSLense created the request on this server, use 'Complete a " +
                 "request'. Otherwise, on the server where the request was created, export the certificate with its private " +

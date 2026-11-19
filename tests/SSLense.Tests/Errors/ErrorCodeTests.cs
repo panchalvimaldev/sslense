@@ -78,7 +78,7 @@ public sealed class ErrorCodeTests
         var offenders = Directory.EnumerateFiles(Path.Combine(Root, "src", "SSLense.Core"), "*.cs", SearchOption.AllDirectories)
             .Where(file => !file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
             .SelectMany(file => File.ReadLines(file).Select((line, index) => (file, line, index)))
-            .Where(item => item.line.Contains("throw new InvalidOperationException(", StringComparison.Ordinal))
+            .Where(item => item.line.Contains("throw new InvalidOperationException(", StringComparison.Ordinal) || item.line.Contains("return new InvalidOperationException(", StringComparison.Ordinal))
             .Select(item => $"{Path.GetRelativePath(Root, item.file)}:{item.index + 1}")
             .ToArray();
 

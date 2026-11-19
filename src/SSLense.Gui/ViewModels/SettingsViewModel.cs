@@ -23,6 +23,7 @@ public partial class SettingsViewModel : ObservableObject
     private readonly ICertificateAuthorityService _authorities;
     private readonly ILogger<SettingsViewModel> _logger;
 
+    private readonly SSLense.Core.Certificates.IRevocationService? _revocation;
     [ObservableProperty] private string defaultEmail = string.Empty;
 
     // The maintenance window (docs/design/maintenance-windows.md).
@@ -131,7 +132,8 @@ public partial class SettingsViewModel : ObservableObject
         IReminderService reminderService,
         IDnsProviderService dnsProviders,
         ICertificateAuthorityService authorities,
-        ILogger<SettingsViewModel> logger)
+        ILogger<SettingsViewModel> logger,
+        SSLense.Core.Certificates.IRevocationService? revocation = null)
     {
         _dnsProviders = dnsProviders;
         _authorities = authorities;
@@ -140,6 +142,8 @@ public partial class SettingsViewModel : ObservableObject
         AddCaCommand = Command(AddCaAsync);
         TestCaCommand = Command(TestCaAsync);
         RemoveCaCommand = Command(RemoveCaAsync);
+        ChangeAccountKeyCommand = Command(ChangeAccountKeyAsync);
+        _revocation = revocation;
         AddDnsProviderCommand = Command(AddDnsProviderAsync);
         TestDnsProviderCommand = Command(TestDnsProviderAsync);
         RemoveDnsProviderCommand = Command(RemoveDnsProviderAsync);
@@ -256,6 +260,7 @@ public partial class SettingsViewModel : ObservableObject
     public IAsyncRelayCommand AddCaCommand { get; }
     public IAsyncRelayCommand TestCaCommand { get; }
     public IAsyncRelayCommand RemoveCaCommand { get; }
+    public IAsyncRelayCommand ChangeAccountKeyCommand { get; }
 
     [ObservableProperty] private CertificateAuthorityOverview? selectedCertificateAuthority;
     [ObservableProperty] private CaChoice selectedCaChoice;
@@ -310,6 +315,18 @@ public partial class SettingsViewModel : ObservableObject
         }
 
         ResultMessage = await _authorities.TestAsync(authority.Id, ct).ConfigureAwait(true);
+    }, token);
+
+    // A new ACME account key, for one that may have been copied (docs/design/compromise-recovery.md).
+    private Task ChangeAccountKeyAsync(CancellationToken token) => RunAsync(async ct =>
+    {
+        if (SelectedCertificateAuthority is not { } authority || _revocation is null)
+        {
+            ErrorMessage = "Select a certificate authority.";
+            return;
+        }
+
+        ResultMessage = await _revocation.ChangeAccountKeyAsync(authority.Id, ct).ConfigureAwait(true);
     }, token);
 
     private Task RemoveCaAsync(CancellationToken token) => RunAsync(async ct =>
@@ -636,7 +653,7 @@ public partial class SettingsViewModel : ObservableObject
         (AsyncRelayCommand)SaveRemindersCommand, (AsyncRelayCommand)SendSampleReminderCommand,
         (AsyncRelayCommand)AddDnsProviderCommand, (AsyncRelayCommand)TestDnsProviderCommand, (AsyncRelayCommand)RemoveDnsProviderCommand,
         (AsyncRelayCommand)ReplaceDnsTokenCommand, (AsyncRelayCommand)UpdateDnsScriptCommand,
-        (AsyncRelayCommand)AddCaCommand, (AsyncRelayCommand)TestCaCommand, (AsyncRelayCommand)RemoveCaCommand
+        (AsyncRelayCommand)AddCaCommand, (AsyncRelayCommand)TestCaCommand, (AsyncRelayCommand)RemoveCaCommand, (AsyncRelayCommand)ChangeAccountKeyCommand
     ];
 }
 

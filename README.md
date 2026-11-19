@@ -677,6 +677,14 @@ dotnet run --project .\src\SSLense.Cli -- check-permissions
 
 The service runs as LocalSystem. Running it under a different account would also require granting that account access to this folder.
 
+## A key that may have been copied
+
+If a certificate's private key, or SSLense's ACME account key, may have left the server, follow [the runbook](docs/runbooks/compromised-key-or-account.md). In short:
+
+- **Revoke and replace** (⋯ menu on the certificate, or `SSLense.Cli revoke --site <name> --yes`) installs a new certificate with a new key, then has the certificate authority revoke the old one.
+- **Replace account key** (Settings › Certificate authorities, or `SSLense.Cli account change-key --ca <id> --yes`) switches the ACME account to a new key.
+- Bought certificates are revoked by their provider.
+
 ## Health check and diagnostics
 
 Run the health check first when something is wrong. It is read-only, apart from a probe file that the pre-flight check writes to each site's challenge folder and removes:

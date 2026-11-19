@@ -64,6 +64,8 @@
                             <MenuItem Header="Refresh" Command="{Binding RefreshCommand}" />
                             <Separator />
                             <MenuItem Header="Stop managing, keep it in IIS…" Click="OnUnmanageClick" ToolTip="SSLense stops renewing it. The site keeps working with this certificate until it expires." />
+                            <MenuItem Header="Revoke and replace (key compromised)…" Click="OnRevokeClick" ToolTip="Installs a new certificate with a new key, then has the certificate authority revoke this one."
+                                      Visibility="{Binding Summary.IsAutomatic, Converter={StaticResource BooleanToVisibilityConverter}, FallbackValue=Collapsed}" />
                             <MenuItem Header="Remove certificate and HTTPS bindings…" Click="OnRemoveClick" Foreground="{StaticResource DangerBrush}"
                                       Visibility="{Binding Summary.IsNoSite, Converter={StaticResource InverseBooleanToVisibilityConverter}, FallbackValue=Visible}" />
                         </ContextMenu>

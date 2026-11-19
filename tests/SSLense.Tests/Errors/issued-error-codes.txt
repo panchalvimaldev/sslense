@@ -232,3 +232,9 @@ SSL9005 LogBusy
 SSL9006 NotAdministrator
 SSL9999 Unexpected
 SSL5022 MaintenanceWindowInvalid
+SSL4049 CertificateIsForPendingRequest
+SSL4050 CertificateWithoutKey
+SSL2030 RevocationFailed
+SSL2031 NoAcmeAccount
+SSL4051 RevokeBoughtCertificate
+SSL4052 RevokeManualDnsCertificate
