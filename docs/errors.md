@@ -1222,6 +1222,12 @@ A certificate authority validates an IP address over HTTP (or TLS-ALPN), not DNS
 
 A certificate on another machine needs a name that no other certificate or IIS site has.
 
+<a id="ssl6029"></a>
+
+### SSL6029: Bulk file not valid
+
+Each row needs a site and an email (or the default ACME email in Settings), and a validation of http, http-self or dns. A header row may name the columns: site, hosts, validation, names, email, ca, profile, key.
+
 ## SSL7xxx: Notifications
 
 <a id="ssl7001"></a>

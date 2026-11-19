@@ -706,6 +706,10 @@ The service runs as LocalSystem. Running it under a different account would also
 
 On a certificate's ⋯ menu, **Redirect HTTP to HTTPS** adds an IIS URL Rewrite rule that sends plain HTTP to HTTPS, except validation requests, and checks that validation still works; **Stop redirecting HTTP** removes it. In the CLI: `SSLense.Cli redirect on|off|show --site <name>`. It needs the IIS URL Rewrite module ([design](docs/design/https-redirect.md)).
 
+## Many certificates at once
+
+`SSLense.Cli bulk watch` watches every certificate bound in IIS that SSLense does not manage yet (in the app: **Tick all** on the watch screen). `SSLense.Cli bulk issue --file sites.csv [--dry-run]` issues one certificate per row of a CSV file with the columns `site, hosts, validation, names, email, ca, profile, key`; one failure stops nothing else ([design](docs/design/bulk-operations.md)).
+
 ## A key that may have been copied
 
 If a certificate's private key, or SSLense's ACME account key, may have left the server, follow [the runbook](docs/runbooks/compromised-key-or-account.md). In short:

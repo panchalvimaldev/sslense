@@ -389,6 +389,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     rootCommand.Subcommands.Add(CreateWindowCommand(services));
     rootCommand.Subcommands.Add(CreateRevokeCommand(services));
     rootCommand.Subcommands.Add(CreateAccountCommand(services));
+    rootCommand.Subcommands.Add(CreateBulkCommand(services));
     rootCommand.Subcommands.Add(CreateWatchCommand(services));
     rootCommand.Subcommands.Add(CreateRedirectCommand(services));
     AddImportedCertificateCommands(rootCommand, services);
@@ -1769,6 +1770,49 @@ static Command CreateRedirectCommand(IServiceProvider services)
     }
 
     return command;
+}
+
+// Bulk operations (docs/design/bulk-operations.md).
+static Command CreateBulkCommand(IServiceProvider services)
+{
+    var command = new Command("bulk", "Many certificates at once: watch every unmanaged one, or issue for the sites in a CSV file. One failure stops nothing else.");
+    var watchCommand = new Command("watch", "Watch every certificate bound in IIS that SSLense does not manage yet. Nothing in IIS changes.");
+    watchCommand.SetAction(async (_, token) => Report(await services.GetRequiredService<IBulkService>().WatchAllAsync(new ConsoleProgress(), token).ConfigureAwait(false)));
+    command.Subcommands.Add(watchCommand);
+
+    var fileOption = new Option<string>("--file") { Required = true, Description = "The CSV file: site, hosts, validation (http, http-self or dns), names, email, ca, profile, key. A header row may name them." };
+    var dryRunOption = new Option<bool>("--dry-run") { Description = "Run each row's pre-issue checks only; nothing is ordered." };
+    var productionOption = new Option<bool>("--accept-production-risk") { Description = "Confirm rows for a certificate authority whose certificates are trusted, such as letsencrypt." };
+    var issueCommand = new Command("issue", "Issue a certificate for each row of a CSV file, one after another.");
+    issueCommand.Options.Add(fileOption);
+    issueCommand.Options.Add(dryRunOption);
+    issueCommand.Options.Add(productionOption);
+    issueCommand.SetAction(async (parseResult, token) =>
+    {
+        try
+        {
+            return Report(await services.GetRequiredService<IBulkService>().IssueFromCsvAsync(
+                parseResult.GetRequiredValue(fileOption), parseResult.GetValue(dryRunOption), parseResult.GetValue(productionOption), new ConsoleProgress(), token).ConfigureAwait(false));
+        }
+        catch (Exception exception)
+        {
+            WriteError(exception);
+            return 1;
+        }
+    });
+    command.Subcommands.Add(issueCommand);
+    return command;
+
+    static int Report(IReadOnlyList<BulkResult> results)
+    {
+        foreach (var result in results)
+        {
+            Console.WriteLine($"{(result.Succeeded ? "OK  " : "FAIL")} {result.Item}: {result.Message}");
+        }
+
+        Console.WriteLine(results.Count == 0 ? "Nothing to do." : $"{results.Count(result => result.Succeeded)} of {results.Count} succeeded.");
+        return results.All(result => result.Succeeded) ? 0 : 1;
+    }
 }
 
 // Recovery from a compromised key or account (docs/design/compromise-recovery.md).

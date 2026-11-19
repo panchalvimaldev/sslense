@@ -82,6 +82,17 @@ public partial class OtherProvidersViewModel : ObservableObject
     /// <summary>Starts watching every ticked binding's certificate, without changing IIS.</summary>
     public IAsyncRelayCommand AdoptCheckedCommand => _adoptCheckedCommand;
 
+    /// <summary>Ticks every binding that can be watched (docs/design/bulk-operations.md).</summary>
+    public IRelayCommand TickAllCommand => _tickAllCommand ??= new RelayCommand(() =>
+    {
+        foreach (var row in Bindings.Where(row => row.CanAdopt))
+        {
+            row.IsChecked = true;
+        }
+    });
+
+    private RelayCommand? _tickAllCommand;
+
     // A certificate on another machine (docs/design/remote-certificates.md).
     private readonly IRemoteCertificateService? _remote;
     private readonly AsyncRelayCommand _watchRemoteCommand;
