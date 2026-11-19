@@ -61,6 +61,10 @@
                         <ContextMenu>
                             <MenuItem Header="Open the site in a browser" Click="OnOpenSiteClick" />
                             <MenuItem Header="Turn reminders off until it is replaced" Command="{Binding RemindersOffCommand}" />
+                            <MenuItem Header="Redirect HTTP to HTTPS" Command="{Binding RedirectOnCommand}" ToolTip="Adds an IIS URL Rewrite rule that sends plain HTTP to HTTPS, except validation requests. Needs the URL Rewrite module."
+                                      Visibility="{Binding Summary.IsNoSite, Converter={StaticResource InverseBooleanToVisibilityConverter}, FallbackValue=Visible}" />
+                            <MenuItem Header="Stop redirecting HTTP" Command="{Binding RedirectOffCommand}" ToolTip="Removes SSLense's redirect rule; your own rules are not touched."
+                                      Visibility="{Binding Summary.IsNoSite, Converter={StaticResource InverseBooleanToVisibilityConverter}, FallbackValue=Visible}" />
                             <MenuItem Header="Refresh" Command="{Binding RefreshCommand}" />
                             <Separator />
                             <MenuItem Header="Stop managing, keep it in IIS…" Click="OnUnmanageClick" ToolTip="SSLense stops renewing it. The site keeps working with this certificate until it expires." />

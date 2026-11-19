@@ -64,6 +64,7 @@ public static class DependencyInjection
         services.AddTransient<IRevocationService, RevocationService>();
         services.AddSingleton<IRemoteCertificateReader, RemoteCertificateReader>();
         services.AddTransient<IRemoteCertificateService, RemoteCertificateService>();
+        services.AddTransient<SSLense.Core.Iis.IHttpsRedirectService, SSLense.Core.Iis.HttpsRedirectService>();
         services.AddTransient<DeploymentService>(provider => new DeploymentService(
             provider.GetRequiredService<IManagedCertificateStore>(),
             new PrivateKeyAccess(provider.GetRequiredService<ICertificateStore>()),

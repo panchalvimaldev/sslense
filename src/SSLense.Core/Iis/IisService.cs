@@ -448,6 +448,82 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
         ((binding.SslFlags & SslFlags.Sni) == SslFlags.Sni) != IsIpAddress(host) &&
         (binding.SslFlags & SslFlags.CentralCertStore) == 0;
 
+    /// <summary>The name of SSLense's rule, so it is found again and never confused with the administrator's own.</summary>
+    internal const string RedirectRuleName = "SSLense: HTTP to HTTPS";
+
+    public Task<HttpsRedirectState> GetHttpsRedirectAsync(string siteName, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using var serverManager = new ServerManager();
+        if (!IsUrlRewriteInstalled(serverManager))
+        {
+            return Task.FromResult(HttpsRedirectState.UrlRewriteMissing);
+        }
+
+        var site = FindSite(serverManager, siteName);
+        var rules = serverManager.GetWebConfiguration(site.Name).GetSection("system.webServer/rewrite/rules").GetCollection();
+        return Task.FromResult(rules.Any(rule => string.Equals(rule["name"] as string, RedirectRuleName, StringComparison.Ordinal))
+            ? HttpsRedirectState.On
+            : HttpsRedirectState.Off);
+    }
+
+    /// <summary>
+    /// The rule redirects every plain HTTP request to HTTPS, except /.well-known/acme-challenge/, so HTTP validation keeps
+    /// working (docs/design/https-redirect.md). It is the site's first rule, and the only one SSLense touches.
+    /// </summary>
+    public Task SetHttpsRedirectAsync(string siteName, bool enabled, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using var serverManager = new ServerManager();
+        if (!IsUrlRewriteInstalled(serverManager))
+        {
+            throw new SslenseException(ErrorCodes.UrlRewriteMissing, "The IIS URL Rewrite module is not installed, so SSLense cannot add the redirect.");
+        }
+
+        var site = FindSite(serverManager, siteName);
+        var rules = serverManager.GetWebConfiguration(site.Name).GetSection("system.webServer/rewrite/rules").GetCollection();
+        var existing = rules.FirstOrDefault(rule => string.Equals(rule["name"] as string, RedirectRuleName, StringComparison.Ordinal));
+        if (enabled == existing is not null)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (existing is not null)
+        {
+            rules.Remove(existing);
+        }
+        else
+        {
+            var rule = rules.CreateElement("rule");
+            rule["name"] = RedirectRuleName;
+            rule["stopProcessing"] = true;
+            rule.GetChildElement("match")["url"] = "(.*)";
+            var conditions = rule.GetChildElement("conditions").GetCollection();
+            var https = conditions.CreateElement("add");
+            https["input"] = "{HTTPS}";
+            https["pattern"] = "^OFF$";
+            conditions.Add(https);
+            var challenge = conditions.CreateElement("add");
+            challenge["input"] = "{REQUEST_URI}";
+            challenge["pattern"] = "^/\\.well-known/acme-challenge/";
+            challenge["negate"] = true;
+            conditions.Add(challenge);
+            var action = rule.GetChildElement("action");
+            action["type"] = "Redirect";
+            action["url"] = "https://{HTTP_HOST}{REQUEST_URI}";
+            action["appendQueryString"] = false;
+            action["redirectType"] = "Permanent";
+            rules.AddAt(0, rule);
+        }
+
+        serverManager.CommitChanges();
+        return Task.CompletedTask;
+    }
+
+    private static bool IsUrlRewriteInstalled(ServerManager serverManager) =>
+        serverManager.GetApplicationHostConfiguration().GetSection("system.webServer/globalModules").GetCollection()
+            .Any(module => string.Equals(module["name"] as string, "RewriteModule", StringComparison.OrdinalIgnoreCase));
+
     public Task RemoveHttpsBindingsAsync(
         string siteName,
         IReadOnlyList<string> hosts,

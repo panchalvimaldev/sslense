@@ -390,6 +390,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     rootCommand.Subcommands.Add(CreateRevokeCommand(services));
     rootCommand.Subcommands.Add(CreateAccountCommand(services));
     rootCommand.Subcommands.Add(CreateWatchCommand(services));
+    rootCommand.Subcommands.Add(CreateRedirectCommand(services));
     AddImportedCertificateCommands(rootCommand, services);
 
     return rootCommand;
@@ -1727,6 +1728,46 @@ static Command CreateWatchCommand(IServiceProvider services)
             return 1;
         }
     });
+    return command;
+}
+
+// The HTTP-to-HTTPS redirect helper (docs/design/https-redirect.md).
+static Command CreateRedirectCommand(IServiceProvider services)
+{
+    var command = new Command("redirect", "Redirect HTTP to HTTPS on a certificate's IIS site with an IIS URL Rewrite rule that never redirects validation requests.");
+    foreach (var (name, description) in new[] { ("show", "Show whether the site redirects."), ("on", "Add the redirect, and remove it again if it would block validation."), ("off", "Remove SSLense's redirect rule.") })
+    {
+        var siteOption = new Option<string>("--site") { Required = true, Description = "The certificate, or its IIS site." };
+        var subcommand = new Command(name, description);
+        subcommand.Options.Add(siteOption);
+        subcommand.SetAction(async (parseResult, token) =>
+        {
+            try
+            {
+                var redirect = services.GetRequiredService<SSLense.Core.Iis.IHttpsRedirectService>();
+                var site = parseResult.GetRequiredValue(siteOption);
+                Console.WriteLine(name switch
+                {
+                    "on" => await redirect.EnableAsync(site, token).ConfigureAwait(false),
+                    "off" => await redirect.DisableAsync(site, token).ConfigureAwait(false),
+                    _ => (await redirect.GetAsync(site, token).ConfigureAwait(false)) switch
+                    {
+                        SSLense.Core.Iis.HttpsRedirectState.On => "On: HTTP is redirected to HTTPS, except validation requests.",
+                        SSLense.Core.Iis.HttpsRedirectState.Off => "Off: SSLense's redirect rule is not on this site.",
+                        _ => "Unavailable: the IIS URL Rewrite module is not installed."
+                    }
+                });
+                return 0;
+            }
+            catch (Exception exception)
+            {
+                WriteError(exception);
+                return 1;
+            }
+        });
+        command.Subcommands.Add(subcommand);
+    }
+
     return command;
 }
 

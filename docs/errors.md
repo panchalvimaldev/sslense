@@ -174,6 +174,24 @@ The site serves the certificate SSLense expects, but it has expired. Renew it no
 
 SSLense answers the challenge through HTTP.sys, which IIS also uses. Run SSLense as Administrator. If another program, such as Apache or nginx, holds port 80 outside HTTP.sys, stop it during validation or use DNS validation.
 
+<a id="ssl1029"></a>
+
+### SSL1029: IIS URL Rewrite is not installed
+
+The HTTPS redirect is an IIS URL Rewrite rule. Install the URL Rewrite module for IIS from Microsoft, then try again.
+
+<a id="ssl1030"></a>
+
+### SSL1030: Site has no HTTPS binding
+
+Redirecting HTTP to HTTPS would send visitors nowhere. Give the site a certificate first.
+
+<a id="ssl1031"></a>
+
+### SSL1031: Redirect would block validation
+
+After the rule was added, a validation path on the site was still redirected, so SSLense removed the rule. Check for another redirect rule or module on the site, or in its parent configuration.
+
 ## SSL2xxx: ACME and certificate authorities
 
 <a id="ssl2001"></a>

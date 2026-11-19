@@ -54,6 +54,24 @@ public interface IIisService
         IReadOnlyList<string> hosts,
         string expectedCertificateThumbprint,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Whether the site has SSLense's HTTP-to-HTTPS rule (docs/design/https-redirect.md).</summary>
+    Task<HttpsRedirectState> GetHttpsRedirectAsync(string siteName, CancellationToken cancellationToken = default) =>
+        Task.FromResult(HttpsRedirectState.UrlRewriteMissing);
+
+    /// <summary>Adds or removes SSLense's HTTP-to-HTTPS rule in the site's configuration.</summary>
+    Task SetHttpsRedirectAsync(string siteName, bool enabled, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This IIS service cannot change redirects.");
+}
+
+public enum HttpsRedirectState
+{
+    /// <summary>The IIS URL Rewrite module is not installed, so no rule can be added.</summary>
+    UrlRewriteMissing,
+
+    Off,
+
+    On
 }
 
 /// <param name="SiteStarted">Whether the site had a listener to check when it was changed.</param>

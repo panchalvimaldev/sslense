@@ -702,6 +702,10 @@ dotnet run --project .\src\SSLense.Cli -- check-permissions
 
 The service runs as LocalSystem. Running it under a different account would also require granting that account access to this folder.
 
+## Redirecting HTTP to HTTPS
+
+On a certificate's ⋯ menu, **Redirect HTTP to HTTPS** adds an IIS URL Rewrite rule that sends plain HTTP to HTTPS, except validation requests, and checks that validation still works; **Stop redirecting HTTP** removes it. In the CLI: `SSLense.Cli redirect on|off|show --site <name>`. It needs the IIS URL Rewrite module ([design](docs/design/https-redirect.md)).
+
 ## A key that may have been copied
 
 If a certificate's private key, or SSLense's ACME account key, may have left the server, follow [the runbook](docs/runbooks/compromised-key-or-account.md). In short:
