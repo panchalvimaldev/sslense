@@ -27,4 +27,7 @@ public sealed record AppConfig
 
     /// <summary>When automatic renewals may run; null for any time (docs/design/maintenance-windows.md).</summary>
     public MaintenanceWindow? MaintenanceWindow { get; init; }
+
+    /// <summary>Whether SSLense tells you about a newer release, read from GitHub (docs/design/version-notice.md).</summary>
+    public bool CheckForUpdates { get; init; } = true;
 }

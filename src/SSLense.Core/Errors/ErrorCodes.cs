@@ -747,6 +747,9 @@ public static class ErrorCodes
     public static readonly ErrorCode NotAdministrator = new("SSL9006", nameof(NotAdministrator), "Not running as Administrator",
         "Start SSLense with 'Run as administrator'.");
 
+    public static readonly ErrorCode UpdateAvailable = new("SSL9007", nameof(UpdateAvailable), "A newer SSLense is available",
+        "Download it from the release page in the message and run its installer; it upgrades in place and keeps your settings. SSLense never installs anything by itself. Turn the notice off under Settings › General.");
+
     public static readonly ErrorCode Unexpected = new("SSL9999", nameof(Unexpected), "Unexpected error",
         "SSLense did not expect this error. The original message follows the code. Run the health check, and report it with a diagnostic bundle ('SSLense.Cli diagnostics') if it happens again.");
 
@@ -1000,6 +1003,7 @@ public static class ErrorCodes
         NotALogFile,
         LogBusy,
         NotAdministrator,
+        UpdateAvailable,
         Unexpected
     ];
 }

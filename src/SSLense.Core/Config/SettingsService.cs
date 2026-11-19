@@ -53,4 +53,10 @@ internal sealed class SettingsService(IConfigStore configStore) : ISettingsServi
                 cancellationToken)
             .ConfigureAwait(false);
     }
+
+    public async Task SaveCheckForUpdatesAsync(bool enabled, CancellationToken cancellationToken = default)
+    {
+        var config = await configStore.LoadAsync(cancellationToken).ConfigureAwait(false);
+        await configStore.SaveAsync(config with { CheckForUpdates = enabled }, cancellationToken).ConfigureAwait(false);
+    }
 }

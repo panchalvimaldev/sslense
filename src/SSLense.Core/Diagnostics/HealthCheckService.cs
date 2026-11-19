@@ -37,7 +37,8 @@ internal sealed class HealthCheckService(
     IPendingRequestStore pendingRequests,
     Reminders.IServedCertificateCheck servedCheck,
     DnsValidation.IDnsScriptStore? scripts = null,
-    IRemoteCertificateReader? remoteReader = null) : IHealthCheckService
+    IRemoteCertificateReader? remoteReader = null,
+    IUpdateCheckService? updates = null) : IHealthCheckService
 {
     private readonly DnsValidation.IDnsScriptStore _scripts = scripts ?? new DnsValidation.DnsScriptStore();
 
@@ -93,6 +94,14 @@ internal sealed class HealthCheckService(
 
         if (full)
         {
+            if (updates is not null)
+            {
+                await Check("SSLense version", async () => await updates.CheckAsync(cancellationToken).ConfigureAwait(false) is { } update
+                    ? new HealthCheckResult("SSLense version", HealthStatus.Warning,
+                        ErrorCodes.UpdateAvailable.Format($"SSLense {update.LatestVersion} is available; this is {update.CurrentVersion}."), update.ReleaseUrl.ToString())
+                    : Pass("SSLense version", $"{updates.CurrentVersion}; no newer release was found, or the check is off.")).ConfigureAwait(false);
+            }
+
             await Check("Administrator", () => Task.FromResult(CheckElevation())).ConfigureAwait(false);
         }
 

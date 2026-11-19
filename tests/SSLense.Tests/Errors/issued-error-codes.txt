@@ -247,3 +247,4 @@ SSL1029 UrlRewriteMissing
 SSL1030 RedirectNeedsHttps
 SSL1031 RedirectBlocksValidation
 SSL6029 BulkFileInvalid
+SSL9007 UpdateAvailable

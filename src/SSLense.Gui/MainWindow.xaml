@@ -68,6 +68,9 @@
                             </TextBlock>
                         </StackPanel>
                     </Button>
+                    <Button Command="{Binding OpenUpdateCommand}" Style="{StaticResource LinkButton}" Margin="12,0,0,0" VerticalAlignment="Center"
+                            Content="{Binding UpdateText}" Visibility="{Binding HasUpdate, Converter={StaticResource BooleanToVisibilityConverter}}"
+                            ToolTip="Opens the release page. SSLense never downloads or installs anything by itself." AutomationProperties.Name="A newer SSLense is available" />
                     <Button Content="Renew all due" Command="{Binding RenewAllCommand}" Margin="0,0,8,0"
                             ToolTip="Renew every automatic certificate that is due. Certificates you bought are installed by you, from the certificate's own screen." />
                     <Button Content="＋  Add certificate" Command="{Binding AddCertificateCommand}" Style="{StaticResource PrimaryButton}" />
