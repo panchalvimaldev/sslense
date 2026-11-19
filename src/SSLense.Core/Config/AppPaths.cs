@@ -34,6 +34,10 @@ public static class AppPaths
 
     public static string ManagedCertificatesLockFile => Path.Combine(DataDirectory, "managed-certificates.lock");
 
+    public static string HistoryFile => Path.Combine(DataDirectory, "history.json");
+
+    public static string HistoryLockFile => Path.Combine(DataDirectory, "history.lock");
+
     public static string OperationLockDirectory => Path.Combine(DataDirectory, "locks");
 
     public static string TransactionDirectory => Path.Combine(DataDirectory, "transactions");

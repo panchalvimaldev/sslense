@@ -26,6 +26,7 @@ namespace SSLense.Core.Config;
 /// <param name="ReuseKey">Keep the same private key at every renewal. See docs/design/key-reuse.md.</param>
 /// <param name="SelfHostedHttp">With HTTP validation, SSLense answers the challenge on port 80 itself, so the site needs no HTTP binding. See docs/design/self-hosted-http-validation.md.</param>
 /// <param name="RemotePort">For a certificate on another machine, the port it is read on; 443 when null.</param>
+/// <param name="PreviousThumbprint">The certificate the last renewal replaced, kept in LocalMachine\My while it is still valid so the administrator can go back to it. See docs/design/history-and-rollback.md.</param>
 /// <remarks>
 /// The reminder fields belong to the record, not to a certificate: <see cref="IManagedCertificateStore.UpsertAsync"/> keeps
 /// them across installs and resets them when the thumbprint changes (except <see cref="ReminderMode.Off"/>).
@@ -64,7 +65,8 @@ public sealed record ManagedCertificate(
     string? Profile = null,
     bool ReuseKey = false,
     bool SelfHostedHttp = false,
-    int? RemotePort = null);
+    int? RemotePort = null,
+    string? PreviousThumbprint = null);
 
 /// <summary>An IIS site and the hosts on it that use a certificate.</summary>
 /// <param name="PendingSince">When this site was left on its previous certificate because it had a problem during a renewal. Null when it uses the record's certificate.</param>

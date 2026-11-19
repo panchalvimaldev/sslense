@@ -390,6 +390,8 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     rootCommand.Subcommands.Add(CreateRevokeCommand(services));
     rootCommand.Subcommands.Add(CreateAccountCommand(services));
     rootCommand.Subcommands.Add(CreateCleanupCommand(services));
+    rootCommand.Subcommands.Add(CreateHistoryCommand(services));
+    rootCommand.Subcommands.Add(CreateRollbackCommand(services));
     rootCommand.Subcommands.Add(CreateBulkCommand(services));
     rootCommand.Subcommands.Add(CreateVersionCommand(services));
     rootCommand.Subcommands.Add(CreateWatchCommand(services));
@@ -1834,6 +1836,66 @@ static Command CreateVersionCommand(IServiceProvider services)
 }
 
 // Clean-up of unused certificates (docs/design/certificate-cleanup.md).
+// The timeline of a certificate, and going back to the one its last renewal replaced (docs/design/history-and-rollback.md).
+static Command CreateHistoryCommand(IServiceProvider services)
+{
+    var siteOption = new Option<string>("--site") { Required = true, Description = "The certificate SSLense manages, by its name." };
+    var command = new Command("history", "Show what happened to a certificate, newest first, and whether it can roll back.");
+    command.Options.Add(siteOption);
+    command.SetAction(async (parseResult, token) =>
+    {
+        try
+        {
+            var view = await services.GetRequiredService<ICertificateHistoryService>().GetAsync(parseResult.GetRequiredValue(siteOption), token).ConfigureAwait(false);
+            Console.WriteLine($"History of '{view.Name}':");
+            foreach (var entry in view.Entries)
+            {
+                Console.WriteLine($"{entry.At.ToLocalTime():yyyy-MM-dd HH:mm}  {entry.Kind,-13}  {entry.Message}");
+            }
+
+            if (view.Entries.Count == 0)
+            {
+                Console.WriteLine("Nothing recorded yet. SSLense records issues, renewals, failures, rollbacks and revocations from this version on.");
+            }
+
+            Console.WriteLine(view.Rollback.Available
+                ? $"Rollback: {view.Rollback.Message} Use 'SSLense.Cli rollback --site \"{view.Name}\"'."
+                : $"Rollback: not available. {view.Rollback.Message}");
+            return 0;
+        }
+        catch (Exception exception)
+        {
+            WriteError(exception);
+            return 1;
+        }
+    });
+    return command;
+}
+
+static Command CreateRollbackCommand(IServiceProvider services)
+{
+    var siteOption = new Option<string>("--site") { Required = true, Description = "The certificate SSLense manages, by its name." };
+    var command = new Command(
+        "rollback",
+        "Bind the certificate the last renewal replaced again, while it is still valid. The current certificate is kept, so running it again goes forward.");
+    command.Options.Add(siteOption);
+    command.SetAction(async (parseResult, token) =>
+    {
+        try
+        {
+            Console.WriteLine(await services.GetRequiredService<ICertificateHistoryService>()
+                .RollBackAsync(parseResult.GetRequiredValue(siteOption), new ConsoleProgress(), token).ConfigureAwait(false));
+            return 0;
+        }
+        catch (Exception exception)
+        {
+            WriteError(exception);
+            return 1;
+        }
+    });
+    return command;
+}
+
 static Command CreateCleanupCommand(IServiceProvider services)
 {
     var command = new Command("cleanup", "Certificates in LocalMachine\\My that nothing uses and that are expired, test leftovers or replaced.");

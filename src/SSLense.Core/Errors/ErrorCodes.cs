@@ -465,6 +465,9 @@ public static class ErrorCodes
     public static readonly ErrorCode CleanupRefused = new("SSL4054", nameof(CleanupRefused), "Certificate not removed",
         "Only a certificate that nothing uses, that SSLense does not manage, and that is expired, a test leftover or replaced is removed. List the candidates again.");
 
+    public static readonly ErrorCode RollbackNotAvailable = new("SSL4055", nameof(RollbackNotAvailable), "Cannot roll back",
+        "SSLense goes back only to the certificate the last renewal replaced, while it is still in LocalMachine\\My with its private key, valid for at least another day, covers the site's names and was not revoked. Renew the certificate instead, or fix the setting that made the new one fail.");
+
     public static readonly ErrorCode JournalEntryMissing = new("SSL5001", nameof(JournalEntryMissing), "Operation record missing",
         "An operation record disappeared while it was in use. Check the log, and run the health check.");
 
@@ -912,6 +915,7 @@ public static class ErrorCodes
         RevokeManualDnsCertificate,
         RemoteUnreachable,
         CleanupRefused,
+        RollbackNotAvailable,
         JournalEntryMissing,
         RenewedWithoutThumbprint,
         ServiceDidNotStart,

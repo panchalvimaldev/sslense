@@ -706,9 +706,13 @@ The service runs as LocalSystem. Running it under a different account would also
 
 On a certificate's ⋯ menu, **Redirect HTTP to HTTPS** adds an IIS URL Rewrite rule that sends plain HTTP to HTTPS, except validation requests, and checks that validation still works; **Stop redirecting HTTP** removes it. In the CLI: `SSLense.Cli redirect on|off|show --site <name>`. It needs the IIS URL Rewrite module ([design](docs/design/https-redirect.md)).
 
+## Certificate history and rollback
+
+Each certificate's **History** tab (or `SSLense.Cli history --site <name>`) shows what happened to it: issued, renewed, renewal failed, rolled back, revoked. A renewal keeps the certificate it replaced while that is still valid, so if the new one breaks something, **⋯ › Roll back to the previous certificate…** (or `SSLense.Cli rollback --site <name>`) binds the previous one again and holds automatic renewal for up to a week; the same command rolls forward ([design](docs/design/history-and-rollback.md)).
+
 ## Unused certificates
 
-**Activity › Unused certificates** (or `SSLense.Cli cleanup list`) finds certificates in `LocalMachineMy` that no IIS or HTTP.sys binding and no SSLense certificate uses, and that are expired, test leftovers or replaced; you choose which to remove (`cleanup remove --thumbprint ... --yes`) ([design](docs/design/certificate-cleanup.md)).
+**Activity › Unused certificates** (or `SSLense.Cli cleanup list`) finds certificates in `LocalMachine\My` that no IIS or HTTP.sys binding and no SSLense certificate uses, and that are expired, test leftovers or replaced; you choose which to remove (`cleanup remove --thumbprint ... --yes`) ([design](docs/design/certificate-cleanup.md)).
 
 ## Many certificates at once
 

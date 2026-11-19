@@ -97,6 +97,9 @@ internal sealed class CertificateCleanupService(
         foreach (var record in await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false))
         {
             used.Add(record.Thumbprint);
+
+            // Kept so the site can go back to it.
+            if (record.PreviousThumbprint is { } previous) used.Add(previous);
         }
 
         return used;

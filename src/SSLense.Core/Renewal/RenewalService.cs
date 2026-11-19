@@ -29,6 +29,7 @@ internal sealed class RenewalService : IRenewalService
     private const int NotifyAfterFailures = 3;
 
     private readonly IManagedCertificateStore _managedStore;
+    private readonly ICertificateHistoryStore? _history;
     private readonly IConfigStore _configStore;
     private readonly IAcmeService _acmeService;
     private readonly IIisService _iisService;
@@ -50,8 +51,10 @@ internal sealed class RenewalService : IRenewalService
         INotifier notifier,
         IRenewalInfoProvider? renewalInfoProvider = null,
         ICertificateAuthorityRegistry? authorities = null,
-        ICertificateSharingService? sharing = null)
+        ICertificateSharingService? sharing = null,
+        ICertificateHistoryStore? history = null)
     {
+        _history = history;
         _sharing = sharing;
         _managedStore = managedStore;
         _configStore = configStore;
@@ -185,8 +188,10 @@ internal sealed class RenewalService : IRenewalService
                     certificate.SiteName,
                     false,
                     false,
-                    $"Waiting: attempt {certificate.ConsecutiveFailures + 1} is scheduled for " +
-                    $"{retryAt:yyyy-MM-dd HH:mm} UTC after {certificate.ConsecutiveFailures} failure(s).",
+                    certificate.ConsecutiveFailures == 0
+                        ? $"Waiting: renewal is held until {retryAt:yyyy-MM-dd HH:mm} UTC after a rollback. Renew by hand to renew now."
+                        : $"Waiting: attempt {certificate.ConsecutiveFailures + 1} is scheduled for " +
+                          $"{retryAt:yyyy-MM-dd HH:mm} UTC after {certificate.ConsecutiveFailures} failure(s).",
                     certificate.Thumbprint));
                 continue;
             }
@@ -356,6 +361,10 @@ internal sealed class RenewalService : IRenewalService
                 CancellationToken.None)
             .ConfigureAwait(false);
         failures = updated?.ConsecutiveFailures ?? failures;
+        await _history.TryAddAsync(new CertificateHistoryEntry(
+                now, certificate.Id, certificate.SiteName, CertificateHistoryKind.RenewalFailed,
+                $"Renewal attempt {failures} failed: {ErrorCode.Describe(exception)}", certificate.Thumbprint, NotAfter: certificate.NotAfter))
+            .ConfigureAwait(false);
 
         var message = $"{ErrorCode.Describe(exception)} Next automatic attempt: {nextRetryAt:yyyy-MM-dd HH:mm} UTC.";
         progress?.Report(new ProgressEvent("retry", $"Renewal failed for {certificate.SiteName}. {message}"));

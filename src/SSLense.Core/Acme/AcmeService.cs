@@ -26,6 +26,7 @@ internal sealed partial class AcmeService : IAcmeService
     private readonly ICertificateStore _certificateStore;
     private readonly IManagedCertificateStore _managedCertificateStore;
     private readonly ICertificateOperationLock _operationLock;
+    private readonly ICertificateHistoryStore? _history;
     private readonly IDeploymentRunner? _deployment;
     private readonly IAcmeDirectoryReader? _directoryReader;
     private readonly ICertificateTransactionJournal _transactionJournal;
@@ -48,8 +49,10 @@ internal sealed partial class AcmeService : IAcmeService
         ICertificateAuthorityLock? authorityLock = null,
         IDeploymentRunner? deployment = null,
         IAcmeDirectoryReader? directoryReader = null,
-        ISelfHostedChallengeServer? selfHosted = null)
+        ISelfHostedChallengeServer? selfHosted = null,
+        ICertificateHistoryStore? history = null)
     {
+        _history = history;
         _selfHosted = selfHosted ?? DefaultSelfHosted.Value;
         _directoryReader = directoryReader;
         _deployment = deployment;
@@ -451,7 +454,14 @@ internal sealed partial class AcmeService : IAcmeService
                 throw;
             }
 
-            var replaced = await FindReplacedCertificateAsync(name).ConfigureAwait(false);
+            var replacedRecord = await FindReplacedCertificateAsync(name).ConfigureAwait(false);
+            var replaced = replacedRecord?.Thumbprint;
+
+            // The replaced certificate stays while it is valid, so the site can go back to it (docs/design/history-and-rollback.md).
+            var keepForRollback = request.KeepReplacedForRollback && replacedRecord is not null &&
+                                  !string.Equals(replaced, installedCertificate.Thumbprint, StringComparison.OrdinalIgnoreCase) &&
+                                  replacedRecord.NotAfter > DateTimeOffset.UtcNow;
+            pendingRecord = pendingRecord with { PreviousThumbprint = keepForRollback ? replaced : null };
             progress?.Report(new ProgressEvent("state", "Saving the managed certificate record."));
             await _managedCertificateStore.UpsertAsync(
                     pendingRecord,
@@ -465,9 +475,31 @@ internal sealed partial class AcmeService : IAcmeService
             await _transactionJournal.CompleteAsync(transaction.Id, CancellationToken.None)
                 .ConfigureAwait(false);
 
+            await _history.TryAddAsync(new CertificateHistoryEntry(
+                    DateTimeOffset.UtcNow,
+                    pendingRecord.Id != Guid.Empty ? pendingRecord.Id : replacedRecord?.Id ?? await FindRecordIdAsync(name).ConfigureAwait(false),
+                    name,
+                    replaced is null ? CertificateHistoryKind.Issued : CertificateHistoryKind.Renewed,
+                    replaced is null
+                        ? $"Issued by {authority.Name} for {string.Join(", ", names)}."
+                        : $"Replaced certificate {replaced} with a new one from {authority.Name}.",
+                    installedCertificate.Thumbprint,
+                    replaced,
+                    installedCertificate.NotAfter))
+                .ConfigureAwait(false);
+
             // The certificate is installed, bound, and saved: deployment steps run now, and a failure never undoes that.
             var deployment = await RunDeploymentAsync(name, replaced, leftOut, progress).ConfigureAwait(false);
-            if (replaced is not null && deployment?.KeepReplaced != true)
+
+            // The one kept for rollback before this renewal is no longer needed.
+            if (replacedRecord?.PreviousThumbprint is { } older &&
+                !string.Equals(older, installedCertificate.Thumbprint, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(older, replaced, StringComparison.OrdinalIgnoreCase))
+            {
+                await RemoveReplacedCertificateAsync(older, installedCertificate.Thumbprint, leftOut, progress).ConfigureAwait(false);
+            }
+
+            if (replaced is not null && !keepForRollback && deployment?.KeepReplaced != true)
             {
                 await RemoveReplacedCertificateAsync(replaced, installedCertificate.Thumbprint, leftOut, progress).ConfigureAwait(false);
             }
@@ -479,7 +511,7 @@ internal sealed partial class AcmeService : IAcmeService
                 NotAfter = installedCertificate.NotAfter,
                 LeftOutSites = leftOut,
                 Deployment = deployment?.Result,
-                PreviousCertificateKept = deployment?.KeepReplaced == true,
+                PreviousCertificateKept = deployment?.KeepReplaced == true || keepForRollback,
                 KeyReused = request.ReuseKey ? reusedKey is not null : null,
                 Name = name
             };
@@ -500,19 +532,32 @@ internal sealed partial class AcmeService : IAcmeService
     /// because the administrator paid for it and may want it back. The new certificate is already bound here, so a problem
     /// only means the old one stays in the store.
     /// </summary>
-    private async Task<string?> FindReplacedCertificateAsync(string siteName)
+    private async Task<ManagedCertificate?> FindReplacedCertificateAsync(string siteName)
     {
         try
         {
             var records = await _managedCertificateStore.GetAllAsync(CancellationToken.None).ConfigureAwait(false);
             return records.FirstOrDefault(value =>
-                    value.Source == CertificateSource.Acme &&
-                    string.Equals(value.SiteName, siteName, StringComparison.OrdinalIgnoreCase))
-                ?.Thumbprint;
+                value.Source == CertificateSource.Acme &&
+                string.Equals(value.SiteName, siteName, StringComparison.OrdinalIgnoreCase));
         }
         catch (Exception)
         {
             return null;
+        }
+    }
+
+    /// <summary>The ID the store gave the record just saved, for its history.</summary>
+    private async Task<Guid> FindRecordIdAsync(string siteName)
+    {
+        try
+        {
+            var records = await _managedCertificateStore.GetAllAsync(CancellationToken.None).ConfigureAwait(false);
+            return records.FirstOrDefault(value => string.Equals(value.SiteName, siteName, StringComparison.OrdinalIgnoreCase))?.Id ?? Guid.Empty;
+        }
+        catch (Exception)
+        {
+            return Guid.Empty;
         }
     }
 

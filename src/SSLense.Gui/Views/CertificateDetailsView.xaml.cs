@@ -64,6 +64,29 @@ public partial class CertificateDetailsView : UserControl
         if (answer == MessageBoxResult.Yes) await viewModel.UnmanageCommand.ExecuteAsync(null);
     }
 
+    private async void OnRollbackClick(object sender, RoutedEventArgs e)
+    {
+        if (DataContext is not CertificateDetailsViewModel viewModel || viewModel.Summary is not { } summary) return;
+        if (!viewModel.CanRollBack)
+        {
+            MessageBox.Show(
+                string.IsNullOrEmpty(viewModel.RollbackMessage) ? "There is no previous certificate to roll back to." : viewModel.RollbackMessage,
+                "Roll back",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        var answer = MessageBox.Show(
+            $"Roll {summary.Title} back to its previous certificate?\n\n{viewModel.RollbackMessage}\n\nSSLense binds it to the site again and " +
+            "keeps the current certificate, so you can roll forward the same way. Automatic renewal waits for up to a week; fix what was " +
+            "wrong with the new certificate before then.",
+            "Roll back",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+        if (answer == MessageBoxResult.Yes && viewModel.RollBackCommand.CanExecute(null)) await viewModel.RollBackCommand.ExecuteAsync(null);
+    }
+
     private async void OnRevokeClick(object sender, RoutedEventArgs e)
     {
         if (DataContext is not CertificateDetailsViewModel viewModel || viewModel.Summary is not { } summary) return;

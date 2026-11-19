@@ -930,6 +930,12 @@ SSLense connects to the host and port to read the certificate it serves. Check t
 
 Only a certificate that nothing uses, that SSLense does not manage, and that is expired, a test leftover or replaced is removed. List the candidates again.
 
+<a id="ssl4055"></a>
+
+### SSL4055: Cannot roll back
+
+SSLense goes back only to the certificate the last renewal replaced, while it is still in LocalMachine\My with its private key, valid for at least another day, covers the site's names and was not revoked. Renew the certificate instead, or fix the setting that made the new one fail.
+
 ## SSL5xxx: Renewal, reminders and the service
 
 <a id="ssl5001"></a>
