@@ -7,4 +7,6 @@ public sealed record InstalledCertificate(
     bool HasPrivateKey,
     string? Issuer = null,
     IReadOnlyList<string>? DnsNames = null,
-    string? IssuerName = null);
+    string? IssuerName = null,
+    string? Subject = null,
+    string? FriendlyName = null);

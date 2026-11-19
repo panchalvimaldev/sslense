@@ -223,6 +223,26 @@ internal sealed class WindowsCertificateStore : ICertificateStore
         return Task.CompletedTask;
     }
 
+    public Task<IReadOnlyList<InstalledCertificate>> ListAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        EnsureWindows();
+        using var store = new X509Store(StoreName.My, StoreLocation.LocalMachine);
+        store.Open(OpenFlags.OpenExistingOnly | OpenFlags.ReadOnly);
+        var certificates = store.Certificates.OfType<X509Certificate2>().ToArray();
+        try
+        {
+            return Task.FromResult<IReadOnlyList<InstalledCertificate>>([.. certificates.Select(Map)]);
+        }
+        finally
+        {
+            foreach (var certificate in certificates)
+            {
+                certificate.Dispose();
+            }
+        }
+    }
+
     private static InstalledCertificate Map(X509Certificate2 certificate) => new(
         NormalizeThumbprint(certificate.Thumbprint),
         certificate.NotBefore.ToUniversalTime(),
@@ -230,7 +250,9 @@ internal sealed class WindowsCertificateStore : ICertificateStore
         certificate.HasPrivateKey,
         certificate.Issuer,
         CertificateInspector.GetDnsNames(certificate),
-        certificate.GetNameInfo(X509NameType.SimpleName, forIssuer: true));
+        certificate.GetNameInfo(X509NameType.SimpleName, forIssuer: true),
+        certificate.Subject,
+        certificate.FriendlyName);
 
     private static string NormalizeThumbprint(string thumbprint)
     {

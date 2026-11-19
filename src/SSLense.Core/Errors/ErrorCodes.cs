@@ -462,6 +462,9 @@ public static class ErrorCodes
     public static readonly ErrorCode RemoteUnreachable = new("SSL4053", nameof(RemoteUnreachable), "Certificate on another machine could not be read",
         "SSLense connects to the host and port to read the certificate it serves. Check the name or address, the port, and that this server can reach it through any firewall.");
 
+    public static readonly ErrorCode CleanupRefused = new("SSL4054", nameof(CleanupRefused), "Certificate not removed",
+        "Only a certificate that nothing uses, that SSLense does not manage, and that is expired, a test leftover or replaced is removed. List the candidates again.");
+
     public static readonly ErrorCode JournalEntryMissing = new("SSL5001", nameof(JournalEntryMissing), "Operation record missing",
         "An operation record disappeared while it was in use. Check the log, and run the health check.");
 
@@ -908,6 +911,7 @@ public static class ErrorCodes
         RevokeBoughtCertificate,
         RevokeManualDnsCertificate,
         RemoteUnreachable,
+        CleanupRefused,
         JournalEntryMissing,
         RenewedWithoutThumbprint,
         ServiceDidNotStart,

@@ -51,4 +51,8 @@ public interface ICertificateStore
         CancellationToken cancellationToken = default);
 
     Task RemoveAsync(string thumbprint, CancellationToken cancellationToken = default);
+
+    /// <summary>Every certificate in LocalMachineMy, for the clean-up of unused ones (docs/design/certificate-cleanup.md).</summary>
+    Task<IReadOnlyList<InstalledCertificate>> ListAsync(CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This certificate store cannot list certificates.");
 }

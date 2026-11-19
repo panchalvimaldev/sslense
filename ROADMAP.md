@@ -126,7 +126,7 @@ Remaining:
 
 Ordered roughly by expected demand. Community feedback decides the order.
 
-- **Existing-certificate discovery:** adopting a certificate already bound in IIS was added in 0.10. Remaining: find expired, duplicate, self-signed, and staging certificates in `LocalMachine\My` that no binding uses, and suggest clean-up.
+- **Existing-certificate discovery:** adopting a certificate already bound in IIS was added in 0.10, and the clean-up of unused expired, test and replaced certificates is built ([design](docs/design/certificate-cleanup.md)).
 - **Certificate history and one-click rollback:** a timeline for each certificate (issued, renewed, replaced, failed) and a way to go back to the previous certificate while it is still valid.
 - **Web farms and load-balanced sites:** HTTP-01 validation across several servers (shared storage, FTP, SFTP, or WebDAV) and keeping the certificate in step on every server.
 - **More validation methods:** TLS-ALPN-01, self-hosted HTTP validation for servers whose sites cannot serve the challenge, and newer DNS methods such as dns-persist-01 as certificate authorities adopt them.

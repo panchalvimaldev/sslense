@@ -60,6 +60,25 @@
                     </StackPanel>
                 </StackPanel>
             </Expander>
+            <Expander Header="Unused certificates" Margin="0,8,0,0" Foreground="{StaticResource BrandBrush}">
+                <StackPanel Margin="0,8,0,0">
+                    <TextBlock Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Certificates in LocalMachineMy that no IIS or HTTP.sys binding and no SSLense certificate uses, and that are expired, test leftovers or replaced by a newer one. Nothing is removed unless you tick it."/>
+                    <Button Content="Find unused certificates" Command="{Binding FindUnusedCommand}" HorizontalAlignment="Left"/>
+                    <ItemsControl ItemsSource="{Binding UnusedCertificates}" Margin="0,8,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="0,4">
+                                    <CheckBox Content="{Binding Title}" IsChecked="{Binding IsChecked}" AutomationProperties.Name="{Binding Title}"/>
+                                    <TextBlock Text="{Binding Candidate.Reason}" Style="{StaticResource CaptionText}" Margin="21,2,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Button Content="Remove ticked…" Click="OnRemoveUnusedClick" HorizontalAlignment="Left" Margin="0,8,0,0" Foreground="{StaticResource DangerBrush}"/>
+                    <TextBlock Text="{Binding CleanupMessage}" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                </StackPanel>
+            </Expander>
         </StackPanel>
     </Border>
 </UserControl>

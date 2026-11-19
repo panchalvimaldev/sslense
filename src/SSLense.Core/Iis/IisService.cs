@@ -451,6 +451,15 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
     /// <summary>The name of SSLense's rule, so it is found again and never confused with the administrator's own.</summary>
     internal const string RedirectRuleName = "SSLense: HTTP to HTTPS";
 
+    public async Task<IReadOnlyList<string>> GetHttpSysCertificateThumbprintsAsync(CancellationToken cancellationToken = default)
+    {
+        // netsh translates its labels, so only the 40-hex-digit hashes are read.
+        var (exitCode, output) = await RunNetshAsync(["http", "show", "sslcert"], cancellationToken).ConfigureAwait(false);
+        return exitCode != 0
+            ? []
+            : [.. System.Text.RegularExpressions.Regex.Matches(output, @"\b[0-9A-Fa-f]{40}\b").Select(match => match.Value.ToUpperInvariant()).Distinct()];
+    }
+
     public Task<HttpsRedirectState> GetHttpsRedirectAsync(string siteName, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
