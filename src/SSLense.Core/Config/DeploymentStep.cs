@@ -27,7 +27,13 @@ public enum DeploymentStepKind
     KeyVault = 7,
 
     /// <summary>Binds the certificate to an HTTP.sys endpoint outside IIS, such as WinRM or a service on its own port (docs/design/httpsys-bindings.md).</summary>
-    HttpSysBinding = 8
+    HttpSysBinding = 8,
+
+    /// <summary>Makes Remote Desktop on this server use the certificate (docs/design/service-targets.md).</summary>
+    RemoteDesktop = 9,
+
+    /// <summary>Makes a SQL Server instance encrypt connections with the certificate, then restarts it (docs/design/service-targets.md).</summary>
+    SqlServer = 10
 }
 
 /// <summary>Something that runs after every install and renewal of a certificate. See docs/design/deployment-steps.md.</summary>
@@ -54,6 +60,8 @@ public sealed record DeploymentStep(
         DeploymentStepKind.FtpSite => $"Use it for the IIS FTP site '{Value}'",
         DeploymentStepKind.KeyVault => $"Import it into Azure Key Vault as '{Value}'",
         DeploymentStepKind.HttpSysBinding => $"Bind it in HTTP.sys to {Value}",
+        DeploymentStepKind.RemoteDesktop => "Use it for Remote Desktop on this server",
+        DeploymentStepKind.SqlServer => $"Use it for SQL Server '{Value}', and restart it",
         _ => $"Unknown step '{Value}'"
     };
 }

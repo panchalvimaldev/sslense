@@ -146,6 +146,29 @@ public sealed class DeploymentServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RemoteDesktopAndSqlServerSteps_GiveTheKey_SetTheCertificate_AndRestartSqlServer()
+    {
+        await SaveRecordAsync();
+        var settings = new FakeServiceSettings();
+        var service = new DeploymentService(
+            _store, _keys, _services, _scripts, _runner, _iis.Object, _certificates.Object, _notifier.Object, serviceSettings: settings);
+
+        var missing = await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.SqlServer, "NOSUCH")));
+        Assert.StartsWith("SSL4058", missing.Message, StringComparison.Ordinal);
+        await service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.RemoteDesktop, "RDP-Tcp"));
+        var sql = await service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.SqlServer, "sqlexpress"));
+        var result = await service.RunAsync("Shop");
+
+        Assert.True(result.Succeeded, result.Message);
+        Assert.Equal("SQLEXPRESS", sql.Value);
+        Assert.Equal(OldThumbprint, settings.RemoteDesktop);
+        Assert.Equal(OldThumbprint.ToLowerInvariant(), settings.Sql["SQLEXPRESS"]);
+        Assert.Equal([(OldThumbprint, @"NT AUTHORITY\NETWORK SERVICE"), (OldThumbprint, @"NT Service\MSSQL$SQLEXPRESS")], _keys.Granted);
+        Assert.Equal(["MSSQL$SQLEXPRESS"], _services.Restarted);
+    }
+
+    [Fact]
     public async Task ScriptStep_RunsSSLensesCopyWithTheCertificatesDetails_AndRefusesAChangedCopy()
     {
         await SaveRecordAsync();
@@ -441,6 +464,26 @@ public sealed class DeploymentServiceTests : IDisposable
         return path;
     }
 
+    private sealed class FakeServiceSettings : IServiceCertificateSettings
+    {
+        public string? RemoteDesktop { get; private set; }
+
+        public Dictionary<string, string> Sql { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public bool HasRemoteDesktopListener() => true;
+
+        public void SetRemoteDesktopCertificate(string thumbprint) => RemoteDesktop = thumbprint;
+
+        public string? GetRemoteDesktopCertificate() => RemoteDesktop;
+
+        public string? FindSqlServerService(string instanceName) =>
+            instanceName.ToUpperInvariant() switch { "MSSQLSERVER" => "MSSQLSERVER", "SQLEXPRESS" => "MSSQL$SQLEXPRESS", _ => null };
+
+        public void SetSqlServerCertificate(string instanceName, string thumbprint) => Sql[instanceName] = thumbprint.ToLowerInvariant();
+
+        public string? GetSqlServerCertificate(string instanceName) => Sql.TryGetValue(instanceName, out var value) ? value.ToUpperInvariant() : null;
+    }
+
     private sealed class FakeKeyAccess : IPrivateKeyAccess
     {
         public List<(string Thumbprint, string Account)> Granted { get; } = [];
@@ -466,8 +509,13 @@ public sealed class DeploymentServiceTests : IDisposable
         public Task<bool> ExistsAsync(string serviceName, CancellationToken cancellationToken) =>
             Task.FromResult(serviceName is "W3SVC" or "SSLense");
 
-        public Task RestartAsync(string serviceName, TimeSpan timeout, CancellationToken cancellationToken) =>
-            Fail is null ? Task.CompletedTask : Task.FromException(Fail);
+        public List<string> Restarted { get; } = [];
+
+        public Task RestartAsync(string serviceName, TimeSpan timeout, CancellationToken cancellationToken)
+        {
+            Restarted.Add(serviceName);
+            return Fail is null ? Task.CompletedTask : Task.FromException(Fail);
+        }
     }
 
     private sealed class FakeRunner : IScriptRunner

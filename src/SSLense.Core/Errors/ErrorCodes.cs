@@ -474,6 +474,9 @@ public static class ErrorCodes
     public static readonly ErrorCode HttpSysBindingFailed = new("SSL4057", nameof(HttpSysBindingFailed), "HTTP.sys binding not changed",
         "SSLense binds the certificate with 'netsh http add sslcert' or 'update sslcert' and reads it back. Run SSLense as Administrator, check the endpoint with 'netsh http show sslcert', and that the certificate has its private key.");
 
+    public static readonly ErrorCode ServiceTargetMissing = new("SSL4058", nameof(ServiceTargetMissing), "Service not found on this server",
+        "The step sets the certificate of a Windows feature on this server. Turn on Remote Desktop, or check the SQL Server instance's name (MSSQLSERVER for the default instance) in SQL Server Configuration Manager.");
+
     public static readonly ErrorCode JournalEntryMissing = new("SSL5001", nameof(JournalEntryMissing), "Operation record missing",
         "An operation record disappeared while it was in use. Check the log, and run the health check.");
 
@@ -936,6 +939,7 @@ public static class ErrorCodes
         RollbackNotAvailable,
         FtpSiteNotFound,
         HttpSysBindingFailed,
+        ServiceTargetMissing,
         JournalEntryMissing,
         RenewedWithoutThumbprint,
         ServiceDidNotStart,

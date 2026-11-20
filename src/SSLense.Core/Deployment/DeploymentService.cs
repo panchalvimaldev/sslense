@@ -98,6 +98,7 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
     private readonly ICertificateExporter? _exporter;
     private readonly ISecretProtector? _protector;
     private readonly IKeyVaultClient? _keyVault;
+    private readonly IServiceCertificateSettings? _serviceSettings;
 
     public DeploymentService(
         IManagedCertificateStore store,
@@ -111,8 +112,10 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
         ICertificateOperationLock? operationLock = null,
         ICertificateExporter? exporter = null,
         ISecretProtector? protector = null,
-        IKeyVaultClient? keyVault = null)
+        IKeyVaultClient? keyVault = null,
+        IServiceCertificateSettings? serviceSettings = null)
     {
+        _serviceSettings = serviceSettings;
         _keyVault = keyVault;
         _exporter = exporter;
         _protector = protector;
@@ -188,6 +191,23 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
                 break;
             case DeploymentStepKind.KeyVault:
                 step = CreateKeyVaultStep(record, id, request);
+                break;
+            case DeploymentStepKind.RemoteDesktop:
+                if (!ServiceSettings().HasRemoteDesktopListener())
+                {
+                    throw new ArgumentException(ErrorCodes.ServiceTargetMissing.Format("Remote Desktop is not set up on this server: the RDP-Tcp listener was not found."));
+                }
+
+                step = new DeploymentStep(id, request.Kind, "RDP-Tcp");
+                break;
+            case DeploymentStepKind.SqlServer:
+                var instance = request.Value.Trim().ToUpperInvariant();
+                if (ServiceSettings().FindSqlServerService(instance) is null)
+                {
+                    throw new ArgumentException(ErrorCodes.ServiceTargetMissing.Format($"No SQL Server instance named '{instance}' is installed. The default instance is MSSQLSERVER."));
+                }
+
+                step = new DeploymentStep(id, request.Kind, instance);
                 break;
             case DeploymentStepKind.HttpSysBinding:
                 step = new DeploymentStep(id, request.Kind, (await CheckHttpSysEndpointAsync(request.Value, cancellationToken).ConfigureAwait(false)).ToString());
@@ -500,6 +520,12 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
             case DeploymentStepKind.KeyVault:
                 await ImportIntoKeyVaultAsync(record, step, cancellationToken).ConfigureAwait(false);
                 break;
+            case DeploymentStepKind.RemoteDesktop:
+                await SetRemoteDesktopAsync(record, cancellationToken).ConfigureAwait(false);
+                break;
+            case DeploymentStepKind.SqlServer:
+                await SetSqlServerAsync(record, step.Value, cancellationToken).ConfigureAwait(false);
+                break;
             case DeploymentStepKind.HttpSysBinding:
                 await _iis.SetHttpSysCertificateAsync(HttpSysEndpoint.Parse(step.Value), record.Thumbprint, cancellationToken).ConfigureAwait(false);
                 break;
@@ -509,6 +535,37 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
             default:
                 throw new SslenseException(ErrorCodes.DeploymentStepUnknown, $"This SSLense version does not know deployment step kind {(int)step.Kind}.");
         }
+    }
+
+    private IServiceCertificateSettings ServiceSettings() =>
+        _serviceSettings ?? throw new SslenseException(ErrorCodes.ServiceTargetMissing, "Windows service settings are not available in this SSLense process.");
+
+    /// <summary>The Remote Desktop service runs as NETWORK SERVICE, so it is given the key first (docs/design/service-targets.md).</summary>
+    private async Task SetRemoteDesktopAsync(ManagedCertificate record, CancellationToken cancellationToken)
+    {
+        await _keyAccess.GrantReadAsync(record.Thumbprint, @"NT AUTHORITY\NETWORK SERVICE", cancellationToken).ConfigureAwait(false);
+        var settings = ServiceSettings();
+        settings.SetRemoteDesktopCertificate(record.Thumbprint);
+        if (!string.Equals(settings.GetRemoteDesktopCertificate(), record.Thumbprint, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new SslenseException(ErrorCodes.ServiceTargetMissing, "Remote Desktop does not show the new certificate after the change.");
+        }
+    }
+
+    /// <summary>SQL Server reads its certificate only when it starts, so the instance is restarted (docs/design/service-targets.md).</summary>
+    private async Task SetSqlServerAsync(ManagedCertificate record, string instance, CancellationToken cancellationToken)
+    {
+        var settings = ServiceSettings();
+        var service = settings.FindSqlServerService(instance)
+            ?? throw new SslenseException(ErrorCodes.ServiceTargetMissing, $"No SQL Server instance named '{instance}' is installed any more.");
+        await _keyAccess.GrantReadAsync(record.Thumbprint, $@"NT Service\{service}", cancellationToken).ConfigureAwait(false);
+        settings.SetSqlServerCertificate(instance, record.Thumbprint);
+        if (!string.Equals(settings.GetSqlServerCertificate(instance), record.Thumbprint, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new SslenseException(ErrorCodes.ServiceTargetMissing, $"SQL Server '{instance}' does not show the new certificate after the change.");
+        }
+
+        await _services.RestartAsync(service, ServiceTimeout, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>An endpoint an IIS site binds is the site's to change, so the step is refused for it (docs/design/httpsys-bindings.md).</summary>
