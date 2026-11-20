@@ -36,7 +36,10 @@ public enum DeploymentStepKind
     SqlServer = 10,
 
     /// <summary>Writes the files Apache, nginx or Tomcat on Windows reads, then restarts its service (docs/design/web-servers.md).</summary>
-    WebServer = 11
+    WebServer = 11,
+
+    /// <summary>Uploads the certificate to Azure App Service and binds the app's custom domains it covers (docs/design/app-service.md).</summary>
+    AppService = 12
 }
 
 /// <summary>Something that runs after every install and renewal of a certificate. See docs/design/deployment-steps.md.</summary>
@@ -66,6 +69,7 @@ public sealed record DeploymentStep(
         DeploymentStepKind.RemoteDesktop => "Use it for Remote Desktop on this server",
         DeploymentStepKind.SqlServer => $"Use it for SQL Server '{Value}', and restart it",
         DeploymentStepKind.WebServer => WebServerTarget.Parse(Value).Describe(),
+        DeploymentStepKind.AppService => $"Use it for the Azure App Service app '{Value}'",
         _ => $"Unknown step '{Value}'"
     };
 }

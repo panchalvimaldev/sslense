@@ -1338,6 +1338,12 @@ Add an email or chat channel, or make sure the Windows Event Log is monitored.
 
 SSLense signs in with the step's app registration and imports the certificate as a new version. Check the tenant, client ID and secret, the vault's name and firewall, and that the app has the Key Vault Certificates Officer role or the Import certificate permission.
 
+<a id="ssl7011"></a>
+
+### SSL7011: Azure App Service not updated
+
+SSLense signs in with the step's app registration, uploads the certificate and binds the app's custom domains it covers. Check the tenant, client ID and secret, the subscription, resource group and app, that the domain is added to the app, and that the app registration has the Website Contributor role.
+
 ## SSL8xxx: Deployment steps
 
 <a id="ssl8001"></a>

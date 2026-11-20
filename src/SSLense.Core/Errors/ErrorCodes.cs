@@ -666,6 +666,9 @@ public static class ErrorCodes
     public static readonly ErrorCode KeyVaultFailed = new("SSL7010", nameof(KeyVaultFailed), "Azure Key Vault import failed",
         "SSLense signs in with the step's app registration and imports the certificate as a new version. Check the tenant, client ID and secret, the vault's name and firewall, and that the app has the Key Vault Certificates Officer role or the Import certificate permission.");
 
+    public static readonly ErrorCode AppServiceFailed = new("SSL7011", nameof(AppServiceFailed), "Azure App Service not updated",
+        "SSLense signs in with the step's app registration, uploads the certificate and binds the app's custom domains it covers. Check the tenant, client ID and secret, the subscription, resource group and app, that the domain is added to the app, and that the app registration has the Website Contributor role.");
+
     public static readonly ErrorCode ExportKeyUnsupported = new("SSL8001", nameof(ExportKeyUnsupported), "Key type cannot be exported",
         "The key is neither RSA nor ECDSA. Issue the certificate again with a supported key type.");
 
@@ -1003,6 +1006,7 @@ public static class ErrorCodes
         NotificationSettingsInvalid,
         OnlyEventLog,
         KeyVaultFailed,
+        AppServiceFailed,
         ExportKeyUnsupported,
         CertificateNotInStore,
         ExportNoPrivateKey,
