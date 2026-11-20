@@ -99,6 +99,7 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
     private readonly ISecretProtector? _protector;
     private readonly IKeyVaultClient? _keyVault;
     private readonly IServiceCertificateSettings? _serviceSettings;
+    private readonly IAppServiceClient? _appService;
 
     public DeploymentService(
         IManagedCertificateStore store,
@@ -113,8 +114,10 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
         ICertificateExporter? exporter = null,
         ISecretProtector? protector = null,
         IKeyVaultClient? keyVault = null,
-        IServiceCertificateSettings? serviceSettings = null)
+        IServiceCertificateSettings? serviceSettings = null,
+        IAppServiceClient? appService = null)
     {
+        _appService = appService;
         _serviceSettings = serviceSettings;
         _keyVault = keyVault;
         _exporter = exporter;
@@ -140,7 +143,7 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
             throw new SslenseException(ErrorCodes.TooManySteps, $"A certificate can have at most {MaxSteps} deployment steps.");
         }
 
-        if (request.Password is not null && request.Kind is not (DeploymentStepKind.ExportPfx or DeploymentStepKind.CentralStore or DeploymentStepKind.KeyVault or DeploymentStepKind.WebServer))
+        if (request.Password is not null && request.Kind is not (DeploymentStepKind.ExportPfx or DeploymentStepKind.CentralStore or DeploymentStepKind.KeyVault or DeploymentStepKind.WebServer or DeploymentStepKind.AppService))
         {
             throw new ArgumentException(ErrorCodes.DeploymentStepInvalid.Format(request.Kind == DeploymentStepKind.ExportPem
                 ? "PEM files take no password: key.pem is written for Administrators and SYSTEM only."
@@ -191,6 +194,9 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
                 break;
             case DeploymentStepKind.KeyVault:
                 step = CreateKeyVaultStep(record, id, request);
+                break;
+            case DeploymentStepKind.AppService:
+                step = CreateAzureStep(record, id, request, AppServiceTarget.Parse(request.Value).ToString(), "App Service");
                 break;
             case DeploymentStepKind.WebServer:
                 step = await CreateWebServerStepAsync(record, id, request, cancellationToken).ConfigureAwait(false);
@@ -523,6 +529,9 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
             case DeploymentStepKind.KeyVault:
                 await ImportIntoKeyVaultAsync(record, step, cancellationToken).ConfigureAwait(false);
                 break;
+            case DeploymentStepKind.AppService:
+                await DeployToAppServiceAsync(record, step, cancellationToken).ConfigureAwait(false);
+                break;
             case DeploymentStepKind.WebServer:
                 await DeployToWebServerAsync(record, step, cancellationToken).ConfigureAwait(false);
                 break;
@@ -656,21 +665,27 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
     }
 
     /// <summary>The vault and certificate are checked now; the app registration is kept with DPAPI (docs/design/key-vault.md).</summary>
-    private DeploymentStep CreateKeyVaultStep(ManagedCertificate record, Guid id, DeploymentStepRequest request)
+    private DeploymentStep CreateKeyVaultStep(ManagedCertificate record, Guid id, DeploymentStepRequest request) =>
+        CreateAzureStep(record, id, request, KeyVaultTarget.Parse(request.Value).ToString(), "Key Vault");
+
+    /// <summary>
+    /// A step that signs in to Azure with an app registration: the key must be exportable, and the tenant, client ID and
+    /// secret are kept together with DPAPI (docs/design/key-vault.md, docs/design/app-service.md).
+    /// </summary>
+    private DeploymentStep CreateAzureStep(ManagedCertificate record, Guid id, DeploymentStepRequest request, string value, string service)
     {
         if (!record.ExportableKey)
         {
             throw new SslenseException(ErrorCodes.KeyNotExportable,
-                $"The private key of the certificate for '{record.SiteName}' is not exportable, so it cannot be imported into Key Vault. " +
+                $"The private key of the certificate for '{record.SiteName}' is not exportable, so it cannot be sent to {service}. " +
                 "Issue the certificate again with an exportable key: add --exportable-key --force to its 'issue' command, or choose " +
                 "Exportable private key in the app.");
         }
 
-        var target = KeyVaultTarget.Parse(request.Value);
         var parts = (request.Password ?? string.Empty).Split(':', 3);
         if (parts.Length != 3 || parts.Any(part => part.Trim().Length == 0))
         {
-            throw new ArgumentException(ErrorCodes.DeploymentStepInvalid.Format("Key Vault needs the app registration's tenant, client ID and client secret."));
+            throw new ArgumentException(ErrorCodes.DeploymentStepInvalid.Format($"{service} needs the app registration's tenant, client ID and client secret."));
         }
 
         var plaintext = Encoding.UTF8.GetBytes(string.Join(':', parts[0].Trim(), parts[1].Trim(), parts[2]));
@@ -678,11 +693,27 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
         {
             var protectedCredentials = Convert.ToBase64String(
                 (_protector ?? throw new SslenseException(ErrorCodes.PasswordStorageUnavailable, "Passwords cannot be stored here.")).Protect(plaintext));
-            return new DeploymentStep(id, DeploymentStepKind.KeyVault, target.ToString(), ProtectedPassword: protectedCredentials);
+            return new DeploymentStep(id, request.Kind, value, ProtectedPassword: protectedCredentials);
         }
         finally
         {
             System.Security.Cryptography.CryptographicOperations.ZeroMemory(plaintext);
+        }
+    }
+
+    private async Task DeployToAppServiceAsync(ManagedCertificate record, DeploymentStep step, CancellationToken cancellationToken)
+    {
+        var client = _appService ?? throw new SslenseException(ErrorCodes.AppServiceFailed, "Azure App Service is not available in this SSLense process.");
+        var password = KeyVaultClient.NewUploadPassword();
+        var pfx = await Exporter().ExportPkcs12Async(record.Thumbprint, password, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await client.DeployAsync(AppServiceTarget.Parse(step.Value), Password(step), record.Thumbprint, record.CertificateNames ?? record.Hosts, pfx, password, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(pfx);
         }
     }
 

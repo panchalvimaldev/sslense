@@ -72,6 +72,7 @@ public static class DependencyInjection
         services.AddTransient<IRemoteCertificateService, RemoteCertificateService>();
         services.AddTransient<SSLense.Core.Iis.IHttpsRedirectService, SSLense.Core.Iis.HttpsRedirectService>();
         services.AddSingleton<IKeyVaultClient, KeyVaultClient>();
+        services.AddSingleton<IAppServiceClient, AppServiceClient>();
         services.AddTransient<DeploymentService>(provider => new DeploymentService(
             provider.GetRequiredService<IManagedCertificateStore>(),
             new PrivateKeyAccess(provider.GetRequiredService<ICertificateStore>()),
@@ -85,7 +86,8 @@ public static class DependencyInjection
             new CertificateExporter(provider.GetRequiredService<ICertificateStore>()),
             provider.GetRequiredService<ISecretProtector>(),
             provider.GetRequiredService<IKeyVaultClient>(),
-            new RegistryServiceCertificateSettings()));
+            new RegistryServiceCertificateSettings(),
+            provider.GetRequiredService<IAppServiceClient>()));
         services.AddTransient<IDeploymentService>(provider => provider.GetRequiredService<DeploymentService>());
         services.AddTransient<IDeploymentRunner>(provider => provider.GetRequiredService<DeploymentService>());
         services.AddTransient<IRenewalService, RenewalService>();

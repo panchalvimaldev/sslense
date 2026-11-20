@@ -941,6 +941,7 @@ static Command CreateDeployCommand(IServiceProvider services)
     var centralStoreOption = new Option<string?>("--central-store") { Description = "Write one PFX per name to this IIS Central Certificate Store folder. The store's password is asked for. Needs an exportable key." };
     var ftpSiteOption = new Option<string?>("--ftp-site") { Description = "Use the certificate for FTP over TLS on this IIS FTP site, set again after every renewal." };
     var keyVaultOption = new Option<string?>("--key-vault") { Description = "Import the certificate into Azure Key Vault after every renewal, as <vault>/<certificate>. Needs an exportable key, --tenant and --client-id; the client secret is asked for." };
+    var appServiceOption = new Option<string?>("--app-service") { Description = "Upload the certificate to Azure App Service after every renewal and bind the app's custom domains it covers, as <subscription ID>/<resource group>/<app>. Needs an exportable key, --tenant and --client-id; the client secret is asked for." };
     var httpSysOption = new Option<string?>("--http-sys") { Description = "Bind the certificate in HTTP.sys to this endpoint outside IIS after every renewal, such as 0.0.0.0:5986 for WinRM or api.example.com:8443." };
     var remoteDesktopOption = new Option<bool>("--remote-desktop") { Description = "Make Remote Desktop on this server use the certificate after every renewal; NETWORK SERVICE is given its key." };
     var sqlServerOption = new Option<string?>("--sql-server") { Description = "Make this SQL Server instance (MSSQLSERVER for the default) encrypt with the certificate after every renewal; its account is given the key, and it is restarted." };
@@ -961,6 +962,7 @@ static Command CreateDeployCommand(IServiceProvider services)
     addCommand.Options.Add(centralStoreOption);
     addCommand.Options.Add(ftpSiteOption);
     addCommand.Options.Add(keyVaultOption);
+    addCommand.Options.Add(appServiceOption);
     addCommand.Options.Add(httpSysOption);
     addCommand.Options.Add(remoteDesktopOption);
     addCommand.Options.Add(sqlServerOption);
@@ -981,6 +983,7 @@ static Command CreateDeployCommand(IServiceProvider services)
         parseResult.GetValue(centralStoreOption),
         parseResult.GetValue(ftpSiteOption),
         parseResult.GetValue(keyVaultOption),
+        parseResult.GetValue(appServiceOption),
         parseResult.GetValue(tenantOption),
         parseResult.GetValue(clientIdOption),
         parseResult.GetValue(httpSysOption),
@@ -1025,6 +1028,7 @@ static async Task<int> AddDeploymentStepAsync(
     string? centralStore,
     string? ftpSite,
     string? keyVault,
+    string? appService,
     string? tenant,
     string? clientId,
     string? httpSys,
@@ -1033,16 +1037,16 @@ static async Task<int> AddDeploymentStepAsync(
     string? webServer,
     CancellationToken token)
 {
-    var given = new[] { keyAccess, restartService, script, exportPfx, exportPem, centralStore, ftpSite, keyVault, httpSys, remoteDesktop, sqlServer, webServer }.Count(value => value is not null);
+    var given = new[] { keyAccess, restartService, script, exportPfx, exportPem, centralStore, ftpSite, keyVault, appService, httpSys, remoteDesktop, sqlServer, webServer }.Count(value => value is not null);
     if (given != 1)
     {
-        Console.Error.WriteLine("Error: give exactly one of --grant-key-access, --restart-service, --script, --export-pfx, --export-pem, --central-store, --ftp-site, --key-vault, --http-sys, --remote-desktop, --sql-server, or --web-server.");
+        Console.Error.WriteLine("Error: give exactly one of --grant-key-access, --restart-service, --script, --export-pfx, --export-pem, --central-store, --ftp-site, --key-vault, --http-sys, --remote-desktop, --sql-server, --web-server, or --app-service.");
         return 1;
     }
 
-    if (keyVault is not null && (string.IsNullOrWhiteSpace(tenant) || string.IsNullOrWhiteSpace(clientId)))
+    if ((keyVault ?? appService) is not null && (string.IsNullOrWhiteSpace(tenant) || string.IsNullOrWhiteSpace(clientId)))
     {
-        Console.Error.WriteLine("Error: --key-vault needs --tenant and --client-id.");
+        Console.Error.WriteLine("Error: --key-vault and --app-service need --tenant and --client-id.");
         return 1;
     }
 
@@ -1076,6 +1080,9 @@ static async Task<int> AddDeploymentStepAsync(
                                 ? new DeploymentStepRequest(site, DeploymentStepKind.SqlServer, sqlServer, timeout)
                             : httpSys is not null
                                 ? new DeploymentStepRequest(site, DeploymentStepKind.HttpSysBinding, httpSys, timeout)
+                            : appService is not null
+                                ? new DeploymentStepRequest(site, DeploymentStepKind.AppService, appService, timeout,
+                                    $"{tenant!.Trim()}:{clientId!.Trim()}:{ReadHiddenValue("Client secret of the app registration: ")}")
                             : keyVault is not null
                                 ? new DeploymentStepRequest(site, DeploymentStepKind.KeyVault, keyVault, timeout,
                                     $"{tenant!.Trim()}:{clientId!.Trim()}:{ReadHiddenValue("Client secret of the app registration: ")}")
