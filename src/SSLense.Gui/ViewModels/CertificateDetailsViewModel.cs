@@ -239,7 +239,8 @@ public partial class CertificateDetailsViewModel : ObservableObject
         new("Run a PowerShell script", DeploymentStepKind.Script, "Script", "SSLense runs its own copy, checked by hash. Examples are in the deploy-scripts folder where SSLense is installed."),
         new("Export a PFX file", DeploymentStepKind.ExportPfx, "PFX file", "A full path, such as D:\\Certs\\shop.pfx. Needs a certificate issued with an exportable private key."),
         new("Export PEM files", DeploymentStepKind.ExportPem, "Folder", "cert.pem, chain.pem, fullchain.pem, and key.pem, which only administrators can read. Needs an exportable private key."),
-        new("Export to the IIS Central Certificate Store", DeploymentStepKind.CentralStore, "Store folder", "One PFX per name, protected by the store's password as set in IIS. Needs an exportable private key.")
+        new("Export to the IIS Central Certificate Store", DeploymentStepKind.CentralStore, "Store folder", "One PFX per name, protected by the store's password as set in IIS. Needs an exportable private key."),
+        new("Use it for an IIS FTP site", DeploymentStepKind.FtpSite, "FTP site", "The IIS site with the FTP binding, as IIS Manager names it. Set again after every renewal; new FTP connections use the new certificate.")
     ];
 
     public IAsyncRelayCommand AddDeploymentStepCommand => _addDeploymentStepCommand;

@@ -24,7 +24,8 @@ public sealed class CertificateCleanupTests
         Certificate("STAGING", 60, "CN=(STAGING) Ersatz Edamame E1, O=(STAGING) Let's Encrypt", "test.example.com"),
         Certificate("OLDER", 20, names: "www.example.com"),
         Certificate("NEWER", 80, names: "www.example.com"),
-        Certificate("CLIENT", 300)
+        Certificate("CLIENT", 300),
+        Certificate("FTPCERT", -5, names: "ftp.example.com")
     ];
 
     [Fact]
@@ -67,6 +68,7 @@ public sealed class CertificateCleanupTests
             new IisSite(1, "Shop", "Started", null, [new IisBinding("https", "*", 443, "shop.example.com", "BOUND", "My", true)])
         ]);
         iis.Setup(value => value.GetHttpSysCertificateThumbprintsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(["HTTPSYS"]);
+        iis.Setup(value => value.GetFtpSitesAsync(It.IsAny<CancellationToken>())).ReturnsAsync([new FtpSite("Files", ["ftp.example.com"], "FTPCERT")]);
         var managed = new Mock<IManagedCertificateStore>();
         managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([
             new ManagedCertificate("Blog", ["blog.example.com"], "", "MANAGED", Now.AddDays(-90), Now.AddDays(-5), PreviousThumbprint: previous)

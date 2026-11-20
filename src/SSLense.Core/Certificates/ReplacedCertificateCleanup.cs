@@ -44,6 +44,16 @@ internal static class ReplacedCertificateCleanup
             return null;
         }
 
+        // An FTP site whose step has not moved it yet still serves the old certificate (docs/design/ftp-sites.md).
+        var ftpSites = ((await iisService.GetFtpSitesAsync(cancellationToken).ConfigureAwait(false)) ?? [])
+            .Where(site => string.Equals(site.Thumbprint, oldThumbprint, StringComparison.OrdinalIgnoreCase))
+            .Select(site => $"'{site.Name}'")
+            .ToArray();
+        if (ftpSites.Length > 0)
+        {
+            return $"the old certificate was retained because the FTP site {string.Join(", ", ftpSites)} still uses it.";
+        }
+
         try
         {
             await certificateStore.RemoveAsync(oldThumbprint, cancellationToken).ConfigureAwait(false);

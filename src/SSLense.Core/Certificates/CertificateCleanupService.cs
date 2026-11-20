@@ -94,6 +94,12 @@ internal sealed class CertificateCleanupService(
             used.Add(thumbprint);
         }
 
+        // An FTP site's certificate for FTP over TLS is not an HTTPS binding.
+        foreach (var site in await iisService.GetFtpSitesAsync(cancellationToken).ConfigureAwait(false) ?? [])
+        {
+            if (site.Thumbprint is { } ftp) used.Add(ftp);
+        }
+
         foreach (var record in await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false))
         {
             used.Add(record.Thumbprint);

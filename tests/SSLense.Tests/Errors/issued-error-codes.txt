@@ -253,3 +253,4 @@ SSL4055 RollbackNotAvailable
 SSL6030 ConfigFileInvalid
 SSL6031 ConfigPasswordMissingOrWrong
 SSL6032 ConfigImportRefused
+SSL4056 FtpSiteNotFound

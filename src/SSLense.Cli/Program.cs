@@ -939,6 +939,7 @@ static Command CreateDeployCommand(IServiceProvider services)
     var exportPfxOption = new Option<string?>("--export-pfx") { Description = "Write the certificate, its intermediates, and its key to this PFX file. The password is asked for. Needs an exportable key." };
     var exportPemOption = new Option<string?>("--export-pem") { Description = "Write cert.pem, chain.pem, fullchain.pem, and key.pem to this folder; key.pem only for Administrators and SYSTEM. Needs an exportable key." };
     var centralStoreOption = new Option<string?>("--central-store") { Description = "Write one PFX per name to this IIS Central Certificate Store folder. The store's password is asked for. Needs an exportable key." };
+    var ftpSiteOption = new Option<string?>("--ftp-site") { Description = "Use the certificate for FTP over TLS on this IIS FTP site, set again after every renewal." };
     var addCommand = new Command("add", "Add a step at the end. It runs after the next renewal, or now with 'deploy run'.");
     addCommand.Options.Add(siteOption);
     addCommand.Options.Add(keyAccessOption);
@@ -948,6 +949,7 @@ static Command CreateDeployCommand(IServiceProvider services)
     addCommand.Options.Add(exportPfxOption);
     addCommand.Options.Add(exportPemOption);
     addCommand.Options.Add(centralStoreOption);
+    addCommand.Options.Add(ftpSiteOption);
     addCommand.SetAction((parseResult, token) => AddDeploymentStepAsync(
         Deployment(),
         parseResult.GetRequiredValue(siteOption),
@@ -958,6 +960,7 @@ static Command CreateDeployCommand(IServiceProvider services)
         parseResult.GetValue(exportPfxOption),
         parseResult.GetValue(exportPemOption),
         parseResult.GetValue(centralStoreOption),
+        parseResult.GetValue(ftpSiteOption),
         token));
     command.Subcommands.Add(addCommand);
 
@@ -994,12 +997,13 @@ static async Task<int> AddDeploymentStepAsync(
     string? exportPfx,
     string? exportPem,
     string? centralStore,
+    string? ftpSite,
     CancellationToken token)
 {
-    var given = new[] { keyAccess, restartService, script, exportPfx, exportPem, centralStore }.Count(value => value is not null);
+    var given = new[] { keyAccess, restartService, script, exportPfx, exportPem, centralStore, ftpSite }.Count(value => value is not null);
     if (given != 1)
     {
-        Console.Error.WriteLine("Error: give exactly one of --grant-key-access, --restart-service, --script, --export-pfx, --export-pem, or --central-store.");
+        Console.Error.WriteLine("Error: give exactly one of --grant-key-access, --restart-service, --script, --export-pfx, --export-pem, --central-store, or --ftp-site.");
         return 1;
     }
 
@@ -1022,6 +1026,8 @@ static async Task<int> AddDeploymentStepAsync(
                         ? new DeploymentStepRequest(site, DeploymentStepKind.ExportPem, exportPem, timeout)
                         : exportPfx is not null
                             ? new DeploymentStepRequest(site, DeploymentStepKind.ExportPfx, exportPfx, timeout, ReadPassword("Password for the PFX file: "))
+                            : ftpSite is not null
+                                ? new DeploymentStepRequest(site, DeploymentStepKind.FtpSite, ftpSite, timeout)
                             : new DeploymentStepRequest(site, DeploymentStepKind.CentralStore, centralStore!, timeout,
                                 ReadPassword("The Central Certificate Store's private key password, as set in IIS: "));
         var step = await deployment.AddAsync(request, token).ConfigureAwait(false);

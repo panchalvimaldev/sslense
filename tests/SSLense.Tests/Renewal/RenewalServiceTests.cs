@@ -254,6 +254,7 @@ public sealed class RenewalServiceTests
                     new IisBinding("https", "*", 443, "example.com", "NEW", "My", true)
                 ])
             ]);
+        iis.Setup(value => value.GetFtpSitesAsync(It.IsAny<CancellationToken>())).ReturnsAsync([]);
         var certificateStore = new Mock<ICertificateStore>(MockBehavior.Strict);
         certificateStore.Setup(value => value.RemoveAsync("OLD", It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);

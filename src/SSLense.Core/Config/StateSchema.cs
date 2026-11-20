@@ -22,9 +22,10 @@ internal static class StateSchema
     /// further certificates on an IIS site, named "site/host", which 0.22 would report as sites that do not exist. Version 12
     /// adds HTTP validation answered by SSLense, which 0.23 would drop on its next save. Version 13 adds
     /// certificates on other machines, which 0.23 would try to renew. Version 14 adds the previous certificate kept for rollback,
-    /// which 0.23 would drop on its next save and then leave in the store.
+    /// which 0.23 would drop on its next save and then leave in the store. Version 15 adds the
+    /// deployment step that gives an IIS FTP site the certificate, which 0.23 would not know.
     /// </summary>
-    public const int ManagedCertificates = 14;
+    public const int ManagedCertificates = 15;
 
     /// <summary>
     /// Version 0 had no version field. Version 2 replaced the single SMTP server and generic webhook with

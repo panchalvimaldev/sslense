@@ -936,6 +936,12 @@ Only a certificate that nothing uses, that SSLense does not manage, and that is 
 
 SSLense goes back only to the certificate the last renewal replaced, while it is still in LocalMachine\My with its private key, valid for at least another day, covers the site's names and was not revoked. Renew the certificate instead, or fix the setting that made the new one fail.
 
+<a id="ssl4056"></a>
+
+### SSL4056: FTP site not usable
+
+The step needs an IIS site with an FTP binding, from the FTP Server role service of IIS. Check the site's name in IIS Manager and that it has an ftp binding.
+
 ## SSL5xxx: Renewal, reminders and the service
 
 <a id="ssl5001"></a>
