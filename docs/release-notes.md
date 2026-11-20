@@ -60,6 +60,14 @@ Prepared for the combined test. Read [upgrading.md](upgrading.md) first: this ve
 - **Previous certificate kept:** after a renewal, the replaced certificate stays in `LocalMachine\My` until the next renewal, for rollback. Revoke and replace still removes it.
 - **SQL Server step restarts the instance:** the new built-in step restarts the instance at every renewal. To restart it yourself, keep the ready-made script instead.
 
+### Dependencies
+
+- **MailKit 5.0** (from 4.18), which sends email over SMTP. It now uses MimeKit.Core 5.0 instead of MimeKit. Sending works as before, but this is a major version, so test email notifications after upgrading.
+- **System.CommandLine 3.0** (from 2.0), which parses the CLI's commands and options. Commands, options, help and the documented exit codes are unchanged.
+- **Microsoft.Extensions 11.0 and System.Diagnostics.EventLog 11.0** (from 10.0), for hosting, the Windows service and the Event Log. SSLense still runs on .NET 10.
+- **CommunityToolkit.Mvvm 8.4.2** (from 8.4.0).
+- **For contributors:** Moq 4.21 and the newer test SDK; the build uses newer GitHub Actions.
+
 ### Not tested on real accounts yet
 
 The new DNS providers, Graph email, Key Vault and App Service. See [known issues](upgrading.md#known-issues).

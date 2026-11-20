@@ -84,9 +84,9 @@ These keep users' sites safe and make SSLense supportable without paid support. 
 
 - ~~Send the ARI `replaces` field on renewal orders.~~ Done November 19, 2026 ([design](docs/design/ari-replaces.md)).
 - ~~Journal challenge files so an interrupted validation is cleaned up on recovery.~~ Done October 28, 2026.
-- Certificate private-key permissions for IIS application-pool identities (part of item 2 in section 4).
-- Configurable maintenance windows that can never let a certificate expire.
-- Recovery procedures for a compromised ACME account or private key.
+- ~~Certificate private-key permissions for IIS application-pool identities.~~ Done in 0.18: the deployment step that gives an account, such as `IIS AppPool<pool>`, read access to the key ([design](docs/design/deployment-steps.md)).
+- ~~Configurable maintenance windows that can never let a certificate expire.~~ Done November 19, 2026 ([design](docs/design/maintenance-windows.md)).
+- ~~Recovery procedures for a compromised ACME account or private key.~~ Done November 19, 2026 ([design](docs/design/compromise-recovery.md), [runbook](docs/runbooks/compromised-key-or-account.md)).
 
 ### 5.2 Diagnostics and health check
 
@@ -94,7 +94,7 @@ Done (October 28, 2026): `SSLense.Cli health` and the GUI Health page; a redacte
 
 Remaining:
 
-- Stable, searchable error codes.
+- ~~Stable, searchable error codes.~~ Done November 19, 2026 ([list](docs/errors.md), [design](docs/design/error-codes.md)).
 - ~~Show the health summary on the Dashboard.~~ Done October 28, 2026: a banner appears when the quick local checks find a problem.
 
 ### 5.3 Distribution
@@ -119,7 +119,7 @@ Remaining:
 - A documented threat model, updated with each major architecture change. Written: [docs/threat-model.md](docs/threat-model.md).
 - Dependency and vulnerability scanning in CI, and a software bill of materials for each release: built with the .NET SDK alone ([design](docs/design/supply-chain.md)).
 - ~~Private vulnerability reporting (see [SECURITY.md](SECURITY.md)) with response targets.~~ Done October 28, 2026.
-- Release notes, known issues, and an upgrade compatibility table.
+- ~~Release notes, known issues, and an upgrade compatibility table.~~ Written: [release notes](docs/release-notes.md), [upgrading and known issues](docs/upgrading.md).
 - Documentation: a quick start, firewall/DNS/proxy requirements, troubleshooting runbooks, and migration guides from manual IIS certificates and other ACME clients. Written: [docs/README.md](docs/README.md).
 
 ## 6. After 1.0
