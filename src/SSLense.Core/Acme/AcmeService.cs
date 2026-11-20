@@ -1103,8 +1103,12 @@ internal sealed partial class AcmeService : IAcmeService
             .FindByThumbprintAsync(thumbprints[0], cancellationToken)
             .ConfigureAwait(false);
         var now = DateTimeOffset.UtcNow;
+
+        // It must name every requested host: a binding without a host name answers for any name, so finding it does not mean
+        // its certificate covers the request (docs/design/other-bindings.md).
         if (certificate is not null && certificate.HasPrivateKey &&
-            certificate.NotBefore <= now && certificate.NotAfter > now)
+            certificate.NotBefore <= now && certificate.NotAfter > now &&
+            certificate.DnsNames is { Count: > 0 } names && hosts.All(host => CertificateInspector.Covers(names, host)))
         {
             // A certificate from a test CA is untrusted, so it never satisfies a request to a real CA.
             if (!requestedAuthority.IsTest &&
