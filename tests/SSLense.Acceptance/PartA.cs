@@ -331,6 +331,32 @@ internal static class PartA
             }
         });
 
+        await Report.Scenario("A20 A binding without a host name is checked without SNI", async () =>
+        {
+            // Codex's case on #79: the port has both a host-less binding that follows and an SNI binding for the same name
+            // with another certificate. Checking with SNI would reach the SNI binding and roll everything back.
+            await Reset();
+            const string hostLess = "*:8443:";
+            var sni = $"*:8443:{Hosts[0]}";
+            Iis.AddHttpsBinding(Sites[0], hostLess, _a, sni: false);
+            Iis.AddHttpsBinding(Sites[0], sni, _narrow, sni: true);
+            try
+            {
+                var undo = await Real().SwitchHttpsBindingsAsync(Sites[0], [Hosts[0]], _b);
+                Report.Check("Port 443 serves B", await Iis.IsServing(Hosts[0], _b));
+                Report.Check("The host-less binding holds B", Iis.BindingThumbprint(Sites[0], hostLess) == _b, Iis.Short(Iis.BindingThumbprint(Sites[0], hostLess)));
+                Report.Check("The SNI binding on 8443 is left alone", Iis.BindingThumbprint(Sites[0], sni) == _narrow);
+                Report.Check("Without SNI, port 8443 serves B", await Iis.IsServingAt("127.0.0.1", 8443, "", _b));
+                await Real().UndoHttpsBindingsAsync(undo);
+                Report.Check("Undo: the host-less binding holds A", Iis.BindingThumbprint(Sites[0], hostLess) == _a);
+            }
+            finally
+            {
+                Iis.RemoveBinding(Sites[0], hostLess);
+                Iis.RemoveBinding(Sites[0], sni);
+            }
+        });
+
         await Report.Scenario("A15 Sites with different certificates work side by side", async () =>
         {
             await Reset();
@@ -436,6 +462,7 @@ internal static class PartA
         Iis.Netsh("http", "delete", "sslcert", $"hostnameport={Hosts[0]}:8443");
         Iis.Netsh("http", "delete", "sslcert", $"hostnameport={AdminHost}:8443");
         Iis.Netsh("http", "delete", "sslcert", "ipport=127.0.0.2:443");
+        Iis.Netsh("http", "delete", "sslcert", "ipport=0.0.0.0:8443");
         Iis.RemoveCertificates(certificate => certificate.Subject.StartsWith(Subject, StringComparison.Ordinal));
         Iis.RemoveTestFolder();
     }

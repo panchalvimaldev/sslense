@@ -16,7 +16,8 @@ internal sealed class TlsBindingProbe : ITlsBindingProbe
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(ipAddress);
-        ArgumentException.ThrowIfNullOrWhiteSpace(host);
+        // An empty host sends no SNI, as a client reaching a binding without a host name would (docs/design/other-bindings.md).
+        ArgumentNullException.ThrowIfNull(host);
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(Timeout);
@@ -44,6 +45,6 @@ internal sealed class TlsBindingProbe : ITlsBindingProbe
             .ConfigureAwait(false);
 
         return thumbprint
-            ?? throw new SslenseException(ErrorCodes.NoCertificateServed, $"No certificate was served for '{host}' on port {port}.");
+            ?? throw new SslenseException(ErrorCodes.NoCertificateServed, $"No certificate was served for '{(host.Length > 0 ? host : ipAddress)}' on port {port}.");
     }
 }

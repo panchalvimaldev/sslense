@@ -32,6 +32,16 @@ public sealed class BindingCoverageTests
         Assert.Equal(removed, BindingCoverage.BelongsTo(bindingHost, ["shop.example.com", "www.example.com"]));
     }
 
+    [Theory]
+    [InlineData("*:8443:shop.example.com", "shop.example.com", "shop.example.com")]
+    [InlineData("*:8443:", "shop.example.com", "")]
+    [InlineData("127.0.0.2:443:", "shop.example.com", "")]
+    [InlineData("203.0.113.7:443:", "203.0.113.7", "203.0.113.7")]
+    public void ABindingWithoutAHostName_IsCheckedWithoutSni(string bindingInformation, string host, string expected)
+    {
+        Assert.Equal(expected, IisService.SniFor(bindingInformation, host));
+    }
+
     [Fact]
     public void UnknownNames_NeverFollow()
     {

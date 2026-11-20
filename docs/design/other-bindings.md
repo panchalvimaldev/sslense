@@ -21,7 +21,7 @@ All of this happens in the same transaction as the site's other binding changes.
 2. **Bindings that follow the certificate:** every other HTTPS binding of the same site that served the certificate being replaced follows it. That includes another port, or a host-less binding.
    - **Only when the new certificate covers it:** a binding with a host name needs that name in the new certificate. One without a host name needs every name the old certificate had, because it answered for all of them. A binding that is not covered stays on the old certificate, and the clean-up keeps that certificate and names the site still using it, instead of serving a certificate without the binding's name.
    - Each keeps its address, port and flags, such as SNI or DisableHTTP2. Only the Central Certificate Store flag is cleared, because SSLense binds from the machine store.
-   - Each is checked on its own port. A host-less one is checked with the certificate's first name.
+   - Each is checked on its own port. One without a host name is checked without SNI, as its clients reach it, so the check never reaches an SNI binding for the same name on that port instead. This applies after a change, after an undo, and in the daily served-certificate check.
 3. **Undo and recovery:** a changed binding is found again by exactly where it listens (its binding information), not by host name. So an SNI binding that was added and removed again is never confused with a host-less binding.
 4. **Monitoring:** the served-certificate check, the health check and outside-renewal detection find a host's binding the same way, through its own binding or else the site's host-less one, so adopted host-less sites are not reported as missing a binding.
 5. **Removing:** **Remove certificate and HTTPS bindings** removes every binding of the site that holds the certificate and belongs to its hosts: its own on port 443, those on other ports for its hosts, and one without a host name. Bindings for other names, or with other certificates, are left. A host's own port 443 binding with another certificate still stops the removal, as before.
@@ -45,6 +45,7 @@ All of this happens in the same transaction as the site's other binding changes.
   - A17: a host-less binding is renewed in place, with no SNI binding added, and goes back on undo.
   - A18: a port 8443 binding for a name the new certificate does not cover keeps the old certificate.
   - A19: removal takes the port 443, port 8443 and host-less bindings that hold the certificate, and leaves a binding for another name.
+  - A20: a host-less binding on 8443 that shares the port with an SNI binding for the same name and another certificate is moved and checked without SNI; the SNI binding is left alone.
 - **Unit tests for coverage:** which bindings may follow a certificate, and which binding serves a host, including IP addresses.
 
 Manual steps: [docs/testing/other-bindings.md](../testing/other-bindings.md).

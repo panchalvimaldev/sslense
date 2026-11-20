@@ -216,7 +216,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
                                                               BindingCoverage.CanFollow(newNames, NamesOf(hostLess.CertificateHash), string.Empty) ? hostLess : null);
                     if (binding is not null && !touched.Add(binding.BindingInformation))
                     {
-                        probeTargets.Add((ParseBindingInformation(binding.BindingInformation).IpAddress, host, 443));
+                        probeTargets.Add((ParseBindingInformation(binding.BindingInformation).IpAddress, SniFor(binding.BindingInformation, host), 443));
                         continue;
                     }
 
@@ -249,7 +249,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
                             : binding.SslFlags & ~SslFlags.Sni & ~SslFlags.CentralCertStore;
                     }
 
-                    probeTargets.Add((ParseBindingInformation(binding.BindingInformation).IpAddress, host, 443));
+                    probeTargets.Add((ParseBindingInformation(binding.BindingInformation).IpAddress, SniFor(binding.BindingInformation, host), 443));
                 }
 
                 // Every other HTTPS binding of the site that served the certificate being replaced follows it: another
@@ -285,7 +285,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
                     other.CertificateHash = certificateHash;
                     other.CertificateStoreName = certificateStoreName;
                     other.SslFlags &= ~SslFlags.CentralCertStore;
-                    probeTargets.Add((address, probeHost, port));
+                    probeTargets.Add((address, SniFor(other.BindingInformation, probeHost), port));
                 }
 
                 // Rewriting a binding that is already right would drop its new connections for nothing.
@@ -480,7 +480,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
                     return $"the HTTPS binding for '{change.Host}' does not have its previous certificate.";
                 }
 
-                probes.Add((ParseBindingInformation(binding.BindingInformation).IpAddress, ParseBindingInformation(binding.BindingInformation).Port, change.Host, Convert.ToHexString(change.CertificateHash)));
+                probes.Add((ParseBindingInformation(binding.BindingInformation).IpAddress, ParseBindingInformation(binding.BindingInformation).Port, SniFor(binding.BindingInformation, change.Host), Convert.ToHexString(change.CertificateHash)));
             }
         }
 
@@ -514,6 +514,14 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
         !IsIpAddress(host) && ParseBindingInformation(binding.BindingInformation).HostName.Length > 0;
 
     /// <summary>The site's HTTPS binding on port 443 without a host name, which serves every name that reaches it.</summary>
+    /// <summary>
+    /// What a check sends as SNI to reach a binding: the host for a binding with a host name (or an IP address, which sends
+    /// none anyway); nothing for a binding without one, so the check reaches that binding and not an SNI binding for the
+    /// same name on the same port (docs/design/other-bindings.md).
+    /// </summary>
+    internal static string SniFor(string bindingInformation, string host) =>
+        ParseBindingInformation(bindingInformation).HostName.Length > 0 || IsIpAddress(host) ? host : string.Empty;
+
     /// <summary>The site's HTTPS bindings that hold the certificate and belong to the hosts, on any port.</summary>
     private static Binding[] ManagedBindings(Site site, IReadOnlyList<string> hosts, byte[] certificateHash) =>
     [
@@ -826,7 +834,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
             if (DateTimeOffset.UtcNow >= deadline)
             {
                 throw new SslenseException(ErrorCodes.HttpsCertificateNotServed, 
-                    $"HTTPS verification failed for '{host}': {ipAddress}:{port} did not serve certificate " +
+                    $"HTTPS verification failed for '{(host.Length > 0 ? host : "the binding without a host name")}': {ipAddress}:{port} did not serve certificate " +
                     $"{expected} within {LiveVerificationTimeout.TotalSeconds:0} seconds (last result: {observed}).");
             }
 

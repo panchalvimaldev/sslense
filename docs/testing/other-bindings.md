@@ -4,7 +4,7 @@ Design in [docs/design/other-bindings.md](../design/other-bindings.md). On a tes
 
 | # | Steps | Expected |
 |---|---|---|
-| 1 | `SSLense.Acceptance parta` | A16 to A19 pass with the other scenarios |
+| 1 | `SSLense.Acceptance parta` | A16 to A20 pass with the other scenarios |
 | 2 | A site with `*:443:shop.<zone>` and `*:8443:shop.<zone>`, both on a bought or self-signed certificate; **Add certificate › already in IIS** | Adopted; hosts list `shop.<zone>` only |
 | 3 | Issue a staging certificate for that site with `--force` | Port 443 and port 8443 both serve the new certificate (`Test-NetConnection` and a browser on `https://shop.<zone>:8443`) |
 | 4 | **Renew now**, then roll back | Both ports follow each time |

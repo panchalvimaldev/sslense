@@ -223,7 +223,9 @@ internal sealed class ServedCertificateCheck(
         string served;
         try
         {
-            served = Normalize(await tlsProbe.GetServedThumbprintAsync(address, host, 443, cancellationToken).ConfigureAwait(false));
+            // A binding without a host name is reached without SNI, as its clients reach it (docs/design/other-bindings.md).
+            var sni = binding.HostName.Length > 0 || System.Net.IPAddress.TryParse(host, out _) ? host : string.Empty;
+            served = Normalize(await tlsProbe.GetServedThumbprintAsync(address, sni, 443, cancellationToken).ConfigureAwait(false));
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
