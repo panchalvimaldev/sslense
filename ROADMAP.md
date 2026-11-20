@@ -102,7 +102,7 @@ Remaining:
 - ~~Release builds from GitHub Actions with SHA-256 checksums attached to each GitHub Release.~~ Done October 28, 2026 (`.github/workflows/release.yml`); first used by the v0.9.10 tag.
 - Authenticode signing of executables and the MSI, for example through the free [SignPath Foundation](https://signpath.org/) program for open-source projects. Unsigned MSIs trigger Windows SmartScreen warnings.
 - ~~An installer UI showing the Apache-2.0 license.~~ Done October 28, 2026, with SSLense branding.
-- A [winget](https://learn.microsoft.com/windows/package-manager/) package.
+- A [winget](https://learn.microsoft.com/windows/package-manager/) package. Ready: manifests are made and attached at each release, and submitted after the combined test ([design](docs/design/winget.md)).
 - Install, upgrade, repair, and uninstall verified on each supported Windows Server version.
 
 ### 5.4 Quality and compatibility
