@@ -84,7 +84,8 @@ public static class DependencyInjection
             provider.GetRequiredService<ICertificateOperationLock>(),
             new CertificateExporter(provider.GetRequiredService<ICertificateStore>()),
             provider.GetRequiredService<ISecretProtector>(),
-            provider.GetRequiredService<IKeyVaultClient>()));
+            provider.GetRequiredService<IKeyVaultClient>(),
+            new RegistryServiceCertificateSettings()));
         services.AddTransient<IDeploymentService>(provider => provider.GetRequiredService<DeploymentService>());
         services.AddTransient<IDeploymentRunner>(provider => provider.GetRequiredService<DeploymentService>());
         services.AddTransient<IRenewalService, RenewalService>();

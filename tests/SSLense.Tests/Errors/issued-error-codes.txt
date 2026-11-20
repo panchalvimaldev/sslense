@@ -256,3 +256,4 @@ SSL6032 ConfigImportRefused
 SSL4056 FtpSiteNotFound
 SSL7010 KeyVaultFailed
 SSL4057 HttpSysBindingFailed
+SSL4058 ServiceTargetMissing

@@ -948,6 +948,12 @@ The step needs an IIS site with an FTP binding, from the FTP Server role service
 
 SSLense binds the certificate with 'netsh http add sslcert' or 'update sslcert' and reads it back. Run SSLense as Administrator, check the endpoint with 'netsh http show sslcert', and that the certificate has its private key.
 
+<a id="ssl4058"></a>
+
+### SSL4058: Service not found on this server
+
+The step sets the certificate of a Windows feature on this server. Turn on Remote Desktop, or check the SQL Server instance's name (MSSQLSERVER for the default instance) in SQL Server Configuration Manager.
+
 ## SSL5xxx: Renewal, reminders and the service
 
 <a id="ssl5001"></a>

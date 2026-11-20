@@ -133,7 +133,7 @@ Ordered roughly by expected demand. Community feedback decides the order.
 - **ACME profiles and IP address certificates,** including shorter-lived certificates, as certificate authorities offer them.
 - **Automation:** JSON output for every CLI command (`--json`), documented exit codes, settings export and import, and a PowerShell script module are built ([docs/automation.md](docs/automation.md)).
 - **More notification channels:** signed webhook payloads ([design](docs/design/signed-webhooks.md)) and email through the Microsoft Graph API for Microsoft 365 tenants that disable SMTP ([design](docs/design/graph-email.md)) are built. (Teams, Slack, Discord, Telegram, ntfy, a heartbeat, the Event Log, and email for any SMTP setup were added October 28, 2026.)
-- **Other deployment targets:** HTTP.sys, Kestrel, Remote Desktop Services, SQL Server, Exchange, Apache, nginx, Tomcat, and Azure App Service, each with install, verify, rollback, and remove operations. Built so far: HTTP.sys bindings outside IIS ([design](docs/design/httpsys-bindings.md)).
+- **Other deployment targets:** HTTP.sys, Kestrel, Remote Desktop Services, SQL Server, Exchange, Apache, nginx, Tomcat, and Azure App Service, each with install, verify, rollback, and remove operations. Built so far: HTTP.sys bindings outside IIS ([design](docs/design/httpsys-bindings.md)), and Remote Desktop and SQL Server as built-in steps ([design](docs/design/service-targets.md)).
 - **Multi-server management:** a possible later project with role-based access, built so each server's renewal keeps working when any central component is unavailable.
 
 ## 7. Sustainability
