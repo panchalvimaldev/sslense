@@ -18,6 +18,9 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // Before any window: views take the theme's brushes as static resources (docs/design/accessibility.md).
+        SSLense.Gui.Themes.AccessibilityTheme.ApplyHighContrast(Resources, SystemParameters.HighContrast);
+
         // Secure ProgramData before the logger creates the logs folder inside it.
         var securityWarnings = DataDirectorySecurity.SecureAtStartup();
 

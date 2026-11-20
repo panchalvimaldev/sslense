@@ -14,7 +14,7 @@
  </StackPanel>
  <TabControl Grid.Row="2" Style="{StaticResource SectionTabs}" SelectedIndex="{Binding SelectedSection}" AutomationProperties.Name="Settings sections">
   <TabItem Header="General"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel><Border Style="{StaticResource Card}" VerticalAlignment="Top" Margin="0,0,0,16"><StackPanel>
-    <TextBlock Text="Default ACME email" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding DefaultEmail}" Margin="0,0,0,14"/>
+    <TextBlock Text="Default ACME email" Style="{StaticResource FieldLabel}"/><TextBox Text="{Binding DefaultEmail}" Margin="0,0,0,14" AutomationProperties.Name="Default ACME email"/>
     <TextBlock Text="Let's Encrypt staging is the safe default. A certificate authority whose certificates are trusted must be chosen and confirmed for each new issue. Certificates renew when their CA recommends, within the maintenance window below if you set one; reminders are under Reminders." Style="{StaticResource CaptionText}" TextWrapping="Wrap"/>
     <CheckBox Content="Tell me when a newer SSLense is available" IsChecked="{Binding CheckForUpdates}" Margin="0,12,0,0" AutomationProperties.Name="Tell me when a newer SSLense is available"
               ToolTip="SSLense reads the list of releases from GitHub, which sees this server's address. It never downloads or installs anything."/>
@@ -47,7 +47,7 @@
     <TextBlock Text="Email" Style="{StaticResource SectionTitle}"/>
     <TextBlock Text="{Binding EmailStatus}" Foreground="{StaticResource MutedTextBrush}" Margin="0,2,0,10"/>
     <TextBlock Text="Preset" Style="{StaticResource FieldLabel}"/>
-    <ComboBox ItemsSource="{Binding EmailPresets}" SelectedItem="{Binding SelectedPreset}" DisplayMemberPath="DisplayName" Width="420" HorizontalAlignment="Left"/>
+    <ComboBox ItemsSource="{Binding EmailPresets}" SelectedItem="{Binding SelectedPreset}" DisplayMemberPath="DisplayName" Width="420" HorizontalAlignment="Left" AutomationProperties.Name="Email setup"/>
     <TextBlock Text="{Binding PresetHint}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,6,0,10"/>
     <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
      <StackPanel Margin="0,0,14,0">

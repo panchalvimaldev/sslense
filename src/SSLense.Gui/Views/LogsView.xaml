@@ -49,7 +49,7 @@
                 <controls:ErrorText Message="{Binding ErrorMessage}" Foreground="{StaticResource DangerBrush}" FontWeight="SemiBold" TextWrapping="Wrap" />
             </StackPanel>
 
-            <Border Grid.Row="3" CornerRadius="6" ClipToBounds="True" Background="#F8FAFC" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+            <Border Grid.Row="3" CornerRadius="6" ClipToBounds="True" Background="{StaticResource SubtleSurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
                 <Grid>
                     <!-- A read-only text box rather than a list, so any part of the log can be selected and copied. -->
                     <TextBox x:Name="LogText" Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" IsReadOnlyCaretVisible="True"

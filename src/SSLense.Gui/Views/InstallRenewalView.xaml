@@ -3,8 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:controls="clr-namespace:SSLense.Gui.Controls">
     <!-- Install renewal: a dialog over the window, in three steps (docs/design/gui-redesign.md, step 2). -->
-    <Grid Background="#73172033">
-        <Border Background="White" CornerRadius="10" Width="600" VerticalAlignment="Top" Margin="16,70,16,16" Padding="26,22">
+    <Grid Background="{StaticResource OverlayBrush}">
+        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="10" Width="600" VerticalAlignment="Top" Margin="16,70,16,16" Padding="26,22">
             <Border.Effect><DropShadowEffect BlurRadius="30" ShadowDepth="6" Opacity="0.25" /></Border.Effect>
             <StackPanel>
                 <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" TextWrapping="Wrap" />

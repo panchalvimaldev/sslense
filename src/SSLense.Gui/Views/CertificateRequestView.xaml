@@ -26,7 +26,7 @@
                                             <ControlTemplate.Triggers>
                                                 <Trigger Property="IsSelected" Value="True">
                                                     <Setter TargetName="Row" Property="Background" Value="{StaticResource BrandSoftBrush}" />
-                                                    <Setter TargetName="Row" Property="BorderBrush" Value="#BFDBFE" />
+                                                    <Setter TargetName="Row" Property="BorderBrush" Value="{StaticResource BrandBorderBrush}" />
                                                 </Trigger>
                                             </ControlTemplate.Triggers>
                                         </ControlTemplate>

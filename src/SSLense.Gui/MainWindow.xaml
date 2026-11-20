@@ -32,29 +32,29 @@
         </Grid.RowDefinitions>
 
         <!-- Header: name, the tabs, the health status, and the two actions that apply to everything. -->
-        <Border Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="20,0">
+        <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="20,0">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,28,0">
                     <Image Source="Assets/sslense-icon.png" Width="28" Height="28"
                            RenderOptions.BitmapScalingMode="HighQuality"
                            AutomationProperties.Name="SSLense logo" />
                     <TextBlock Text="SSLense" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="10,0,12,0" VerticalAlignment="Center" />
-                    <Border Background="{StaticResource WarningSoftBrush}" BorderBrush="#FCD9A8" BorderThickness="1" CornerRadius="10" Padding="8,2" VerticalAlignment="Center"
+                    <Border Background="{StaticResource WarningSoftBrush}" BorderBrush="{StaticResource WarningBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="8,2" VerticalAlignment="Center"
                             ToolTip="New certificates come from Let's Encrypt staging, which browsers do not trust, unless you choose another certificate authority. Production needs your confirmation.">
-                        <TextBlock Text="Staging by default" Foreground="#7A3B00" FontSize="11.5" FontWeight="SemiBold" />
+                        <TextBlock Text="Staging by default" Foreground="{StaticResource WarningStrongBrush}" FontSize="11.5" FontWeight="SemiBold" />
                     </Border>
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                     <!-- The quick local health check (data folder, configuration, service, heartbeat, notifications). -->
-                    <Button Command="{Binding OpenHealthCommand}" Style="{StaticResource LinkButton}" Margin="0,0,12,0"
+                    <Button Command="{Binding OpenHealthCommand}" Style="{StaticResource LinkButton}" Margin="0,0,12,0" AutomationProperties.Name="Health check result: open the full check in Activity"
                             ToolTip="Result of the quick health check. Click for the full check in Activity.">
                         <StackPanel Orientation="Horizontal">
                             <Ellipse Width="8" Height="8" Margin="0,0,7,0" VerticalAlignment="Center">
-                                <Ellipse.Style><Style TargetType="Ellipse"><Setter Property="Fill" Value="#94A3B8" />
+                                <Ellipse.Style><Style TargetType="Ellipse"><Setter Property="Fill" Value="{StaticResource MutedTextBrush}" />
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Certificates.HealthState}" Value="Ok"><Setter Property="Fill" Value="#22C55E" /></DataTrigger>
-                                        <DataTrigger Binding="{Binding Certificates.HealthState}" Value="Warning"><Setter Property="Fill" Value="#F59E0B" /></DataTrigger>
-                                        <DataTrigger Binding="{Binding Certificates.HealthState}" Value="Fail"><Setter Property="Fill" Value="#DC2626" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Certificates.HealthState}" Value="Ok"><Setter Property="Fill" Value="{StaticResource SuccessBrush}" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Certificates.HealthState}" Value="Warning"><Setter Property="Fill" Value="{StaticResource WarningBrush}" /></DataTrigger>
+                                        <DataTrigger Binding="{Binding Certificates.HealthState}" Value="Fail"><Setter Property="Fill" Value="{StaticResource DangerBrush}" /></DataTrigger>
                                     </Style.Triggers></Style></Ellipse.Style>
                             </Ellipse>
                             <TextBlock VerticalAlignment="Center" FontWeight="Normal" Foreground="{StaticResource MutedTextBrush}">
@@ -85,7 +85,7 @@
         </Border>
 
         <!-- Only while an operation started here runs, or after one fails. -->
-        <Border Grid.Row="1" Background="{StaticResource BrandSoftBrush}" BorderBrush="#BFDBFE" BorderThickness="0,0,0,1" Padding="20,8"
+        <Border Grid.Row="1" Background="{StaticResource BrandSoftBrush}" BorderBrush="{StaticResource BrandBorderBrush}" BorderThickness="0,0,0,1" Padding="20,8"
                 Visibility="{Binding Certificates.ShowActivity, Converter={StaticResource BooleanToVisibilityConverter}}"
                 AutomationProperties.Name="Running operation">
             <DockPanel>

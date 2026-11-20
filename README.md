@@ -714,6 +714,10 @@ Every command takes `--json` and writes one JSON document with its exit code, er
 
 Each certificate's **History** tab (or `SSLense.Cli history --site <name>`) shows what happened to it: issued, renewed, renewal failed, rolled back, revoked. A renewal keeps the certificate it replaced while that is still valid, so if the new one breaks something, **⋯ › Roll back to the previous certificate…** (or `SSLense.Cli rollback --site <name>`) binds the previous one again and holds automatic renewal for up to a week; the same command rolls forward ([design](docs/design/history-and-rollback.md)).
 
+## Accessibility
+
+The app works with the keyboard alone and with Narrator, follows Windows high contrast themes and text size, and zooms with Ctrl+Plus, Ctrl+Minus and Ctrl+0 ([design](docs/design/accessibility.md)).
+
 ## Unused certificates
 
 **Activity › Unused certificates** (or `SSLense.Cli cleanup list`) finds certificates in `LocalMachine\My` that no IIS or HTTP.sys binding and no SSLense certificate uses, and that are expired, test leftovers or replaced; you choose which to remove (`cleanup remove --thumbprint ... --yes`) ([design](docs/design/certificate-cleanup.md)).

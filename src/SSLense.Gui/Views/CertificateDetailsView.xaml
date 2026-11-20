@@ -266,17 +266,17 @@
                                         <Setter Property="Template">
                                             <Setter.Value>
                                                 <ControlTemplate TargetType="ListBoxItem">
-                                                    <Border x:Name="Row" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,0,0,6" Background="White">
+                                                    <Border x:Name="Row" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,0,0,6" Background="{StaticResource SurfaceBrush}">
                                                         <StackPanel Orientation="Horizontal">
                                                             <Grid Width="16" Height="16" Margin="0,0,10,0" VerticalAlignment="Center">
-                                                                <Ellipse x:Name="Ring" Stroke="#94A3B8" StrokeThickness="1.5" />
+                                                                <Ellipse x:Name="Ring" Stroke="{StaticResource MutedBorderBrush}" StrokeThickness="1.5" />
                                                                 <Ellipse x:Name="Dot" Width="8" Height="8" Fill="{StaticResource BrandBrush}" Visibility="Collapsed" />
                                                             </Grid>
                                                             <ContentPresenter VerticalAlignment="Center" />
                                                         </StackPanel>
                                                     </Border>
                                                     <ControlTemplate.Triggers>
-                                                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="Background" Value="#F8FAFC" /></Trigger>
+                                                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="Background" Value="{StaticResource SubtleSurfaceBrush}" /></Trigger>
                                                         <Trigger Property="IsSelected" Value="True">
                                                             <Setter TargetName="Row" Property="BorderBrush" Value="{StaticResource BrandBrush}" />
                                                             <Setter TargetName="Row" Property="Background" Value="{StaticResource BrandSoftBrush}" />
