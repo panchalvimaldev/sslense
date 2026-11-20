@@ -35,6 +35,21 @@
     <SolidColorBrush x:Key="DangerSoftBrush" Color="{StaticResource ColorDangerSoft}" />
     <SolidColorBrush x:Key="SidebarBrush" Color="{StaticResource ColorSidebar}" />
     <SolidColorBrush x:Key="SidebarHoverBrush" Color="{StaticResource ColorSidebarHover}" />
+    <!-- Kept here, not in views, so high contrast can replace every colour (docs/design/accessibility.md). -->
+    <SolidColorBrush x:Key="OnBrandBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="WarningStrongBrush" Color="#7A3B00" />
+    <SolidColorBrush x:Key="SubtleSurfaceBrush" Color="#F8FAFC" />
+    <SolidColorBrush x:Key="OverlayBrush" Color="#73172033" />
+    <SolidColorBrush x:Key="HoverBrush" Color="#F1F5F9" />
+    <SolidColorBrush x:Key="BrandBorderBrush" Color="#BFDBFE" />
+    <SolidColorBrush x:Key="StrongBorderBrush" Color="#CBD5E1" />
+    <SolidColorBrush x:Key="MutedBorderBrush" Color="#94A3B8" />
+    <SolidColorBrush x:Key="SubtleBorderBrush" Color="#DCE7F5" />
+    <SolidColorBrush x:Key="SuccessBorderBrush" Color="#BBF7D0" />
+    <SolidColorBrush x:Key="WarningBorderBrush" Color="#FCD9A8" />
+    <SolidColorBrush x:Key="WarningAccentBrush" Color="#D97706" />
+    <SolidColorBrush x:Key="DangerBorderBrush" Color="#FECDCA" />
+    <SolidColorBrush x:Key="StrongTextBrush" Color="#0F172A" />
 
     <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
     <converters:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter" />
@@ -76,17 +91,17 @@
     </Style>
     <Style x:Key="InfoBanner" TargetType="Border" BasedOn="{StaticResource Card}">
         <Setter Property="Background" Value="{StaticResource BrandSoftBrush}" />
-        <Setter Property="BorderBrush" Value="#BFDBFE" />
+        <Setter Property="BorderBrush" Value="{StaticResource BrandBorderBrush}" />
         <Setter Property="Padding" Value="14,11" />
     </Style>
     <Style x:Key="SuccessBanner" TargetType="Border" BasedOn="{StaticResource Card}">
         <Setter Property="Background" Value="{StaticResource SuccessSoftBrush}" />
-        <Setter Property="BorderBrush" Value="#BBF7D0" />
+        <Setter Property="BorderBrush" Value="{StaticResource SuccessBorderBrush}" />
         <Setter Property="Padding" Value="14,11" />
     </Style>
     <Style x:Key="ErrorBanner" TargetType="Border" BasedOn="{StaticResource Card}">
         <Setter Property="Background" Value="{StaticResource DangerSoftBrush}" />
-        <Setter Property="BorderBrush" Value="#FECDCA" />
+        <Setter Property="BorderBrush" Value="{StaticResource DangerBorderBrush}" />
         <Setter Property="Padding" Value="14,11" />
     </Style>
 
@@ -121,7 +136,7 @@
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
         <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
-        <Setter Property="BorderBrush" Value="#CBD5E1" />
+        <Setter Property="BorderBrush" Value="{StaticResource StrongBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Template">
@@ -134,11 +149,11 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="ButtonBorder" Property="Background" Value="#F8FAFC" />
-                            <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#94A3B8" />
+                            <Setter TargetName="ButtonBorder" Property="Background" Value="{StaticResource SubtleSurfaceBrush}" />
+                            <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="{StaticResource MutedBorderBrush}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="ButtonBorder" Property="Background" Value="#F1F5F9" />
+                            <Setter TargetName="ButtonBorder" Property="Background" Value="{StaticResource HoverBrush}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.45" />
@@ -149,7 +164,7 @@
         </Setter>
     </Style>
     <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-        <Setter Property="Foreground" Value="White" />
+        <Setter Property="Foreground" Value="{StaticResource OnBrandBrush}" />
         <Setter Property="Background" Value="{StaticResource BrandBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource BrandBrush}" />
         <Setter Property="Template">
@@ -176,7 +191,7 @@
     <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
         <Setter Property="Foreground" Value="{StaticResource DangerBrush}" />
         <Setter Property="Background" Value="{StaticResource DangerSoftBrush}" />
-        <Setter Property="BorderBrush" Value="#FECDCA" />
+        <Setter Property="BorderBrush" Value="{StaticResource DangerBorderBrush}" />
     </Style>
     <Style x:Key="LinkButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
         <Setter Property="Foreground" Value="{StaticResource BrandBrush}" />
@@ -190,17 +205,17 @@
         <Setter Property="MinHeight" Value="36" />
         <Setter Property="Padding" Value="10,7" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
-        <Setter Property="Background" Value="White" />
+        <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-        <Setter Property="BorderBrush" Value="#CBD5E1" />
+        <Setter Property="BorderBrush" Value="{StaticResource StrongBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
     </Style>
     <Style TargetType="PasswordBox">
         <Setter Property="MinHeight" Value="36" />
         <Setter Property="Padding" Value="10,7" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
-        <Setter Property="Background" Value="White" />
-        <Setter Property="BorderBrush" Value="#CBD5E1" />
+        <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource StrongBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
     </Style>
     <!-- Dropdowns: a flat white box with a chevron, and a list with a shadow. Read-only lists only; none is editable. -->
@@ -209,9 +224,9 @@
         <Setter Property="Padding" Value="11,6,34,6" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="HorizontalContentAlignment" Value="Left" />
-        <Setter Property="Background" Value="White" />
+        <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-        <Setter Property="BorderBrush" Value="#CBD5E1" />
+        <Setter Property="BorderBrush" Value="{StaticResource StrongBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
@@ -224,12 +239,12 @@
                                       IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
                             <ToggleButton.Template>
                                 <ControlTemplate TargetType="ToggleButton">
-                                    <Border x:Name="Box" Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="6">
+                                    <Border x:Name="Box" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource StrongBorderBrush}" BorderThickness="1" CornerRadius="6">
                                         <Path x:Name="Chevron" Data="M 0 0 L 5 5 L 10 0" Stroke="{StaticResource MutedTextBrush}" StrokeThickness="1.6"
                                               HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,13,0" />
                                     </Border>
                                     <ControlTemplate.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Box" Property="BorderBrush" Value="#94A3B8" /></Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource MutedBorderBrush}" /></Trigger>
                                         <Trigger Property="IsChecked" Value="True">
                                             <Setter TargetName="Box" Property="BorderBrush" Value="{StaticResource BrandBrush}" />
                                             <Setter TargetName="Chevron" Property="Stroke" Value="{StaticResource BrandBrush}" />
@@ -244,7 +259,7 @@
                                           ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}" ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}" />
                         <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True" Focusable="False" PopupAnimation="Fade"
                                IsOpen="{TemplateBinding IsDropDownOpen}" VerticalOffset="4">
-                            <Border Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="4"
+                            <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="4"
                                     Margin="0,0,10,12" MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
                                     MaxHeight="{TemplateBinding MaxDropDownHeight}" SnapsToDevicePixels="True">
                                 <Border.Effect><DropShadowEffect BlurRadius="16" ShadowDepth="3" Opacity="0.16" /></Border.Effect>
@@ -273,7 +288,7 @@
                         <ContentPresenter />
                     </Border>
                     <ControlTemplate.Triggers>
-                        <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Item" Property="Background" Value="#F1F5F9" /></Trigger>
+                        <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Item" Property="Background" Value="{StaticResource HoverBrush}" /></Trigger>
                         <Trigger Property="IsSelected" Value="True">
                             <Setter TargetName="Item" Property="Background" Value="{StaticResource BrandSoftBrush}" />
                             <Setter Property="Foreground" Value="{StaticResource BrandBrush}" />
@@ -287,7 +302,7 @@
 
     <!-- Menus, such as a certificate's ⋯ menu: a white card with a shadow. -->
     <Style TargetType="ContextMenu">
-        <Setter Property="Background" Value="White" />
+        <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
         <Setter Property="FontFamily" Value="Segoe UI" />
         <Setter Property="FontSize" Value="13" />
@@ -295,7 +310,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ContextMenu">
-                    <Border Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="4" Margin="0,0,10,12" MinWidth="250">
+                    <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="4" Margin="0,0,10,12" MinWidth="250">
                         <Border.Effect><DropShadowEffect BlurRadius="16" ShadowDepth="3" Opacity="0.16" /></Border.Effect>
                         <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
                     </Border>
@@ -313,7 +328,7 @@
                         <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" />
                     </Border>
                     <ControlTemplate.Triggers>
-                        <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Item" Property="Background" Value="#F1F5F9" /></Trigger>
+                        <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Item" Property="Background" Value="{StaticResource HoverBrush}" /></Trigger>
                         <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45" /></Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -340,7 +355,7 @@
 
     <!-- Tables -->
     <Style TargetType="DataGrid">
-        <Setter Property="Background" Value="White" />
+        <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="GridLinesVisibility" Value="Horizontal" />
@@ -357,7 +372,7 @@
         <Setter Property="FontSize" Value="12" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
-        <Setter Property="Background" Value="#F8FAFC" />
+        <Setter Property="Background" Value="{StaticResource SubtleSurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
         <Setter Property="BorderThickness" Value="0,0,0,1" />
     </Style>
@@ -368,18 +383,18 @@
     </Style>
     <Style TargetType="DataGridRow">
         <Setter Property="MinHeight" Value="48" />
-        <Setter Property="Background" Value="White" />
+        <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
         <Setter Property="BorderThickness" Value="0,0,0,1" />
         <Style.Triggers>
-            <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#F8FAFC" /></Trigger>
+            <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="{StaticResource SubtleSurfaceBrush}" /></Trigger>
             <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="{StaticResource BrandSoftBrush}" /></Trigger>
         </Style.Triggers>
     </Style>
 
     <Style x:Key="ConsoleList" TargetType="ListBox">
-        <Setter Property="Background" Value="#0F172A" />
-        <Setter Property="Foreground" Value="#DCE7F5" />
+        <Setter Property="Background" Value="{StaticResource StrongTextBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource SubtleBorderBrush}" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Padding" Value="12" />
         <Setter Property="FontFamily" Value="Cascadia Mono, Consolas" />
@@ -472,7 +487,7 @@
         <Setter Property="Height" Value="10" />
         <Setter Property="Fill" Value="{StaticResource SuccessBrush}" />
         <Style.Triggers>
-            <DataTrigger Binding="{Binding StatusKey}" Value="Amber"><Setter Property="Fill" Value="#D97706" /></DataTrigger>
+            <DataTrigger Binding="{Binding StatusKey}" Value="Amber"><Setter Property="Fill" Value="{StaticResource WarningAccentBrush}" /></DataTrigger>
             <DataTrigger Binding="{Binding StatusKey}" Value="Red"><Setter Property="Fill" Value="{StaticResource DangerBrush}" /></DataTrigger>
         </Style.Triggers>
     </Style>
@@ -487,14 +502,14 @@
     <!-- The status card at the top of a certificate's Status section. -->
     <Style x:Key="StatusCard" TargetType="Border" BasedOn="{StaticResource Card}">
         <Setter Property="Background" Value="{StaticResource SuccessSoftBrush}" />
-        <Setter Property="BorderBrush" Value="#BBF7D0" />
+        <Setter Property="BorderBrush" Value="{StaticResource SuccessBorderBrush}" />
         <Style.Triggers>
-            <DataTrigger Binding="{Binding StatusKey}" Value="Amber"><Setter Property="Background" Value="{StaticResource WarningSoftBrush}" /><Setter Property="BorderBrush" Value="#FCD9A8" /></DataTrigger>
-            <DataTrigger Binding="{Binding StatusKey}" Value="Red"><Setter Property="Background" Value="{StaticResource DangerSoftBrush}" /><Setter Property="BorderBrush" Value="#FECDCA" /></DataTrigger>
+            <DataTrigger Binding="{Binding StatusKey}" Value="Amber"><Setter Property="Background" Value="{StaticResource WarningSoftBrush}" /><Setter Property="BorderBrush" Value="{StaticResource WarningBorderBrush}" /></DataTrigger>
+            <DataTrigger Binding="{Binding StatusKey}" Value="Red"><Setter Property="Background" Value="{StaticResource DangerSoftBrush}" /><Setter Property="BorderBrush" Value="{StaticResource DangerBorderBrush}" /></DataTrigger>
         </Style.Triggers>
     </Style>
     <Style x:Key="Tag" TargetType="Border">
-        <Setter Property="BorderBrush" Value="#CBD5E1" />
+        <Setter Property="BorderBrush" Value="{StaticResource StrongBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="10" />
         <Setter Property="Padding" Value="7,1" />

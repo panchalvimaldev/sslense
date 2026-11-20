@@ -11,13 +11,13 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="Card" Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="20,18" Margin="0,0,14,14">
+                        <Border x:Name="Card" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="20,18" Margin="0,0,14,14">
                             <ContentPresenter />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Card" Property="BorderBrush" Value="{StaticResource BrandBrush}" />
-                                <Setter TargetName="Card" Property="Background" Value="#F8FAFF" />
+                                <Setter TargetName="Card" Property="Background" Value="{StaticResource SubtleSurfaceBrush}" />
                             </Trigger>
                             <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter TargetName="Card" Property="BorderBrush" Value="{StaticResource BrandBrush}" />
@@ -79,7 +79,7 @@
                         <StackPanel>
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
-                                <Border Background="{StaticResource SuccessSoftBrush}" BorderBrush="#BBF7D0" BorderThickness="1" CornerRadius="10" Padding="8,1" Margin="10,0,0,0" VerticalAlignment="Center"
+                                <Border Background="{StaticResource SuccessSoftBrush}" BorderBrush="{StaticResource SuccessBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="8,1" Margin="10,0,0,0" VerticalAlignment="Center"
                                         Visibility="{Binding Recommended, Converter={StaticResource BooleanToVisibilityConverter}}">
                                     <TextBlock Text="Recommended" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource SuccessBrush}" />
                                 </Border>

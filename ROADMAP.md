@@ -112,7 +112,7 @@ Remaining:
 - IPv4, IPv6, internationalized domain names, SAN certificates, and large binding sets.
 - HTTPS bindings without a host name, and on ports other than 443. SSLense manages SNI bindings on port 443, and adoption refuses the others with an explanation; common on servers with older sites.
 - Outbound proxies, restricted firewalls, TLS inspection, and clock skew.
-- Accessibility: keyboard navigation, high contrast, and scalable text.
+- Accessibility: keyboard navigation, high contrast, and scalable text, built and checked on every screen by the GUI tests ([design](docs/design/accessibility.md)).
 
 ### 5.5 Project health
 

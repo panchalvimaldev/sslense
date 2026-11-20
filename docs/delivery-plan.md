@@ -72,7 +72,7 @@ Already done and only to be marked on the roadmap: private-key permissions for I
 
 | # | Feature | Size | Notes |
 |---|---|---|---|
-| 28 | Accessibility | M | Keyboard navigation, high contrast and scalable text across the app |
+| 28 | Accessibility **(done)** | M | Keyboard navigation, high contrast and scalable text across the app |
 | 29 | Dependency scanning and a software bill of materials in CI | S | |
 | 30 | Documentation | M | Threat model, quick start, firewall, DNS and proxy requirements, troubleshooting runbooks, migration guides, release notes, known issues and an upgrade table |
 | 31 | winget package | S | The manifest is ready in the repository; it is submitted to winget after the first release that follows the combined test |

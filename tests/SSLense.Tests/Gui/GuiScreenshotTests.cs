@@ -2,6 +2,8 @@ using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -45,6 +47,8 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
                 WindowStartupLocation = WindowStartupLocation.Manual, Left = -10000, Top = -10000, ShowActivated = false,
                 Width = 1280, Height = 800
             };
+            // Screens are compared at 100%, whatever text size this machine uses.
+            window.Zoom = 1;
             window.Show();
             Settle();
 
@@ -230,8 +234,55 @@ public sealed class GuiScreenshotTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// Every control a person can use is reachable with Tab and has a name a screen reader can say
+    /// (docs/design/accessibility.md). Checked on every screen the test saves.
+    /// </summary>
+    private static void AssertAccessible(Window window, string screen)
+    {
+        var problems = new List<string>();
+        foreach (var control in Find<Control>(window).Where(control => control.IsVisible && control is ButtonBase or TextBox or PasswordBox or ComboBox or ListBox or DataGrid && !IsTemplatePart(control)))
+        {
+            var peer = System.Windows.Automation.Peers.UIElementAutomationPeer.CreatePeerForElement(control);
+            var label = $"{control.GetType().Name} '{control.Name}' in {DescribeParent(control)} (bound to {(control is TextBox box ? box.GetBindingExpression(TextBox.TextProperty)?.ParentBinding.Path.Path : null) ?? control.ToolTip})";
+            if (string.IsNullOrWhiteSpace(peer?.GetName()))
+            {
+                problems.Add($"{label}: no accessible name");
+            }
+
+            // A list is reached through its items, which take the focus; it only must not be skipped altogether.
+            var reachable = control is ListBox or DataGrid
+                ? KeyboardNavigation.GetTabNavigation(control) != KeyboardNavigationMode.None
+                : control.Focusable && KeyboardNavigation.GetIsTabStop(control);
+            if (!reachable)
+            {
+                problems.Add($"{label}: not reachable with Tab");
+            }
+        }
+
+        Assert.True(problems.Count == 0, $"{screen}:{Environment.NewLine}{string.Join(Environment.NewLine, problems.Distinct())}");
+    }
+
+    /// <summary>A part of another control's template, such as a scroll bar's arrows or a combo box's drop-down button: the owner has the name and the focus.</summary>
+    private static bool IsTemplatePart(Control control) =>
+        control.TemplatedParent is Control owner && owner != control && owner is ScrollBar or ComboBox or ScrollViewer or Expander or DataGrid or Slider || control is RepeatButton or DataGridColumnHeader or DataGridRowHeader;
+
+    private static string DescribeParent(DependencyObject element)
+    {
+        for (var parent = VisualTreeHelper.GetParent(element); parent is not null; parent = VisualTreeHelper.GetParent(parent))
+        {
+            if (parent is UserControl or Window)
+            {
+                return parent.GetType().Name;
+            }
+        }
+
+        return "?";
+    }
+
     private static void Save(Window window, string folder, string name)
     {
+        AssertAccessible(window, name);
         var content = (FrameworkElement)window.Content;
         content.UpdateLayout();
         var bitmap = new RenderTargetBitmap((int)content.ActualWidth, (int)content.ActualHeight, 96, 96, PixelFormats.Pbgra32);

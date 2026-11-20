@@ -9,7 +9,7 @@
         </Grid.ColumnDefinitions>
 
         <!-- The list: every managed certificate, grouped by IIS site. -->
-        <Border Background="White" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+        <Border Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
             <DockPanel>
                 <Grid DockPanel.Dock="Top" Margin="12,14,12,6">
                     <TextBox x:Name="FilterBox" Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged}" Padding="10,7,30,7"
@@ -49,7 +49,7 @@
                                             <ContentPresenter />
                                         </Border>
                                         <ControlTemplate.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="Background" Value="#F1F5F9" /></Trigger>
+                                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="Background" Value="{StaticResource HoverBrush}" /></Trigger>
                                             <Trigger Property="IsSelected" Value="True"><Setter TargetName="Row" Property="Background" Value="{StaticResource BrandSoftBrush}" /></Trigger>
                                         </ControlTemplate.Triggers>
                                     </ControlTemplate>
