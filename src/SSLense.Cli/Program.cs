@@ -1675,8 +1675,8 @@ static Command CreateNotificationsCommand(IServiceProvider services)
     var portOption = new Option<int?>("--port") { Description = "SMTP port (25, 587, or 465)." };
     var securityOption = new Option<string?>("--security") { Description = "auto (default), starttls, ssl (TLS on connect, port 465), or none." };
     securityOption.AcceptOnlyFromAmong("auto", "starttls", "ssl", "none");
-    var authOption = new Option<string?>("--auth") { Description = "none (relay by IP address) or password. The password is prompted." };
-    authOption.AcceptOnlyFromAmong("none", "password");
+    var authOption = new Option<string?>("--auth") { Description = "none (relay by IP address), password, or graph (Microsoft Graph with an app registration: --host is the tenant, --user the client ID). The password or client secret is prompted." };
+    authOption.AcceptOnlyFromAmong("none", "password", "graph");
     var userOption = new Option<string?>("--user") { Description = "SMTP username, with --auth password." };
     var fromOption = new Option<string>("--from") { Required = true, Description = "Sender address." };
     var toOption = new Option<string>("--to") { Required = true, Description = "Recipient addresses, comma-separated." };
@@ -1702,11 +1702,13 @@ static Command CreateNotificationsCommand(IServiceProvider services)
     var typeOption = new Option<string>("--type") { Required = true, Description = "teams, slack, discord, telegram, ntfy, or generic." };
     typeOption.AcceptOnlyFromAmong("teams", "slack", "discord", "telegram", "ntfy", "generic");
     var nameOption = new Option<string?>("--name") { Description = "Optional label, to tell several channels apart." };
+    var signOption = new Option<bool>("--sign") { Description = "With --type generic: sign each payload with HMAC-SHA256. A new shared secret is shown once, for the receiver." };
     var chatCommand = new Command("chat", "Add a chat or push channel. The webhook URL is prompted without echo.");
     chatCommand.Options.Add(typeOption);
     chatCommand.Options.Add(nameOption);
+    chatCommand.Options.Add(signOption);
     chatCommand.SetAction((parseResult, token) => AddChatAsync(
-        Settings(), parseResult.GetRequiredValue(typeOption), parseResult.GetValue(nameOption), token));
+        Settings(), parseResult.GetRequiredValue(typeOption), parseResult.GetValue(nameOption), parseResult.GetValue(signOption), token));
     command.Subcommands.Add(chatCommand);
 
     var heartbeatRemoveOption = new Option<bool>("--remove") { Description = "Stop pinging the heartbeat URL." };
@@ -2475,7 +2477,12 @@ static async Task<int> ShowNotificationsAsync(INotificationSettingsService setti
         Console.WriteLine($"Successful renewals to email and chat: {(overview.NotifyOnSuccess ? "on" : "off")}");
         if (overview.Email is { } email)
         {
-            var signIn = email.Authentication == SmtpAuthentication.None ? "no sign-in" : $"sign-in as {email.Username}";
+            var signIn = email.Authentication switch
+            {
+                SmtpAuthentication.None => "no sign-in",
+                SmtpAuthentication.MicrosoftGraph => $"Microsoft Graph, tenant {email.Host}, app {email.Username}",
+                _ => $"sign-in as {email.Username}"
+            };
             Console.WriteLine($"Email: {email.Host}:{email.Port}, {email.Security}, {signIn}, from {email.From} to {string.Join(", ", email.To)}");
         }
         else
@@ -2491,7 +2498,7 @@ static async Task<int> ShowNotificationsAsync(INotificationSettingsService setti
         foreach (var chat in overview.Chat)
         {
             var label = string.IsNullOrWhiteSpace(chat.Name) ? string.Empty : $" \"{chat.Name}\"";
-            Console.WriteLine($"Chat {chat.Number}: {chat.Format}{label} ({chat.Host})");
+            Console.WriteLine($"Chat {chat.Number}: {chat.Format}{label} ({chat.Host}){(chat.Signed ? ", signed" : string.Empty)}");
         }
 
         Console.WriteLine($"Heartbeat: {(overview.HeartbeatHost is { } host ? $"pinging {host}" : "not configured")}");
@@ -2531,11 +2538,15 @@ static async Task<int> ConfigureEmailAsync(
     {
         "none" => SmtpAuthentication.None,
         "password" => SmtpAuthentication.Password,
+        "graph" => SmtpAuthentication.MicrosoftGraph,
         _ => preset?.Authentication ?? (user is null ? SmtpAuthentication.None : SmtpAuthentication.Password)
     };
-    var password = resolvedAuthentication == SmtpAuthentication.Password
-        ? ReadHiddenValue("SMTP password (leave empty to keep the saved one): ")
-        : null;
+    var password = resolvedAuthentication switch
+    {
+        SmtpAuthentication.Password => ReadHiddenValue("SMTP password (leave empty to keep the saved one): "),
+        SmtpAuthentication.MicrosoftGraph => ReadHiddenValue("Client secret of the app registration (leave empty to keep the saved one): "),
+        _ => null
+    };
     return await RunNotificationChangeAsync(
             () => settings.SetEmailAsync(
                 new EmailSettingsRequest(
@@ -2559,7 +2570,7 @@ static async Task<int> ConfigureEmailAsync(
         .ConfigureAwait(false);
 }
 
-static Task<int> AddChatAsync(INotificationSettingsService settings, string type, string? name, CancellationToken token)
+static Task<int> AddChatAsync(INotificationSettingsService settings, string type, string? name, bool sign, CancellationToken token)
 {
     var format = Enum.Parse<ChatFormat>(type, ignoreCase: true);
     var url = ReadHiddenValue(format switch
@@ -2570,7 +2581,15 @@ static Task<int> AddChatAsync(INotificationSettingsService settings, string type
         _ => $"{format} webhook URL: "
     });
     return RunNotificationChangeAsync(
-        () => settings.AddChatAsync(new ChatSettingsRequest(format, url, name), token),
+        async () =>
+        {
+            // Shown once, on the console only: it is never logged, and the settings keep it protected with DPAPI.
+            if (await settings.AddChatAsync(new ChatSettingsRequest(format, url, name, sign), token).ConfigureAwait(false) is { } secret)
+            {
+                Console.WriteLine($"Signing secret (give it to the receiver now; it is not shown again): {secret}");
+                Console.WriteLine("Each request has X-SSLense-Timestamp and X-SSLense-Signature: sha256=<hex HMAC-SHA256 of \"<timestamp>.<body>\">. See docs/design/signed-webhooks.md.");
+            }
+        },
         $"{format} channel added. Run 'SSLense.Cli notifications test' to send a test message.");
 }
 

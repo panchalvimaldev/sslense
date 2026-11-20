@@ -40,7 +40,13 @@ public enum SmtpAuthentication
 {
     /// <summary>No sign-in, for relays that accept mail by IP address (Microsoft 365 connectors, Exchange receive connectors).</summary>
     None = 0,
-    Password = 1
+    Password = 1,
+
+    /// <summary>
+    /// Not SMTP: sent through Microsoft Graph sendMail with an app registration, for Microsoft 365 tenants without SMTP.
+    /// The host is the tenant ID or domain, the username the application (client) ID, and the password a client secret.
+    /// </summary>
+    MicrosoftGraph = 2
 }
 
 public sealed record EmailNotificationConfig(
@@ -72,7 +78,8 @@ public enum ChatFormat
 
 /// <param name="ProtectedUrl">DPAPI-protected; chat webhook URLs usually embed their credential.</param>
 /// <param name="Name">Optional label to tell several channels apart.</param>
-public sealed record ChatNotificationConfig(ChatFormat Format, string ProtectedUrl, string? Name = null);
+/// <param name="ProtectedSigningSecret">DPAPI-protected; for a generic webhook, the shared secret its payloads are signed with (docs/design/signed-webhooks.md).</param>
+public sealed record ChatNotificationConfig(ChatFormat Format, string ProtectedUrl, string? Name = null, string? ProtectedSigningSecret = null);
 
 public sealed record HeartbeatNotificationConfig(string ProtectedUrl);
 

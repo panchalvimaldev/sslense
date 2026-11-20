@@ -94,7 +94,9 @@ public static class DependencyInjection
         services.AddSingleton<HttpClient>();
         services.AddSingleton<IRenewalInfoProvider, AcmeRenewalInfoProvider>();
         services.AddTransient<IWindowsServiceManager, WindowsServiceManager>();
-        services.AddSingleton<IEmailSender, MailKitEmailSender>();
+        services.AddSingleton<MailKitEmailSender>();
+        services.AddSingleton<GraphEmailSender>();
+        services.AddSingleton<IEmailSender, RoutingEmailSender>();
         services.AddSingleton<IEventLogWriter, WindowsEventLogWriter>();
         services.AddSingleton<IChatSender, ChatSender>();
         services.AddTransient<INotifier, Notifier>();

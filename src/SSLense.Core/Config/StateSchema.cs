@@ -34,9 +34,10 @@ internal static class StateSchema
     /// DNS providers, which default to none. Version 7 adds script DNS providers with their script hash and timeout,
     /// which an older version would not recognize. Version 8 adds acme-dns providers with their server, account, and
     /// domain, which 0.16 would not recognize either. Version 9 adds the maintenance window and the built-in Amazon Route 53,
-    /// Azure DNS, Google Cloud DNS, DigitalOcean and Hetzner providers, which 0.23 would not recognize.
+    /// Azure DNS, Google Cloud DNS, DigitalOcean and Hetzner providers, which 0.23 would not recognize. Version 10
+    /// adds email through Microsoft Graph and signed webhook payloads, which 0.23 would not recognize.
     /// </summary>
-    public const int Config = 9;
+    public const int Config = 10;
 
     /// <summary>Version 2 stores the certificate snapshot in managed-certificate schema 2. Version 3 can list several sites, which an older version would only partly recover.</summary>
     public const int Transactions = 3;
