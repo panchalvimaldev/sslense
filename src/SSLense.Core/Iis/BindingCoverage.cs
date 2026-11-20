@@ -28,6 +28,17 @@ public static class BindingCoverage
     }
 
     /// <summary>
+    /// Whether the binding answers for the host: one named after it, or one without a host name, which answers for every
+    /// name that reaches it. Used wherever a host needs "a binding" for validation or issuing.
+    /// </summary>
+    public static bool AnswersFor(this IisBinding binding, string host)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        return binding.HostName.Length == 0 ||
+               string.Equals(binding.HostName.Trim().TrimEnd('.'), host.Trim().TrimEnd('.'), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// Whether a binding that holds a managed certificate is one of its own, so removing the certificate removes it: one for
     /// any of its hosts on any port, or one without a host name, which serves its hosts there. An IP address is bound
     /// without a host name too, so it is covered by the same rule.

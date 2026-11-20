@@ -79,6 +79,16 @@ public sealed class BindingCoverageTests
         Assert.Equal(expected, IisService.SniFor(bindingInformation, host));
     }
 
+    [Theory]
+    [InlineData("shop.example.com", "shop.example.com", true)]
+    [InlineData("SHOP.example.com.", "shop.example.com", true)]
+    [InlineData("", "shop.example.com", true)]
+    [InlineData("admin.example.com", "shop.example.com", false)]
+    public void ABinding_AnswersForItsHost_OrForEveryHostWithoutAHostName(string bindingHost, string host, bool answers)
+    {
+        Assert.Equal(answers, new IisBinding("http", "*", 80, bindingHost, null, null, false).AnswersFor(host));
+    }
+
     [Fact]
     public void UnknownNames_NeverFollow()
     {

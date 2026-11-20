@@ -388,6 +388,22 @@ public sealed class ImportedCertificateServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Adopt_ABindingWithoutAHostName_LeavesNamesAnotherBindingServes()
+    {
+        _store.Installed["AABB"] = new InstalledCertificate(
+            "AABB", DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(300), true, DnsNames: ["shop.example.com", "admin.example.com"]);
+        _iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new IisSite(1, Site, "Started", @"C:\inetpub\shop", [
+                new IisBinding("https", "*", 443, "", "AABB", "My", false),
+                new IisBinding("https", "*", 443, "admin.example.com", "CCDD", "My", true)
+            ])]);
+
+        var record = await CreateService().AdoptAsync(Site, "AABB");
+
+        Assert.Equal(["shop.example.com"], record.Hosts);
+    }
+
+    [Fact]
     public async Task Adopt_SeveralCertificatesOnOneSite_EachIsManagedOnItsOwn()
     {
         using var site = TwoCertificateSite();

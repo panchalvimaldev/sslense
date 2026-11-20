@@ -177,12 +177,15 @@ internal sealed class ImportedCertificateService(
             .ToArray();
         if (hosts.Length == 0)
         {
-            // A binding without a host name serves every name that reaches it: the certificate says which names those are.
+            // A binding without a host name serves every name that reaches it: the certificate says which names those are,
+            // except names the site serves through a binding of their own, with whatever certificate that holds.
             hosts = (certificate.DnsNames ?? [])
                 .Where(name => !name.StartsWith("*.", StringComparison.Ordinal))
                 .Select(NormalizeHost)
                 .Where(name => name.Length > 0)
                 .Distinct()
+                .Where(name => site.ServingBindings(name).All(binding => binding.HostName.Length == 0 &&
+                    string.Equals(Normalize(binding.CertificateThumbprint ?? string.Empty), Normalize(certificate.Thumbprint), StringComparison.Ordinal)))
                 .ToArray();
         }
 

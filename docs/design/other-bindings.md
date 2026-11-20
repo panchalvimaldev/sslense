@@ -31,9 +31,25 @@ All of this happens in the same transaction as the site's other binding changes.
 - When the port 443 bindings have no host names, the host names come from the certificate's names. Wildcards are left out.
 - A certificate bound **only** on other ports is still refused (SSL4001), because there is nothing on port 443 for those bindings to follow. Add a port 443 binding, then adopt it.
 
+**Issuing and checks:** a host needs "a binding" to be issued for, pre-checked or recovered. A binding without a host name answers for it too: for HTTP validation on port 80, and for DNS validation or HTTP answered by SSLense on any HTTP or HTTPS port. When adopting, names the certificate lists are claimed only if the host-less binding really serves them, so a name with its own SNI binding, holding another certificate, stays with that one.
+
+## Every place that reads bindings
+
+Checked on November 20, 2026, so the new layouts are handled everywhere, not only where a review found them:
+
+| Where | Uses |
+|---|---|
+| Switching, verifying and undoing (IisService) | Host-less fallback, coverage rule, exact binding information, SNI per binding |
+| Removal (IisService) | The certificate's own bindings by host and address |
+| Issue and shared-site checks (AcmeService), pre-checks (PreflightService) | `AnswersFor` |
+| Already-covered check (AcmeService), recovery (CertificateRecoveryService), served-certificate check, health check, outside renewal detection | `ServingBindings` |
+| Adoption (ImportedCertificateService) | Port 443 names, else certificate names that the host-less binding serves |
+| Clean-up, replaced-certificate removal, stop managing, deployment conflicts, redirect, discovery | Any binding by thumbprint or by exact address and port, which every layout satisfies |
+
 ## Limits
 
 - **Same site only:** a binding is followed only within the same IIS site, and only when it served the certificate being replaced. When SSLense has to add the port 443 binding, because the site had none for the host, nothing was replaced there, so nothing follows. Bind the other ports to the new certificate yourself once, and later renewals keep them in step.
+- **The app lists host names from named bindings:** for a site whose bindings have no host names, give the host names with `issue --hosts` in the CLI, or adopt the site first.
 - **No served-certificate check on other ports:** the health check and the daily served-certificate check look at port 443. Bindings on other ports are checked when they change.
 - **IP-address certificates:** these are bound by address without SNI, as before ([ip-certificates.md](ip-certificates.md)).
 

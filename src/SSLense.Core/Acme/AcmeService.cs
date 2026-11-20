@@ -221,9 +221,8 @@ internal sealed partial class AcmeService : IAcmeService
         // An IP address needs no host binding: SSLense binds the certificate to the address.
         foreach (var host in sharedRecord is null && !request.NoSite ? hosts.Where(host => !IsIpAddress(host)) : [])
         {
-            var hasBinding = site.Bindings.Any(binding =>
-                IsUsableBinding(binding) &&
-                string.Equals(NormalizeHost(binding.HostName), host, StringComparison.OrdinalIgnoreCase));
+            // A binding without a host name answers for this host too (docs/design/other-bindings.md).
+            var hasBinding = site.Bindings.Any(binding => IsUsableBinding(binding) && binding.AnswersFor(host));
             if (!hasBinding)
             {
                 throw new SslenseException(ErrorCodes.HostHasNoBinding, usesDns || selfHosted
@@ -991,7 +990,7 @@ internal sealed partial class AcmeService : IAcmeService
         site.Bindings.Any(binding =>
             (string.Equals(binding.Protocol, "http", StringComparison.OrdinalIgnoreCase) ||
              string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase)) &&
-            string.Equals(NormalizeHost(binding.HostName), host, StringComparison.OrdinalIgnoreCase));
+            binding.AnswersFor(host));
 
     /// <summary>A site left out keeps the date it first fell behind; every other site is up to date.</summary>
     private static IReadOnlyList<CertificateTarget> MarkLeftOut(
@@ -1084,10 +1083,7 @@ internal sealed partial class AcmeService : IAcmeService
         CancellationToken cancellationToken)
     {
         var httpsBindings = hosts
-            .Select(host => site.Bindings.SingleOrDefault(binding =>
-                string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase) &&
-                binding.Port == 443 &&
-                string.Equals(NormalizeHost(binding.HostName), host, StringComparison.OrdinalIgnoreCase)))
+            .Select(host => site.ServingBindings(host) is { Count: 1 } serving ? serving[0] : null)
             .ToArray();
         if (httpsBindings.Any(binding => binding?.CertificateThumbprint is null))
         {
