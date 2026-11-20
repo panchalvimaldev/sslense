@@ -170,7 +170,8 @@ internal sealed class ConfigTransferService(
             RenewalThresholdDays = imported.RenewalThresholdDays,
             Reminders = imported.Reminders,
             MaintenanceWindow = imported.MaintenanceWindow,
-            CheckForUpdates = imported.CheckForUpdates
+            CheckForUpdates = imported.CheckForUpdates,
+            FleetFolder = imported.FleetFolder
         };
         var everything = state is "encrypted" or "none";
         var result = everything

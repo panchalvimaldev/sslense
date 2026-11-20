@@ -639,6 +639,9 @@ public static class ErrorCodes
     public static readonly ErrorCode FarmFolderInvalid = new("SSL6033", nameof(FarmFolderInvalid), "Web farm folder not usable",
         "Each folder is another server's site root, as a full UNC path this server can write to, such as \\web2\\c$\\inetpub\\shop, for a certificate validated over HTTP from its IIS site. When SSLense runs as SYSTEM, give the computer account write access to the share.");
 
+    public static readonly ErrorCode FleetFolderInvalid = new("SSL6034", nameof(FleetFolderInvalid), "Fleet folder not usable",
+        "Fleet reports go to one shared folder every server can write to and read, as a full path such as \\files\\sslense-fleet. When the SSLense service runs as SYSTEM, give each server's computer account modify access to the share.");
+
     public static readonly ErrorCode ChatRejected = new("SSL7001", nameof(ChatRejected), "Chat message rejected",
         "The chat service refused the message. Check the webhook URL still exists, and send a test.");
 
@@ -1000,6 +1003,7 @@ public static class ErrorCodes
         ConfigPasswordMissingOrWrong,
         ConfigImportRefused,
         FarmFolderInvalid,
+        FleetFolderInvalid,
         ChatRejected,
         SmtpUsernameMissing,
         SmtpPasswordMissing,
