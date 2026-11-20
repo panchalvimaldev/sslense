@@ -34,6 +34,10 @@ jobs:
 
       # The repository owner accepted the WiX Toolset v7 OSMF EULA on October 28, 2026.
       # See installer/build.ps1 and https://wixtoolset.org/osmf/.
+      - name: Check dependencies and write the SBOM
+        shell: pwsh
+        run: ./installer/Test-Dependencies.ps1 -SbomPath "artifacts/installer/SSLense-$env:SSLENSE_VERSION-sbom.cdx.json" -Version $env:SSLENSE_VERSION
+
       - name: Build MSI
         shell: pwsh
         run: ./installer/build.ps1 -AcceptWixEula
@@ -46,7 +50,7 @@ jobs:
           $msi = "artifacts/installer/SSLense-$env:SSLENSE_VERSION-x64.msi"
           $hash = (Get-FileHash $msi -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $(Split-Path $msi -Leaf)" | Out-File "$msi.sha256" -Encoding ascii
-          gh release create $env:GITHUB_REF_NAME $msi "$msi.sha256" `
+          gh release create $env:GITHUB_REF_NAME $msi "$msi.sha256" "artifacts/installer/SSLense-$env:SSLENSE_VERSION-sbom.cdx.json" `
             --title "SSLense $env:SSLENSE_VERSION" `
             --notes "Unsigned preview build. Windows SmartScreen may warn until releases are code-signed. SHA-256: $hash" `
             --prerelease

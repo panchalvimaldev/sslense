@@ -1,0 +1,17 @@
+# Weekly pull requests for NuGet packages and GitHub Actions with new versions (docs/design/supply-chain.md).
+# Each still needs the owner's review, as AGENTS.md asks for any package change.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      microsoft-extensions:
+        patterns: ["Microsoft.Extensions.*", "System.*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
