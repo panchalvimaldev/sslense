@@ -622,7 +622,7 @@ The message gives the service's answer. Check the credentials and that they may 
 
 ### SSL4001: Certificate served on another port
 
-SSLense manages HTTPS bindings on port 443. Watch it by its port-443 binding, or move the binding to port 443.
+SSLense replaces a certificate on the site's port 443 bindings, and bindings on other ports follow them. A certificate bound only on other ports needs a port 443 binding on the site first.
 
 <a id="ssl4002"></a>
 
@@ -652,7 +652,7 @@ A certificate needs its private key on this server to be served. Import the PFX 
 
 ### SSL4006: HTTPS bindings without host names
 
-SSLense manages SNI bindings by host name. Add a host name to the binding in IIS Manager.
+SSLense takes the host names from the site's bindings, or from the certificate when a binding has none. Add a host name to the binding in IIS Manager, or use a certificate that names its hosts.
 
 <a id="ssl4007"></a>
 

@@ -110,7 +110,7 @@ Remaining:
 - A published support matrix of Windows Server and IIS versions, backed by repeatable tests on real IIS virtual machines.
 - HTTP-01 tested through direct public IPs, NAT, reverse proxies, and Cloudflare Tunnel.
 - IPv4, IPv6, internationalized domain names, SAN certificates, and large binding sets.
-- HTTPS bindings without a host name, and on ports other than 443. SSLense manages SNI bindings on port 443, and adoption refuses the others with an explanation; common on servers with older sites.
+- HTTPS bindings without a host name, and on ports other than 443. Built November 20, 2026: host-less bindings are renewed in place, and bindings on other ports follow the port 443 ones ([design](docs/design/other-bindings.md)).
 - Outbound proxies, restricted firewalls, TLS inspection, and clock skew.
 - Accessibility: keyboard navigation, high contrast, and scalable text, built and checked on every screen by the GUI tests ([design](docs/design/accessibility.md)).
 

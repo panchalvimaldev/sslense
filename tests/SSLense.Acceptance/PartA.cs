@@ -234,6 +234,54 @@ internal static class PartA
             Report.Check("Problem found", problem is not null, problem ?? "none");
         });
 
+        await Report.Scenario("A16 A binding on another port follows the certificate", async () =>
+        {
+            await Reset();
+            var other = $"*:8443:{Hosts[0]}";
+            Iis.AddHttpsBinding(Sites[0], other, _a, sni: true);
+            try
+            {
+                Report.Check("Port 8443 serves A first", await Iis.IsServingAt("127.0.0.1", 8443, Hosts[0], _a));
+                var undo = await Real().SwitchHttpsBindingsAsync(Sites[0], [Hosts[0]], _b);
+                Report.Check("Port 443 serves B", await Iis.IsServing(Hosts[0], _b));
+                Report.Check("Port 8443 binding holds B", Iis.BindingThumbprint(Sites[0], other) == _b, Iis.Short(Iis.BindingThumbprint(Sites[0], other)));
+                Report.Check("Port 8443 serves B", await Iis.IsServingAt("127.0.0.1", 8443, Hosts[0], _b));
+                Report.Check("Other sites still serve A", await Iis.IsServing(Hosts[1], _a));
+                await Real().UndoHttpsBindingsAsync(undo);
+                Report.Check("Undo: port 443 serves A", await Iis.IsServing(Hosts[0], _a));
+                Report.Check("Undo: port 8443 serves A", await Iis.IsServingAt("127.0.0.1", 8443, Hosts[0], _a));
+            }
+            finally
+            {
+                Iis.RemoveBinding(Sites[0], other);
+            }
+        });
+
+        await Report.Scenario("A17 A binding without a host name is renewed in place", async () =>
+        {
+            await Reset();
+            const string hostLess = "127.0.0.2:443:";
+            Iis.RemoveHostHttps(Sites[2], Hosts[2]);
+            Iis.AddHttpsBinding(Sites[2], hostLess, _a, sni: false);
+            try
+            {
+                Report.Check("Serves A without SNI first", await Iis.IsServingAt("127.0.0.2", 443, Hosts[2], _a));
+                var before = Iis.HttpsBindingCount(Sites[2]);
+                var undo = await Real().SwitchHttpsBindingsAsync(Sites[2], [Hosts[2]], _b);
+                Report.Check("No SNI binding added beside it", Iis.HttpsBindingCount(Sites[2]) == before && !Iis.HasHttpsBinding(Sites[2], Hosts[2]));
+                Report.Check("The binding holds B", Iis.BindingThumbprint(Sites[2], hostLess) == _b, Iis.Short(Iis.BindingThumbprint(Sites[2], hostLess)));
+                Report.Check("Serves B", await Iis.IsServingAt("127.0.0.2", 443, Hosts[2], _b));
+                Report.Check("Recorded as changed, not added", undo.Changes.Count == 1 && !undo.Changes[0].WasAdded, $"{undo.Changes.Count} changes");
+                await Real().UndoHttpsBindingsAsync(undo);
+                Report.Check("Undo: the binding holds A", Iis.BindingThumbprint(Sites[2], hostLess) == _a);
+                Report.Check("Undo: serves A", await Iis.IsServingAt("127.0.0.2", 443, Hosts[2], _a));
+            }
+            finally
+            {
+                Iis.RemoveBinding(Sites[2], hostLess);
+            }
+        });
+
         await Report.Scenario("A15 Sites with different certificates work side by side", async () =>
         {
             await Reset();

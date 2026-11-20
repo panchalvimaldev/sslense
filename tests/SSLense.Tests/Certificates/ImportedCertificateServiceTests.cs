@@ -342,19 +342,49 @@ public sealed class ImportedCertificateServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Adopt_BindingOnAnotherPort_IsRefused()
+    public async Task Adopt_BindingsOnAnotherPort_FollowThePort443Ones()
     {
+        _store.Installed["AABB"] = new InstalledCertificate("AABB", DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(300), true);
         _iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync([new IisSite(1, Site, "Started", @"C:\inetpub\shop", [
                 new IisBinding("https", "*", 443, "shop.example.com", "AABB", "My", true),
+                new IisBinding("https", "*", 8443, "admin.example.com", "AABB", "My", true)
+            ])]);
+
+        var record = await CreateService().AdoptAsync(Site);
+
+        Assert.Equal(["shop.example.com"], record.Hosts);
+    }
+
+    [Fact]
+    public async Task Adopt_ACertificateOnlyOnAnotherPort_IsRefused()
+    {
+        _store.Installed["AABB"] = new InstalledCertificate("AABB", DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(300), true);
+        _iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new IisSite(1, Site, "Started", @"C:\inetpub\shop", [
                 new IisBinding("https", "*", 8443, "shop.example.com", "AABB", "My", true)
             ])]);
 
         var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => CreateService().AdoptAsync(Site));
 
         Assert.Contains("shop.example.com:8443", exception.Message, StringComparison.Ordinal);
-        Assert.Contains("port 443 only", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("only on port 8443", exception.Message, StringComparison.Ordinal);
         Assert.Empty(_managed);
+    }
+
+    [Fact]
+    public async Task Adopt_ABindingWithoutAHostName_TakesTheNamesFromTheCertificate()
+    {
+        _store.Installed["AABB"] = new InstalledCertificate(
+            "AABB", DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(300), true, DnsNames: ["Shop.example.com", "www.example.com", "*.example.com"]);
+        _iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new IisSite(1, Site, "Started", @"C:\inetpub\shop", [
+                new IisBinding("https", "*", 443, "", "AABB", "My", false)
+            ])]);
+
+        var record = await CreateService().AdoptAsync(Site);
+
+        Assert.Equal(["shop.example.com", "www.example.com"], record.Hosts);
     }
 
     [Fact]
