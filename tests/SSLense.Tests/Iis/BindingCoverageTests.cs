@@ -1,3 +1,4 @@
+using System.Security.Cryptography.X509Certificates;
 using SSLense.Core.Iis;
 using Xunit;
 
@@ -23,13 +24,49 @@ public sealed class BindingCoverageTests
     }
 
     [Theory]
-    [InlineData("shop.example.com", true)]
-    [InlineData("SHOP.example.com", true)]
-    [InlineData("", true)]
-    [InlineData("admin.example.com", false)]
-    public void Removing_TakesTheHostsBindingsOnAnyPort_AndOnesWithoutAHostName(string bindingHost, bool removed)
+    [InlineData("*", "shop.example.com", true)]
+    [InlineData("*", "SHOP.example.com", true)]
+    [InlineData("*", "", true)]
+    [InlineData("127.0.0.2", "", true)]
+    [InlineData("*", "admin.example.com", false)]
+    public void Removing_TakesTheHostsBindingsOnAnyPort_AndOnesWithoutAHostName(string bindingAddress, string bindingHost, bool removed)
     {
-        Assert.Equal(removed, BindingCoverage.BelongsTo(bindingHost, ["shop.example.com", "www.example.com"]));
+        Assert.Equal(removed, BindingCoverage.BelongsTo(bindingAddress, bindingHost, ["shop.example.com", "www.example.com"]));
+    }
+
+    [Theory]
+    [InlineData("203.0.113.7", true)]
+    [InlineData("203.0.113.8", false)]
+    [InlineData("*", true)]
+    public void Removing_AnIpAddress_TakesOnlyThatAddressesBinding(string bindingAddress, bool removed)
+    {
+        Assert.Equal(removed, BindingCoverage.BelongsTo(bindingAddress, "", ["203.0.113.7"]));
+    }
+
+    [Fact]
+    public void ACertificatesIdentities_IncludeItsIpAddresses_SoCoverageCountsThem()
+    {
+        using var key = System.Security.Cryptography.ECDsa.Create();
+        X509Certificate2 Create(params string[] names)
+        {
+            var request = new CertificateRequest("CN=test", key, System.Security.Cryptography.HashAlgorithmName.SHA256);
+            var alternative = new SubjectAlternativeNameBuilder();
+            foreach (var name in names)
+            {
+                if (System.Net.IPAddress.TryParse(name, out var address)) alternative.AddIpAddress(address); else alternative.AddDnsName(name);
+            }
+
+            request.CertificateExtensions.Add(alternative.Build());
+            return request.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(1));
+        }
+
+        using var old = Create("shop.example.com", "203.0.113.7");
+        using var dnsOnly = Create("shop.example.com");
+        using var both = Create("shop.example.com", "203.0.113.7");
+
+        Assert.Equal(["shop.example.com", "203.0.113.7"], BindingCoverage.IdentitiesOf(old));
+        Assert.False(BindingCoverage.CanFollow(BindingCoverage.IdentitiesOf(dnsOnly), BindingCoverage.IdentitiesOf(old), ""));
+        Assert.True(BindingCoverage.CanFollow(BindingCoverage.IdentitiesOf(both), BindingCoverage.IdentitiesOf(old), ""));
     }
 
     [Theory]

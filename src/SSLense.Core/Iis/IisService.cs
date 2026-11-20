@@ -528,7 +528,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
         .. site.Bindings.Where(binding =>
             string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase) &&
             binding.CertificateHash is { } hash && hash.SequenceEqual(certificateHash) &&
-            BindingCoverage.BelongsTo(ParseBindingInformation(binding.BindingInformation).HostName, hosts))
+            BindingCoverage.BelongsTo(ParseBindingInformation(binding.BindingInformation).IpAddress, ParseBindingInformation(binding.BindingInformation).HostName, hosts))
     ];
 
     /// <summary>The DNS names of a bound certificate, from LocalMachine\My; null when it is not there or cannot be read.</summary>
@@ -549,7 +549,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
                 System.Security.Cryptography.X509Certificates.X509FindType.FindByThumbprint, Convert.ToHexString(certificateHash), validOnly: false);
             try
             {
-                return found.Count == 0 ? null : SSLense.Core.Certificates.CertificateInspector.GetDnsNames(found[0]);
+                return found.Count == 0 ? null : BindingCoverage.IdentitiesOf(found[0]);
             }
             finally
             {

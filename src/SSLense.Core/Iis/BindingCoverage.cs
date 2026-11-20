@@ -32,8 +32,38 @@ public static class BindingCoverage
     /// any of its hosts on any port, or one without a host name, which serves its hosts there. An IP address is bound
     /// without a host name too, so it is covered by the same rule.
     /// </summary>
-    internal static bool BelongsTo(string bindingHost, IReadOnlyList<string> hosts) =>
-        bindingHost.Length == 0 || hosts.Contains(bindingHost, StringComparer.OrdinalIgnoreCase);
+    /// <remarks>
+    /// An IP address owns its address: when the hosts include IP addresses, a binding without a host name on a specific
+    /// address belongs only if that address is one of them, so removing one address never removes another's binding.
+    /// </remarks>
+    internal static bool BelongsTo(string bindingAddress, string bindingHost, IReadOnlyList<string> hosts)
+    {
+        if (bindingHost.Length > 0)
+        {
+            return hosts.Contains(bindingHost, StringComparer.OrdinalIgnoreCase);
+        }
+
+        var addresses = hosts
+            .Select(host => System.Net.IPAddress.TryParse(host, out var address) ? address : null)
+            .OfType<System.Net.IPAddress>()
+            .ToArray();
+        return addresses.Length == 0 ||
+               !System.Net.IPAddress.TryParse(bindingAddress.Trim('[', ']'), out var bound) ||
+               addresses.Contains(bound);
+    }
+
+    /// <summary>
+    /// What a certificate answers for: its DNS names and its IP addresses, so coverage counts an address as well as a name
+    /// (a certificate for a name only does not cover the address the old one also covered).
+    /// </summary>
+    internal static IReadOnlyList<string> IdentitiesOf(System.Security.Cryptography.X509Certificates.X509Certificate2 certificate) =>
+    [
+        .. CertificateInspector.GetDnsNames(certificate),
+        .. certificate.Extensions.OfType<System.Security.Cryptography.X509Certificates.X509SubjectAlternativeNameExtension>()
+            .SelectMany(extension => extension.EnumerateIPAddresses())
+            .Select(address => address.ToString())
+            .Distinct()
+    ];
 
     /// <summary>
     /// Whether a binding that served the replaced certificate may take the new one: a binding with a host name when the new
