@@ -1320,6 +1320,12 @@ Check the URL, port, recipients and sign-in; the message says which one.
 
 Add an email or chat channel, or make sure the Windows Event Log is monitored.
 
+<a id="ssl7010"></a>
+
+### SSL7010: Azure Key Vault import failed
+
+SSLense signs in with the step's app registration and imports the certificate as a new version. Check the tenant, client ID and secret, the vault's name and firewall, and that the app has the Key Vault Certificates Officer role or the Import certificate permission.
+
 ## SSL8xxx: Deployment steps
 
 <a id="ssl8001"></a>

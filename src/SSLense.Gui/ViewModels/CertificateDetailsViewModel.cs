@@ -240,7 +240,8 @@ public partial class CertificateDetailsViewModel : ObservableObject
         new("Export a PFX file", DeploymentStepKind.ExportPfx, "PFX file", "A full path, such as D:\\Certs\\shop.pfx. Needs a certificate issued with an exportable private key."),
         new("Export PEM files", DeploymentStepKind.ExportPem, "Folder", "cert.pem, chain.pem, fullchain.pem, and key.pem, which only administrators can read. Needs an exportable private key."),
         new("Export to the IIS Central Certificate Store", DeploymentStepKind.CentralStore, "Store folder", "One PFX per name, protected by the store's password as set in IIS. Needs an exportable private key."),
-        new("Use it for an IIS FTP site", DeploymentStepKind.FtpSite, "FTP site", "The IIS site with the FTP binding, as IIS Manager names it. Set again after every renewal; new FTP connections use the new certificate.")
+        new("Use it for an IIS FTP site", DeploymentStepKind.FtpSite, "FTP site", "The IIS site with the FTP binding, as IIS Manager names it. Set again after every renewal; new FTP connections use the new certificate."),
+        new("Import into Azure Key Vault", DeploymentStepKind.KeyVault, "Vault/certificate", "Such as contoso-kv/shop. In the password box, the app registration as tenant:client ID:client secret. Needs an exportable private key.")
     ];
 
     public IAsyncRelayCommand AddDeploymentStepCommand => _addDeploymentStepCommand;
@@ -855,7 +856,7 @@ public sealed record DeploymentKindChoice(string Label, DeploymentStepKind Kind,
 {
     public bool IsScript => Kind == DeploymentStepKind.Script;
 
-    public bool NeedsPassword => Kind is DeploymentStepKind.ExportPfx or DeploymentStepKind.CentralStore;
+    public bool NeedsPassword => Kind is DeploymentStepKind.ExportPfx or DeploymentStepKind.CentralStore or DeploymentStepKind.KeyVault;
 
     public override string ToString() => Label;
 }

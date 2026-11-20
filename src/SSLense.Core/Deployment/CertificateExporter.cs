@@ -17,6 +17,9 @@ internal interface ICertificateExporter
     /// <summary><c>cert.pem</c>, <c>chain.pem</c>, <c>fullchain.pem</c>, and <c>key.pem</c>, the key readable only by Administrators and SYSTEM.</summary>
     Task ExportPemAsync(string thumbprint, string folder, CancellationToken cancellationToken);
 
+    /// <summary>The same PFX as <see cref="ExportPfxAsync"/>, in memory, for an upload. The caller clears it.</summary>
+    Task<byte[]> ExportPkcs12Async(string thumbprint, string password, CancellationToken cancellationToken);
+
     /// <summary>One PFX per name, named as the IIS Central Certificate Store expects.</summary>
     Task ExportCentralStoreAsync(
         string thumbprint,
@@ -120,7 +123,7 @@ internal sealed class CertificateExporter(ICertificateStore certificateStore) : 
     /// <summary>The IIS Central Certificate Store looks for <c>example.com.pfx</c>, and <c>_.example.com.pfx</c> for <c>*.example.com</c>.</summary>
     internal static string CentralStoreFileName(string name) => $"{name.Trim().TrimEnd('.').Replace('*', '_').ToLowerInvariant()}.pfx";
 
-    private async Task<byte[]> ExportPkcs12Async(string thumbprint, string password, CancellationToken cancellationToken)
+    public async Task<byte[]> ExportPkcs12Async(string thumbprint, string password, CancellationToken cancellationToken)
     {
         using var certificate = await certificateStore.OpenAsync(thumbprint, cancellationToken).ConfigureAwait(false)
             ?? throw new SslenseException(ErrorCodes.CertificateNotInStore, $"The certificate {thumbprint} is not installed in LocalMachine\\My.");

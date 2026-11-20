@@ -97,6 +97,7 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
     private readonly ICertificateOperationLock _operationLock;
     private readonly ICertificateExporter? _exporter;
     private readonly ISecretProtector? _protector;
+    private readonly IKeyVaultClient? _keyVault;
 
     public DeploymentService(
         IManagedCertificateStore store,
@@ -109,8 +110,10 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
         INotifier? notifier = null,
         ICertificateOperationLock? operationLock = null,
         ICertificateExporter? exporter = null,
-        ISecretProtector? protector = null)
+        ISecretProtector? protector = null,
+        IKeyVaultClient? keyVault = null)
     {
+        _keyVault = keyVault;
         _exporter = exporter;
         _protector = protector;
         _store = store;
@@ -134,11 +137,11 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
             throw new SslenseException(ErrorCodes.TooManySteps, $"A certificate can have at most {MaxSteps} deployment steps.");
         }
 
-        if (request.Password is not null && request.Kind is not (DeploymentStepKind.ExportPfx or DeploymentStepKind.CentralStore))
+        if (request.Password is not null && request.Kind is not (DeploymentStepKind.ExportPfx or DeploymentStepKind.CentralStore or DeploymentStepKind.KeyVault))
         {
             throw new ArgumentException(ErrorCodes.DeploymentStepInvalid.Format(request.Kind == DeploymentStepKind.ExportPem
                 ? "PEM files take no password: key.pem is written for Administrators and SYSTEM only."
-                : "Only a PFX or Central Certificate Store export takes a password."));
+                : "Only a PFX, Central Certificate Store or Key Vault export takes a password."));
         }
 
         if (request.Kind != DeploymentStepKind.Script && request.TimeoutSeconds is not null)
@@ -182,6 +185,9 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
                 break;
             case DeploymentStepKind.ExportPfx or DeploymentStepKind.ExportPem or DeploymentStepKind.CentralStore:
                 step = CreateExportStep(record, id, request);
+                break;
+            case DeploymentStepKind.KeyVault:
+                step = CreateKeyVaultStep(record, id, request);
                 break;
             case DeploymentStepKind.FtpSite:
                 var ftpSite = ((await _iis.GetFtpSitesAsync(cancellationToken).ConfigureAwait(false)) ?? [])
@@ -488,11 +494,60 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
                     .ExportCentralStoreAsync(record.Thumbprint, record.CertificateNames ?? record.Hosts, step.Value, Password(step), cancellationToken)
                     .ConfigureAwait(false);
                 break;
+            case DeploymentStepKind.KeyVault:
+                await ImportIntoKeyVaultAsync(record, step, cancellationToken).ConfigureAwait(false);
+                break;
             case DeploymentStepKind.FtpSite:
                 await _iis.SetFtpCertificateAsync(step.Value, record.Thumbprint, "My", cancellationToken).ConfigureAwait(false);
                 break;
             default:
                 throw new SslenseException(ErrorCodes.DeploymentStepUnknown, $"This SSLense version does not know deployment step kind {(int)step.Kind}.");
+        }
+    }
+
+    /// <summary>The vault and certificate are checked now; the app registration is kept with DPAPI (docs/design/key-vault.md).</summary>
+    private DeploymentStep CreateKeyVaultStep(ManagedCertificate record, Guid id, DeploymentStepRequest request)
+    {
+        if (!record.ExportableKey)
+        {
+            throw new SslenseException(ErrorCodes.KeyNotExportable,
+                $"The private key of the certificate for '{record.SiteName}' is not exportable, so it cannot be imported into Key Vault. " +
+                "Issue the certificate again with an exportable key: add --exportable-key --force to its 'issue' command, or choose " +
+                "Exportable private key in the app.");
+        }
+
+        var target = KeyVaultTarget.Parse(request.Value);
+        var parts = (request.Password ?? string.Empty).Split(':', 3);
+        if (parts.Length != 3 || parts.Any(part => part.Trim().Length == 0))
+        {
+            throw new ArgumentException(ErrorCodes.DeploymentStepInvalid.Format("Key Vault needs the app registration's tenant, client ID and client secret."));
+        }
+
+        var plaintext = Encoding.UTF8.GetBytes(string.Join(':', parts[0].Trim(), parts[1].Trim(), parts[2]));
+        try
+        {
+            var protectedCredentials = Convert.ToBase64String(
+                (_protector ?? throw new SslenseException(ErrorCodes.PasswordStorageUnavailable, "Passwords cannot be stored here.")).Protect(plaintext));
+            return new DeploymentStep(id, DeploymentStepKind.KeyVault, target.ToString(), ProtectedPassword: protectedCredentials);
+        }
+        finally
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(plaintext);
+        }
+    }
+
+    private async Task ImportIntoKeyVaultAsync(ManagedCertificate record, DeploymentStep step, CancellationToken cancellationToken)
+    {
+        var client = _keyVault ?? throw new SslenseException(ErrorCodes.KeyVaultFailed, "Azure Key Vault is not available in this SSLense process.");
+        var password = KeyVaultClient.NewUploadPassword();
+        var pfx = await Exporter().ExportPkcs12Async(record.Thumbprint, password, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await client.ImportAsync(KeyVaultTarget.Parse(step.Value), Password(step), pfx, password, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            System.Security.Cryptography.CryptographicOperations.ZeroMemory(pfx);
         }
     }
 

@@ -254,3 +254,4 @@ SSL6030 ConfigFileInvalid
 SSL6031 ConfigPasswordMissingOrWrong
 SSL6032 ConfigImportRefused
 SSL4056 FtpSiteNotFound
+SSL7010 KeyVaultFailed
