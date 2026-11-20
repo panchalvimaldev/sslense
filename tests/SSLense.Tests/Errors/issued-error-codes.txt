@@ -258,3 +258,4 @@ SSL7010 KeyVaultFailed
 SSL4057 HttpSysBindingFailed
 SSL4058 ServiceTargetMissing
 SSL7011 AppServiceFailed
+SSL6033 FarmFolderInvalid

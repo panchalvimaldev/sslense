@@ -9,7 +9,10 @@ internal sealed class InMemoryFileSystem : IFileSystem
 
     public bool FileExists(string path) => Files.ContainsKey(path);
 
-    public bool DirectoryExists(string path) => true;
+    /// <summary>When set, only these folders exist; otherwise every folder does.</summary>
+    public HashSet<string>? ExistingDirectories { get; set; }
+
+    public bool DirectoryExists(string path) => ExistingDirectories?.Contains(path) ?? true;
 
     public void CreateDirectory(string path)
     {

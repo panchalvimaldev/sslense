@@ -65,7 +65,7 @@ Already done and only to be marked on the roadmap: private-key permissions for I
 | 23 | IIS FTP sites **(done)** | M | The FTP site's SSL certificate, renewed like a web site's |
 | 24 | Export to Azure Key Vault **(done)** | M | Over its REST API with an app registration, so no SDK package |
 | 25 | Other deployment targets **(done: HTTP.sys, Remote Desktop, SQL Server, Apache, nginx, Tomcat and Azure App Service; Exchange stays a ready-made script)** | L, several PRs | HTTP.sys, Kestrel, Remote Desktop Services, SQL Server and Exchange as first-class targets (scripts exist today); Apache, nginx and Tomcat on Windows (files and a reload); Azure App Service (REST). Each with install, verify, rollback and remove |
-| 26 | Web farms | L, design first | HTTP validation across servers through a shared folder or WebDAV, and the certificate kept in step on every server. SFTP would need a package: needs approval |
+| 26 | Web farms **(done: challenge copies to UNC and WebDAV folders; SFTP not built, it needs a package)** | L, design first | HTTP validation across servers through a shared folder or WebDAV, and the certificate kept in step on every server. SFTP would need a package: needs approval |
 | 27 | Several servers from one place | XL, design first | Close to a second product: a central view with roles, built so every server keeps renewing when the central part is down. Last, so everything before it is stable |
 
 ### Wave 5: distribution and project health (ROADMAP 5.3–5.5)
