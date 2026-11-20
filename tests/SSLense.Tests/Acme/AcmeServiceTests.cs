@@ -231,6 +231,36 @@ public sealed class AcmeServiceTests
         Assert.Contains("order reached", exception.ToString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task IssueAsync_AnIpAddressItsBoundCertificateCovers_RequiresForce()
+    {
+        // Codex's case on #79: the store lists DNS names only, so the certificate's IP address is read from the certificate.
+        using var key = System.Security.Cryptography.ECDsa.Create();
+        var request = new CertificateRequest("CN=example.com", key, System.Security.Cryptography.HashAlgorithmName.SHA256);
+        var names = new SubjectAlternativeNameBuilder();
+        names.AddDnsName("example.com");
+        names.AddIpAddress(System.Net.IPAddress.Parse("203.0.113.7"));
+        request.CertificateExtensions.Add(names.Build());
+        using var bound = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(60));
+        var certificateStore = new Mock<ICertificateStore>();
+        certificateStore.Setup(value => value.FindByThumbprintAsync("AABBCC", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new InstalledCertificate("AABBCC", DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(60), true, DnsNames: ["example.com"]));
+        certificateStore.Setup(value => value.OpenAsync("AABBCC", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => X509CertificateLoader.LoadCertificate(bound.RawData));
+        var site = new IisSite(1, "My Site", "Started", "C:\\inetpub\\site",
+            [new IisBinding("https", "203.0.113.7", 443, "", "AABBCC", "My", false)]);
+        var protocol = new Mock<IAcmeProtocolClient>(MockBehavior.Strict);
+        var service = new AcmeService(
+            MockIis(site).Object, protocol.Object, Mock.Of<IChallengeHandler>(), Mock.Of<IChallengeProbe>(),
+            Mock.Of<ICertificateArtifactStore>(), certificateStore.Object, EmptyManagedStore());
+
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.IssueAsync(
+            new AcmeIssueRequest("My Site", ["203.0.113.7"], "admin@example.com", SelfHostedHttp: true)));
+
+        Assert.Contains("--force", exception.Message, StringComparison.Ordinal);
+        protocol.VerifyNoOtherCalls();
+    }
+
     [Theory]
     [InlineData("CN=(STAGING) Pseudo Plum E5, O=(STAGING) Let's Encrypt, C=US", CertificateAuthorities.LetsEncryptId, true)]
     [InlineData("CN=E5, O=Let's Encrypt, C=US", CertificateAuthorities.LetsEncryptStagingId, true)]

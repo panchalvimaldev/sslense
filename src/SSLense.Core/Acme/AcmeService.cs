@@ -1076,6 +1076,28 @@ internal sealed partial class AcmeService : IAcmeService
         }
     }
 
+    /// <summary>
+    /// What an installed certificate answers for, IP addresses included: the store's list has DNS names only, so the
+    /// certificate is opened when it can be, to count an IP address certificate as covering its address.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> IdentitiesAsync(InstalledCertificate certificate, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var opened = await _certificateStore.OpenAsync(certificate.Thumbprint, cancellationToken).ConfigureAwait(false);
+            if (opened is not null)
+            {
+                return BindingCoverage.IdentitiesOf(opened);
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Falls back to the names the store listed.
+        }
+
+        return certificate.DnsNames ?? [];
+    }
+
     private async Task ThrowIfAlreadyCoveredAsync(
         IisSite site,
         IReadOnlyList<string> hosts,
@@ -1108,7 +1130,8 @@ internal sealed partial class AcmeService : IAcmeService
         // its certificate covers the request (docs/design/other-bindings.md).
         if (certificate is not null && certificate.HasPrivateKey &&
             certificate.NotBefore <= now && certificate.NotAfter > now &&
-            certificate.DnsNames is { Count: > 0 } names && hosts.All(host => CertificateInspector.Covers(names, host)))
+            await IdentitiesAsync(certificate, cancellationToken).ConfigureAwait(false) is { Count: > 0 } names &&
+            hosts.All(host => CertificateInspector.Covers(names, host)))
         {
             // A certificate from a test CA is untrusted, so it never satisfies a request to a real CA.
             if (!requestedAuthority.IsTest &&
