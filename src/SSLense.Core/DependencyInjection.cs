@@ -65,6 +65,7 @@ public static class DependencyInjection
         services.AddTransient<ICertificateCleanupService, CertificateCleanupService>();
         services.AddSingleton<ICertificateHistoryStore, JsonCertificateHistoryStore>();
         services.AddTransient<ICertificateHistoryService, CertificateHistoryService>();
+        services.AddTransient<IConfigTransferService, ConfigTransferService>();
         services.AddTransient<IBulkService, BulkService>();
         services.AddSingleton<SSLense.Core.Diagnostics.IUpdateCheckService, SSLense.Core.Diagnostics.UpdateCheckService>();
         services.AddSingleton<IRemoteCertificateReader, RemoteCertificateReader>();

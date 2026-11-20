@@ -618,6 +618,15 @@ public static class ErrorCodes
     public static readonly ErrorCode BulkFileInvalid = new("SSL6029", nameof(BulkFileInvalid), "Bulk file not valid",
         "Each row needs a site and an email (or the default ACME email in Settings), and a validation of http, http-self or dns. A header row may name the columns: site, hosts, validation, names, email, ca, profile, key.");
 
+    public static readonly ErrorCode ConfigFileInvalid = new("SSL6030", nameof(ConfigFileInvalid), "Settings file not valid",
+        "The file must be one SSLense wrote with 'config export', from this version or an older one. Export it again on the source server.");
+
+    public static readonly ErrorCode ConfigPasswordMissingOrWrong = new("SSL6031", nameof(ConfigPasswordMissingOrWrong), "Settings file password missing or wrong",
+        "Secrets in an exported settings file are encrypted with a password. Set the environment variable SSLENSE_CONFIG_PASSWORD to the password used at export, in the same terminal, and try again.");
+
+    public static readonly ErrorCode ConfigImportRefused = new("SSL6032", nameof(ConfigImportRefused), "Settings not imported",
+        "Importing would leave a certificate without the certificate authority that renews it. Add that authority to the source server and export again, or stop managing the certificate first.");
+
     public static readonly ErrorCode ChatRejected = new("SSL7001", nameof(ChatRejected), "Chat message rejected",
         "The chat service refused the message. Check the webhook URL still exists, and send a test.");
 
@@ -966,6 +975,9 @@ public static class ErrorCodes
         IpCertificateNeedsHttpSelf,
         RemoteNameTaken,
         BulkFileInvalid,
+        ConfigFileInvalid,
+        ConfigPasswordMissingOrWrong,
+        ConfigImportRefused,
         ChatRejected,
         SmtpUsernameMissing,
         SmtpPasswordMissing,

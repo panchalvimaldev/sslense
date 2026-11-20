@@ -13,4 +13,8 @@
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
     <PackageReference Include="System.CommandLine" Version="2.0.0" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- A script module over this CLI (docs/automation.md): no PowerShell SDK package. -->
+    <None Include="PowerShell\SSLense\*.ps*1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

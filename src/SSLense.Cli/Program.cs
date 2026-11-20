@@ -46,7 +46,51 @@ try
     using var host = builder.Build();
     var rootCommand = CreateRootCommand(host.Services);
     var parseResult = rootCommand.Parse(args);
+    if (!parseResult.GetValue<bool>("--json"))
+    {
+        return await RunAsync(host.Services, rootCommand, parseResult).ConfigureAwait(false);
+    }
 
+    // One JSON document on standard output, whatever the command printed (docs/automation.md).
+    var (standardOutput, standardError) = (Console.Out, Console.Error);
+    using var output = new StringWriter();
+    using var errors = new StringWriter();
+    Console.SetOut(output);
+    Console.SetError(errors);
+    int exitCode;
+    try
+    {
+        exitCode = await RunAsync(host.Services, rootCommand, parseResult).ConfigureAwait(false);
+    }
+    catch (Exception exception)
+    {
+        Log.Fatal(exception, "SSLense terminated unexpectedly");
+        WriteError(exception);
+        exitCode = CliExitCodes.Failed;
+    }
+    finally
+    {
+        Console.SetOut(standardOutput);
+        Console.SetError(standardError);
+    }
+
+    var command = string.Join(' ', parseResult.Tokens.Where(token => token.Type == System.CommandLine.Parsing.TokenType.Command).Select(token => token.Value));
+    Console.WriteLine(CliJson.Envelope(command, exitCode, output.ToString(), errors.ToString()));
+    return exitCode;
+}
+catch (Exception exception)
+{
+    Log.Fatal(exception, "SSLense terminated unexpectedly");
+    WriteError(exception);
+    return CliExitCodes.Failed;
+}
+finally
+{
+    await Log.CloseAndFlushAsync();
+}
+
+static async Task<int> RunAsync(IServiceProvider services, RootCommand rootCommand, ParseResult parseResult)
+{
     // Help, version, and parse errors need neither elevation nor state recovery.
     var runsCommand = parseResult.Errors.Count == 0 &&
         parseResult.CommandResult.Command != rootCommand &&
@@ -56,14 +100,14 @@ try
         if (!WindowsElevation.IsAdministrator())
         {
             Console.Error.WriteLine($"Error: {WindowsElevation.RequiredMessage}");
-            return 1;
+            return CliExitCodes.NotAdministrator;
         }
 
         // These commands must not change certificate state as a side effect: the installer runs secure-data,
         // and health and diagnostics should report interrupted operations rather than resolve them first.
         var touchesCertificates = parseResult.CommandResult.Command.Name is not
             ("check-permissions" or "secure-data" or "health" or "diagnostics");
-        var recovery = host.Services.GetRequiredService<ICertificateRecoveryService>();
+        var recovery = services.GetRequiredService<ICertificateRecoveryService>();
         foreach (var result in touchesCertificates
                      ? await recovery.RecoverAsync().ConfigureAwait(false)
                      : [])
@@ -79,22 +123,18 @@ try
         }
     }
 
-    return parseResult.Invoke();
-}
-catch (Exception exception)
-{
-    Log.Fatal(exception, "SSLense terminated unexpectedly");
-    WriteError(exception);
-    return 1;
-}
-finally
-{
-    await Log.CloseAndFlushAsync();
+    var exitCode = parseResult.Invoke();
+    return parseResult.Errors.Count > 0 ? CliExitCodes.InvalidCommandLine : exitCode;
 }
 
 static RootCommand CreateRootCommand(IServiceProvider services)
 {
     var rootCommand = new RootCommand("Manage certificates for IIS: from Let's Encrypt or any ACME certificate authority, renewed automatically, or bought elsewhere and installed safely.");
+    rootCommand.Options.Add(new Option<bool>("--json")
+    {
+        Recursive = true,
+        Description = "Write one JSON document instead of text: the exit code, the error code, what the command printed, and its result for the main read commands. See docs/automation.md."
+    });
     var listSitesCommand = new Command("list-sites", "List IIS sites and their bindings.");
 
     listSitesCommand.SetAction((_, cancellationToken) =>
@@ -392,6 +432,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     rootCommand.Subcommands.Add(CreateCleanupCommand(services));
     rootCommand.Subcommands.Add(CreateHistoryCommand(services));
     rootCommand.Subcommands.Add(CreateRollbackCommand(services));
+    rootCommand.Subcommands.Add(CreateConfigCommand(services));
     rootCommand.Subcommands.Add(CreateBulkCommand(services));
     rootCommand.Subcommands.Add(CreateVersionCommand(services));
     rootCommand.Subcommands.Add(CreateWatchCommand(services));
@@ -1827,7 +1868,9 @@ static Command CreateVersionCommand(IServiceProvider services)
     {
         var updates = services.GetRequiredService<SSLense.Core.Diagnostics.IUpdateCheckService>();
         Console.WriteLine($"SSLense {updates.CurrentVersion}");
-        Console.WriteLine(await updates.CheckAsync(token).ConfigureAwait(false) is { } update
+        var available = await updates.CheckAsync(token).ConfigureAwait(false);
+        CliJson.Data = new { Version = updates.CurrentVersion, Available = available };
+        Console.WriteLine(available is { } update
             ? $"SSLense {update.LatestVersion}{(update.IsPrerelease ? " (preview)" : string.Empty)} is available: {update.ReleaseUrl}"
             : "No newer release was found, or the check is off (Settings › General).");
         return 0;
@@ -1835,7 +1878,6 @@ static Command CreateVersionCommand(IServiceProvider services)
     return command;
 }
 
-// Clean-up of unused certificates (docs/design/certificate-cleanup.md).
 // The timeline of a certificate, and going back to the one its last renewal replaced (docs/design/history-and-rollback.md).
 static Command CreateHistoryCommand(IServiceProvider services)
 {
@@ -1847,6 +1889,7 @@ static Command CreateHistoryCommand(IServiceProvider services)
         try
         {
             var view = await services.GetRequiredService<ICertificateHistoryService>().GetAsync(parseResult.GetRequiredValue(siteOption), token).ConfigureAwait(false);
+            CliJson.Data = view;
             Console.WriteLine($"History of '{view.Name}':");
             foreach (var entry in view.Entries)
             {
@@ -1896,6 +1939,76 @@ static Command CreateRollbackCommand(IServiceProvider services)
     return command;
 }
 
+// Settings moved between servers (docs/automation.md). The password comes from the environment, never the command line.
+static Command CreateConfigCommand(IServiceProvider services)
+{
+    const string PasswordVariable = "SSLENSE_CONFIG_PASSWORD";
+    var command = new Command("config", "Export this server's settings to a file, or import them from one.");
+    var fileOption = new Option<string>("--file") { Required = true, Description = "The settings file." };
+    var secretsOption = new Option<bool>("--include-secrets") { Description = $"Also export the secrets (DNS tokens, notification passwords and URLs, EAB keys), encrypted with the password in the {PasswordVariable} environment variable." };
+    var certificatesOption = new Option<string?>("--certificates") { Description = "Also write the certificates to this CSV file, for 'bulk issue --file' on the other server." };
+    var exportCommand = new Command("export", "Write the settings to a file. Secrets are left out unless --include-secrets is given.");
+    exportCommand.Options.Add(fileOption);
+    exportCommand.Options.Add(secretsOption);
+    exportCommand.Options.Add(certificatesOption);
+    exportCommand.SetAction(async (parseResult, token) =>
+    {
+        var password = Environment.GetEnvironmentVariable(PasswordVariable);
+        if (parseResult.GetValue(secretsOption) && string.IsNullOrEmpty(password))
+        {
+            Console.Error.WriteLine($"Error: --include-secrets needs a password in the {PasswordVariable} environment variable.");
+            return CliExitCodes.Failed;
+        }
+
+        try
+        {
+            Console.WriteLine(await services.GetRequiredService<IConfigTransferService>().ExportAsync(
+                parseResult.GetRequiredValue(fileOption),
+                parseResult.GetValue(secretsOption) ? password : null,
+                parseResult.GetValue(certificatesOption),
+                token).ConfigureAwait(false));
+            return CliExitCodes.Success;
+        }
+        catch (Exception exception)
+        {
+            WriteError(exception);
+            return CliExitCodes.Failed;
+        }
+    });
+    command.Subcommands.Add(exportCommand);
+
+    var importFileOption = new Option<string>("--file") { Required = true, Description = "A file written by 'config export'." };
+    var yesOption = new Option<bool>("--yes") { Description = "Confirm: the settings here are replaced; a copy of them is kept in the data folder." };
+    var importCommand = new Command("import", $"Replace this server's settings with the file's. A file with secrets needs its password in {PasswordVariable}.");
+    importCommand.Options.Add(importFileOption);
+    importCommand.Options.Add(yesOption);
+    importCommand.SetAction(async (parseResult, token) =>
+    {
+        if (!parseResult.GetValue(yesOption))
+        {
+            Console.Error.WriteLine("Error: --yes is required, because the settings on this server are replaced.");
+            return CliExitCodes.Failed;
+        }
+
+        try
+        {
+            Console.WriteLine(await services.GetRequiredService<IConfigTransferService>().ImportAsync(
+                parseResult.GetRequiredValue(importFileOption),
+                Environment.GetEnvironmentVariable(PasswordVariable),
+                token).ConfigureAwait(false));
+            return CliExitCodes.Success;
+        }
+        catch (Exception exception)
+        {
+            WriteError(exception);
+            return CliExitCodes.Failed;
+        }
+    });
+    command.Subcommands.Add(importCommand);
+    return command;
+}
+
+// Clean-up of unused certificates (docs/design/certificate-cleanup.md).
 static Command CreateCleanupCommand(IServiceProvider services)
 {
     var command = new Command("cleanup", "Certificates in LocalMachine\\My that nothing uses and that are expired, test leftovers or replaced.");
@@ -1905,6 +2018,7 @@ static Command CreateCleanupCommand(IServiceProvider services)
         try
         {
             var candidates = await services.GetRequiredService<ICertificateCleanupService>().FindAsync(token).ConfigureAwait(false);
+            CliJson.Data = candidates;
             foreach (var candidate in candidates)
             {
                 Console.WriteLine($"{candidate.Thumbprint}  {candidate.Name}  ({candidate.Issuer}, expires {candidate.NotAfter:yyyy-MM-dd})");
@@ -2631,6 +2745,7 @@ static async Task<int> RenewAsync(
                 new ConsoleProgress(),
                 cancellationToken)
             .ConfigureAwait(false);
+        CliJson.Data = results;
         if (results.Count == 0)
         {
             Console.WriteLine("No managed certificates were found.");
@@ -2662,6 +2777,7 @@ static async Task<int> HealthAsync(IHealthCheckService healthCheckService, Cance
     try
     {
         var results = await healthCheckService.RunAsync(null, cancellationToken).ConfigureAwait(false);
+        CliJson.Data = results;
         foreach (var result in results)
         {
             var label = result.Status switch
@@ -2800,6 +2916,7 @@ static async Task<int> StatusAsync(
     try
     {
         var statuses = await renewalService.GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        CliJson.Data = statuses;
         if (statuses.Count == 0)
         {
             Console.WriteLine("No managed certificates were found.");
@@ -3065,6 +3182,7 @@ static async Task<int> ListSitesAsync(IIisService iisService, CancellationToken 
     try
     {
         var sites = await iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
+        CliJson.Data = sites;
         if (sites.Count == 0)
         {
             Console.WriteLine("No IIS sites were found.");

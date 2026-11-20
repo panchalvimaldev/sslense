@@ -1240,6 +1240,24 @@ A certificate on another machine needs a name that no other certificate or IIS s
 
 Each row needs a site and an email (or the default ACME email in Settings), and a validation of http, http-self or dns. A header row may name the columns: site, hosts, validation, names, email, ca, profile, key.
 
+<a id="ssl6030"></a>
+
+### SSL6030: Settings file not valid
+
+The file must be one SSLense wrote with 'config export', from this version or an older one. Export it again on the source server.
+
+<a id="ssl6031"></a>
+
+### SSL6031: Settings file password missing or wrong
+
+Secrets in an exported settings file are encrypted with a password. Set the environment variable SSLENSE_CONFIG_PASSWORD to the password used at export, in the same terminal, and try again.
+
+<a id="ssl6032"></a>
+
+### SSL6032: Settings not imported
+
+Importing would leave a certificate without the certificate authority that renews it. Add that authority to the source server and export again, or stop managing the certificate first.
+
 ## SSL7xxx: Notifications
 
 <a id="ssl7001"></a>

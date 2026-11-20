@@ -131,7 +131,7 @@ Ordered roughly by expected demand. Community feedback decides the order.
 - **Web farms and load-balanced sites:** HTTP-01 validation across several servers (shared storage, FTP, SFTP, or WebDAV) and keeping the certificate in step on every server.
 - **More validation methods:** TLS-ALPN-01, self-hosted HTTP validation for servers whose sites cannot serve the challenge, and newer DNS methods such as dns-persist-01 as certificate authorities adopt them.
 - **ACME profiles and IP address certificates,** including shorter-lived certificates, as certificate authorities offer them.
-- **Automation:** JSON output for every CLI command, documented exit codes, a PowerShell module, and configuration import/export.
+- **Automation:** JSON output for every CLI command (`--json`), documented exit codes, settings export and import, and a PowerShell script module are built ([docs/automation.md](docs/automation.md)).
 - **More notification channels:** signed webhook payloads, and email through the Microsoft Graph API for Microsoft 365 tenants that disable SMTP. (Teams, Slack, Discord, Telegram, ntfy, a heartbeat, the Event Log, and email for any SMTP setup were added October 28, 2026.)
 - **Other deployment targets:** HTTP.sys, Kestrel, Remote Desktop Services, SQL Server, Exchange, Apache, nginx, Tomcat, and Azure App Service, each with install, verify, rollback, and remove operations.
 - **Multi-server management:** a possible later project with role-based access, built so each server's renewal keeps working when any central component is unavailable.
