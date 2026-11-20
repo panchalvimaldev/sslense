@@ -9,7 +9,8 @@ public interface INotificationSettingsService
 
     Task RemoveEmailAsync(CancellationToken cancellationToken = default);
 
-    Task AddChatAsync(ChatSettingsRequest request, CancellationToken cancellationToken = default);
+    /// <returns>The new signing secret when <see cref="ChatSettingsRequest.Sign"/> is set, to give to the receiver; it is not shown again.</returns>
+    Task<string?> AddChatAsync(ChatSettingsRequest request, CancellationToken cancellationToken = default);
 
     /// <param name="number">The 1-based number shown in <see cref="NotificationOverview.Chat"/>.</param>
     Task RemoveChatAsync(int number, CancellationToken cancellationToken = default);

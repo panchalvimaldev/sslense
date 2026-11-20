@@ -21,7 +21,7 @@ internal sealed class NotificationSettingsService(
                     email.ProtectedPassword is not null, email.From, email.To)
                 : null,
             notifications.Chat
-                .Select((chat, index) => new ChatOverview(index + 1, chat.Format, chat.Name, GetHost(chat.ProtectedUrl)))
+                .Select((chat, index) => new ChatOverview(index + 1, chat.Format, chat.Name, GetHost(chat.ProtectedUrl), chat.ProtectedSigningSecret is not null))
                 .ToArray(),
             notifications.Heartbeat is { } heartbeat ? GetHost(heartbeat.ProtectedUrl) : null,
             notifications.EventLogEnabled,
@@ -49,10 +49,11 @@ internal sealed class NotificationSettingsService(
             ValidateEmail(recipient, $"The recipient address '{recipient}'");
         }
 
-        if (request.Authentication == SmtpAuthentication.Password)
+        var signsIn = request.Authentication is SmtpAuthentication.Password or SmtpAuthentication.MicrosoftGraph;
+        if (signsIn)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(request.Username, nameof(request.Username));
-            if (request.Security == SmtpSecurity.None)
+            if (request.Authentication == SmtpAuthentication.Password && request.Security == SmtpSecurity.None)
             {
                 throw new ArgumentException(
                     ErrorCodes.NotificationSettingsInvalid.Format("A password would be sent unencrypted. Choose STARTTLS or TLS on connect, or a relay without sign-in."));
@@ -63,12 +64,13 @@ internal sealed class NotificationSettingsService(
         {
             // Keep the saved password when none is entered, but only for the same account.
             var existing = notifications.Email;
-            var protectedPassword = request.Authentication != SmtpAuthentication.Password ? null
+            var protectedPassword = !signsIn ? null
                 : !string.IsNullOrEmpty(request.Password) ? Protect(request.Password)
-                : existing?.Authentication == SmtpAuthentication.Password &&
+                : existing?.Authentication == request.Authentication &&
                   string.Equals(existing.Username, request.Username?.Trim(), StringComparison.OrdinalIgnoreCase)
                     ? existing.ProtectedPassword
-                    : throw new ArgumentException(ErrorCodes.NotificationSettingsInvalid.Format("Enter the SMTP password."));
+                    : throw new ArgumentException(ErrorCodes.NotificationSettingsInvalid.Format(request.Authentication == SmtpAuthentication.MicrosoftGraph
+                        ? "Enter the app registration's client secret." : "Enter the SMTP password."));
             return notifications with
             {
                 Email = new EmailNotificationConfig(
@@ -76,7 +78,7 @@ internal sealed class NotificationSettingsService(
                     request.Port,
                     request.Security,
                     request.Authentication,
-                    request.Authentication == SmtpAuthentication.Password ? request.Username!.Trim() : null,
+                    signsIn ? request.Username!.Trim() : null,
                     protectedPassword,
                     request.From.Trim(),
                     recipients)
@@ -87,16 +89,25 @@ internal sealed class NotificationSettingsService(
     public Task RemoveEmailAsync(CancellationToken cancellationToken = default) =>
         UpdateAsync(notifications => notifications with { Email = null }, cancellationToken);
 
-    public Task AddChatAsync(ChatSettingsRequest request, CancellationToken cancellationToken = default)
+    public async Task<string?> AddChatAsync(ChatSettingsRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         var url = ParseUrl(request.Url, $"The {request.Format} URL");
         ChatSender.Validate(request.Format, url);
+        if (request.Sign && request.Format != ChatFormat.Generic)
+        {
+            throw new ArgumentException(ErrorCodes.NotificationSettingsInvalid.Format(
+                $"Only generic webhooks are signed: {request.Format} checks its own URL instead."));
+        }
+
+        var secret = request.Sign ? ChatSender.NewSecret() : null;
         var chat = new ChatNotificationConfig(
             request.Format,
             Protect(url.AbsoluteUri),
-            string.IsNullOrWhiteSpace(request.Name) ? null : request.Name.Trim());
-        return UpdateAsync(notifications => notifications with { Chat = [.. notifications.Chat, chat] }, cancellationToken);
+            string.IsNullOrWhiteSpace(request.Name) ? null : request.Name.Trim(),
+            secret is null ? null : Protect(secret));
+        await UpdateAsync(notifications => notifications with { Chat = [.. notifications.Chat, chat] }, cancellationToken).ConfigureAwait(false);
+        return secret;
     }
 
     public Task RemoveChatAsync(int number, CancellationToken cancellationToken = default) =>

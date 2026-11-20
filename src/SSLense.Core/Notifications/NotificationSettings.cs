@@ -14,7 +14,8 @@ public sealed record EmailSettingsRequest(
     string From,
     IReadOnlyList<string> To);
 
-public sealed record ChatSettingsRequest(ChatFormat Format, string Url, string? Name = null);
+/// <param name="Sign">For a generic webhook: sign each payload with a new shared secret, which is returned once.</param>
+public sealed record ChatSettingsRequest(ChatFormat Format, string Url, string? Name = null, bool Sign = false);
 
 /// <summary>What is configured, without any secret: URLs are reduced to their host name.</summary>
 public sealed record NotificationOverview(
@@ -35,7 +36,7 @@ public sealed record EmailOverview(
     IReadOnlyList<string> To);
 
 /// <param name="Number">1-based, as shown to users and accepted by the remove command.</param>
-public sealed record ChatOverview(int Number, ChatFormat Format, string? Name, string Host);
+public sealed record ChatOverview(int Number, ChatFormat Format, string? Name, string Host, bool Signed = false);
 
 /// <summary>Common SMTP setups. Organisations differ, so these only fill in defaults that can be changed.</summary>
 public sealed record EmailPreset(
@@ -54,6 +55,8 @@ public sealed record EmailPreset(
             "Host is your MX endpoint, such as contoso-com.mail.protection.outlook.com. Requires an inbound connector that accepts this server's public IP address."),
         new("m365", "Microsoft 365 with sign-in (SMTP AUTH)", "smtp.office365.com", 587, SmtpSecurity.StartTls, SmtpAuthentication.Password, null,
             "SMTP AUTH must be enabled for the mailbox. Microsoft is retiring basic authentication; prefer the relay option where possible."),
+        new("m365-graph", "Microsoft 365 through Microsoft Graph (app registration, no SMTP)", null, 443, SmtpSecurity.Auto, SmtpAuthentication.MicrosoftGraph, null,
+            "Host: the tenant ID or domain, such as contoso.onmicrosoft.com. Username: the app registration's application (client) ID. Password: a client secret. The app needs the Mail.Send application permission with admin consent; limit it to the From mailbox with an application access policy."),
         new("gmail", "Gmail or Google Workspace", "smtp.gmail.com", 587, SmtpSecurity.StartTls, SmtpAuthentication.Password, null,
             "Use an app password, not the account password."),
         new("sendgrid", "SendGrid", "smtp.sendgrid.net", 587, SmtpSecurity.StartTls, SmtpAuthentication.Password, "apikey",

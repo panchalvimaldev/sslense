@@ -90,6 +90,12 @@
      <StackPanel Grid.Column="2" Margin="0,0,8,0"><TextBlock Text="Webhook URL" Style="{StaticResource FieldLabel}"/><PasswordBox x:Name="ChatUrlBox" PasswordChanged="OnChatUrlChanged" AutomationProperties.Name="Chat webhook URL"/></StackPanel>
      <Button Grid.Column="3" Content="Add channel" Command="{Binding AddChatCommand}" Style="{StaticResource PrimaryButton}" VerticalAlignment="Bottom"/>
     </Grid>
+    <CheckBox Content="Sign generic webhook payloads (HMAC-SHA256)" IsChecked="{Binding SignNewChat}" Margin="0,-10,0,8"
+              ToolTip="SSLense makes a shared secret and shows it once. Each request carries X-SSLense-Timestamp and X-SSLense-Signature, so the receiver can check it came from SSLense."/>
+    <StackPanel Margin="0,0,0,18" Visibility="{Binding HasSigningSecret, Converter={StaticResource BooleanToVisibilityConverter}}">
+     <TextBlock Text="Signing secret: copy it to the receiver now; it is not shown again" Style="{StaticResource FieldLabel}"/>
+     <TextBox Text="{Binding SigningSecret, Mode=OneWay}" IsReadOnly="True" FontFamily="Cascadia Mono, Consolas" AutomationProperties.Name="Signing secret"/>
+    </StackPanel>
 
     <TextBlock Text="Heartbeat" Style="{StaticResource SectionTitle}"/>
     <TextBlock Text="{Binding HeartbeatStatus}" Foreground="{StaticResource MutedTextBrush}" Margin="0,2,0,4"/>

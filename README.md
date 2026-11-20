@@ -458,15 +458,15 @@ SSLense sends renewal failures immediately, a daily reminder digest when a certi
 | Channel | Setup | Notes |
 |---|---|---|
 | **Windows Event Log** | None; on by default | Application log, source `SSLense`. Lets existing monitoring (Azure Monitor, SCOM, Zabbix, PRTG, and others) watch SSLense |
-| **Email** | Any SMTP server or relay | No sign-in (relay by IP address) or username and password; STARTTLS, TLS on connect (465), or plain text for internal relays only |
+| **Email** | Any SMTP server or relay | No sign-in (relay by IP address) or username and password; STARTTLS, TLS on connect (465), or plain text for internal relays only; or Microsoft Graph with an app registration, for Microsoft 365 tenants without SMTP ([design](docs/design/graph-email.md)) |
 | **Microsoft Teams, Slack, Discord, Telegram** | Paste a webhook URL | Sent in each service's native format |
 | **ntfy** | Paste a topic URL | Free push notifications to the ntfy phone app, no account needed |
-| **Generic webhook** | Paste a URL | JSON with `kind`, `severity`, `subject`, `body`, and `occurredAtUtc` |
+| **Generic webhook** | Paste a URL | JSON with `kind`, `severity`, `subject`, `body`, and `occurredAtUtc`; optionally signed with HMAC-SHA256 (`--sign`, [design](docs/design/signed-webhooks.md)) |
 | **Heartbeat** | Paste a ping URL | healthchecks.io, Uptime Kuma, and similar; see below |
 
 ### Email
 
-Presets fill in common settings, which can all be changed: `m365-relay`, `m365`, `gmail`, `sendgrid`, `exchange`, and `custom`.
+Presets fill in common settings, which can all be changed: `m365-relay`, `m365`, `m365-graph`, `gmail`, `sendgrid`, `exchange`, and `custom`.
 
 ```powershell
 # Microsoft 365 relay that accepts mail by this server's IP address (inbound connector), no sign-in:

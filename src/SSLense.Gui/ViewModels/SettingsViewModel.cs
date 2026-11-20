@@ -138,6 +138,14 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string emailStatus = "Not configured.";
 
     [ObservableProperty] private ChatFormat newChatFormat = ChatFormat.Teams;
+    [ObservableProperty] private bool signNewChat;
+
+    /// <summary>The secret of the generic webhook just added with signing, shown once (docs/design/signed-webhooks.md).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSigningSecret))]
+    private string signingSecret = string.Empty;
+
+    public bool HasSigningSecret => SigningSecret.Length > 0;
     [ObservableProperty] private string newChatName = string.Empty;
     [ObservableProperty] private string newChatUrl = string.Empty;
     [ObservableProperty] private ChatOverview? selectedChat;
@@ -593,8 +601,13 @@ public partial class SettingsViewModel : ObservableObject
             ct),
         "Email settings saved. Use Send test to check delivery.", token);
 
-    private Task AddChatAsync(CancellationToken token) => ChangeNotificationsAsync(ct => _notificationSettingsService.AddChatAsync(
-            new ChatSettingsRequest(NewChatFormat, NewChatUrl, NewChatName), ct),
+    private Task AddChatAsync(CancellationToken token) => ChangeNotificationsAsync(async ct =>
+        {
+            SigningSecret = string.Empty;
+            SigningSecret = await _notificationSettingsService.AddChatAsync(
+                new ChatSettingsRequest(NewChatFormat, NewChatUrl, NewChatName, SignNewChat), ct).ConfigureAwait(true) ?? string.Empty;
+            SignNewChat = false;
+        },
         $"{NewChatFormat} channel added. Use Send test to check delivery.", token);
 
     private Task RemoveChatAsync(CancellationToken token) => SelectedChat is { } chat
