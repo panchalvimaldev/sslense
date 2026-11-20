@@ -54,3 +54,16 @@ jobs:
             --title "SSLense $env:SSLENSE_VERSION" `
             --notes "Unsigned preview build. Windows SmartScreen may warn until releases are code-signed. SHA-256: $hash" `
             --prerelease
+
+      # winget manifests for this release, made from the same SHA-256; the owner submits them after the combined test
+      # (docs/design/winget.md).
+      - name: Attach winget manifests
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $hash = (Get-Content "artifacts/installer/SSLense-$env:SSLENSE_VERSION-x64.msi.sha256").Split(' ')[0]
+          ./installer/New-WingetManifest.ps1 -Version $env:SSLENSE_VERSION -Sha256 $hash
+          $folder = "artifacts/winget/manifests/p/panchalvimal/SSLense/$env:SSLENSE_VERSION"
+          Compress-Archive -Path "$folder/*" -DestinationPath "artifacts/installer/SSLense-$env:SSLENSE_VERSION-winget.zip"
+          gh release upload $env:GITHUB_REF_NAME "artifacts/installer/SSLense-$env:SSLENSE_VERSION-winget.zip"
