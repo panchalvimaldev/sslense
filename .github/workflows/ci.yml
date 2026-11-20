@@ -28,7 +28,7 @@ jobs:
         run: ./installer/Test-Dependencies.ps1 -SbomPath artifacts/sbom/sslense.cdx.json
 
       - name: Keep the SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom
           path: artifacts/sbom/sslense.cdx.json
