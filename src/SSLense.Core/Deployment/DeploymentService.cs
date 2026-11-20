@@ -140,7 +140,7 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
             throw new SslenseException(ErrorCodes.TooManySteps, $"A certificate can have at most {MaxSteps} deployment steps.");
         }
 
-        if (request.Password is not null && request.Kind is not (DeploymentStepKind.ExportPfx or DeploymentStepKind.CentralStore or DeploymentStepKind.KeyVault))
+        if (request.Password is not null && request.Kind is not (DeploymentStepKind.ExportPfx or DeploymentStepKind.CentralStore or DeploymentStepKind.KeyVault or DeploymentStepKind.WebServer))
         {
             throw new ArgumentException(ErrorCodes.DeploymentStepInvalid.Format(request.Kind == DeploymentStepKind.ExportPem
                 ? "PEM files take no password: key.pem is written for Administrators and SYSTEM only."
@@ -191,6 +191,9 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
                 break;
             case DeploymentStepKind.KeyVault:
                 step = CreateKeyVaultStep(record, id, request);
+                break;
+            case DeploymentStepKind.WebServer:
+                step = await CreateWebServerStepAsync(record, id, request, cancellationToken).ConfigureAwait(false);
                 break;
             case DeploymentStepKind.RemoteDesktop:
                 if (!ServiceSettings().HasRemoteDesktopListener())
@@ -520,6 +523,9 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
             case DeploymentStepKind.KeyVault:
                 await ImportIntoKeyVaultAsync(record, step, cancellationToken).ConfigureAwait(false);
                 break;
+            case DeploymentStepKind.WebServer:
+                await DeployToWebServerAsync(record, step, cancellationToken).ConfigureAwait(false);
+                break;
             case DeploymentStepKind.RemoteDesktop:
                 await SetRemoteDesktopAsync(record, cancellationToken).ConfigureAwait(false);
                 break;
@@ -535,6 +541,67 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
             default:
                 throw new SslenseException(ErrorCodes.DeploymentStepUnknown, $"This SSLense version does not know deployment step kind {(int)step.Kind}.");
         }
+    }
+
+    /// <summary>The service must exist, and Tomcat's keystore needs a password, kept with DPAPI (docs/design/web-servers.md).</summary>
+    private async Task<DeploymentStep> CreateWebServerStepAsync(ManagedCertificate record, Guid id, DeploymentStepRequest request, CancellationToken cancellationToken)
+    {
+        if (!record.ExportableKey)
+        {
+            throw new SslenseException(ErrorCodes.KeyNotExportable,
+                $"The private key of the certificate for '{record.SiteName}' is not exportable, so it cannot be written for a web server. " +
+                "Issue the certificate again with an exportable key: add --exportable-key --force to its 'issue' command, or choose " +
+                "Exportable private key in the app.");
+        }
+
+        var target = WebServerTarget.Parse(request.Value);
+        ScServiceRestarter.ValidateName(target.Service);
+        if (!await _services.ExistsAsync(target.Service, cancellationToken).ConfigureAwait(false))
+        {
+            throw new ArgumentException(ErrorCodes.ServiceNameUnknown.Format(
+                $"No Windows service is named '{target.Service}'. Use the service's name, as 'sc.exe query' shows it, such as Apache2.4 or Tomcat10."));
+        }
+
+        string? protectedPassword = null;
+        if (target.NeedsPassword)
+        {
+            if (string.IsNullOrEmpty(request.Password))
+            {
+                throw new ArgumentException(ErrorCodes.DeploymentStepInvalid.Format("Tomcat's keystore needs a password, the one its certificateKeystorePassword names."));
+            }
+
+            var plaintext = Encoding.UTF8.GetBytes(request.Password);
+            try
+            {
+                protectedPassword = Convert.ToBase64String(
+                    (_protector ?? throw new SslenseException(ErrorCodes.PasswordStorageUnavailable, "Passwords cannot be stored here.")).Protect(plaintext));
+            }
+            finally
+            {
+                System.Security.Cryptography.CryptographicOperations.ZeroMemory(plaintext);
+            }
+        }
+        else if (request.Password is not null)
+        {
+            throw new ArgumentException(ErrorCodes.DeploymentStepInvalid.Format($"{target.Server} reads PEM files, which take no password: key.pem is written for Administrators and SYSTEM only."));
+        }
+
+        return new DeploymentStep(id, DeploymentStepKind.WebServer, target.ToString(), ProtectedPassword: protectedPassword);
+    }
+
+    private async Task DeployToWebServerAsync(ManagedCertificate record, DeploymentStep step, CancellationToken cancellationToken)
+    {
+        var target = WebServerTarget.Parse(step.Value);
+        if (target.NeedsPassword)
+        {
+            await Exporter().ExportPfxAsync(record.Thumbprint, target.KeystorePath, Password(step), cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await Exporter().ExportPemAsync(record.Thumbprint, target.Folder, cancellationToken).ConfigureAwait(false);
+        }
+
+        await _services.RestartAsync(target.Service, ServiceTimeout, cancellationToken).ConfigureAwait(false);
     }
 
     private IServiceCertificateSettings ServiceSettings() =>

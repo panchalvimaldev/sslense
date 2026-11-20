@@ -25,9 +25,9 @@ internal static class StateSchema
     /// which 0.23 would drop on its next save and then leave in the store. Version 15 adds the
     /// deployment step that gives an IIS FTP site the certificate, which 0.23 would not know. Version 16 adds the
     /// Azure Key Vault deployment step, which 0.23 would not know either. Version 17 adds the HTTP.sys
-    /// binding step. Version 18 adds the Remote Desktop and SQL Server steps.
+    /// binding step. Version 18 adds the Remote Desktop and SQL Server steps. Version 19 adds the web server step.
     /// </summary>
-    public const int ManagedCertificates = 18;
+    public const int ManagedCertificates = 19;
 
     /// <summary>
     /// Version 0 had no version field. Version 2 replaced the single SMTP server and generic webhook with

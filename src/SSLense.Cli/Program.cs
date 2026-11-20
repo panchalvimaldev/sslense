@@ -944,6 +944,10 @@ static Command CreateDeployCommand(IServiceProvider services)
     var httpSysOption = new Option<string?>("--http-sys") { Description = "Bind the certificate in HTTP.sys to this endpoint outside IIS after every renewal, such as 0.0.0.0:5986 for WinRM or api.example.com:8443." };
     var remoteDesktopOption = new Option<bool>("--remote-desktop") { Description = "Make Remote Desktop on this server use the certificate after every renewal; NETWORK SERVICE is given its key." };
     var sqlServerOption = new Option<string?>("--sql-server") { Description = "Make this SQL Server instance (MSSQLSERVER for the default) encrypt with the certificate after every renewal; its account is given the key, and it is restarted." };
+    var webServerOption = new Option<string?>("--web-server") { Description = "apache, nginx or tomcat on Windows: write its certificate files to --folder after every renewal, then restart --service. Needs an exportable key; Tomcat's keystore password is asked for." };
+    webServerOption.AcceptOnlyFromAmong("apache", "nginx", "tomcat");
+    var folderOption = new Option<string?>("--folder") { Description = "With --web-server: the folder its configuration reads the certificate from." };
+    var serviceOption = new Option<string?>("--service") { Description = "With --web-server: the Windows service that runs it, such as Apache2.4, nginx or Tomcat10." };
     var tenantOption = new Option<string?>("--tenant") { Description = "With --key-vault: the Microsoft Entra tenant ID or domain of the app registration." };
     var clientIdOption = new Option<string?>("--client-id") { Description = "With --key-vault: the app registration's application (client) ID." };
     var addCommand = new Command("add", "Add a step at the end. It runs after the next renewal, or now with 'deploy run'.");
@@ -960,6 +964,9 @@ static Command CreateDeployCommand(IServiceProvider services)
     addCommand.Options.Add(httpSysOption);
     addCommand.Options.Add(remoteDesktopOption);
     addCommand.Options.Add(sqlServerOption);
+    addCommand.Options.Add(webServerOption);
+    addCommand.Options.Add(folderOption);
+    addCommand.Options.Add(serviceOption);
     addCommand.Options.Add(tenantOption);
     addCommand.Options.Add(clientIdOption);
     addCommand.SetAction((parseResult, token) => AddDeploymentStepAsync(
@@ -979,6 +986,7 @@ static Command CreateDeployCommand(IServiceProvider services)
         parseResult.GetValue(httpSysOption),
         parseResult.GetValue(remoteDesktopOption) ? "RDP-Tcp" : null,
         parseResult.GetValue(sqlServerOption),
+        parseResult.GetValue(webServerOption) is { } webServer ? $"{webServer}|{parseResult.GetValue(folderOption)}|{parseResult.GetValue(serviceOption)}" : null,
         token));
     command.Subcommands.Add(addCommand);
 
@@ -1022,12 +1030,13 @@ static async Task<int> AddDeploymentStepAsync(
     string? httpSys,
     string? remoteDesktop,
     string? sqlServer,
+    string? webServer,
     CancellationToken token)
 {
-    var given = new[] { keyAccess, restartService, script, exportPfx, exportPem, centralStore, ftpSite, keyVault, httpSys, remoteDesktop, sqlServer }.Count(value => value is not null);
+    var given = new[] { keyAccess, restartService, script, exportPfx, exportPem, centralStore, ftpSite, keyVault, httpSys, remoteDesktop, sqlServer, webServer }.Count(value => value is not null);
     if (given != 1)
     {
-        Console.Error.WriteLine("Error: give exactly one of --grant-key-access, --restart-service, --script, --export-pfx, --export-pem, --central-store, --ftp-site, --key-vault, --http-sys, --remote-desktop, or --sql-server.");
+        Console.Error.WriteLine("Error: give exactly one of --grant-key-access, --restart-service, --script, --export-pfx, --export-pem, --central-store, --ftp-site, --key-vault, --http-sys, --remote-desktop, --sql-server, or --web-server.");
         return 1;
     }
 
@@ -1058,6 +1067,9 @@ static async Task<int> AddDeploymentStepAsync(
                             ? new DeploymentStepRequest(site, DeploymentStepKind.ExportPfx, exportPfx, timeout, ReadPassword("Password for the PFX file: "))
                             : ftpSite is not null
                                 ? new DeploymentStepRequest(site, DeploymentStepKind.FtpSite, ftpSite, timeout)
+                            : webServer is not null
+                                ? new DeploymentStepRequest(site, DeploymentStepKind.WebServer, webServer, timeout,
+                                    webServer.StartsWith("tomcat", StringComparison.OrdinalIgnoreCase) ? ReadPassword("Tomcat keystore password, as its certificateKeystorePassword names it: ") : null)
                             : remoteDesktop is not null
                                 ? new DeploymentStepRequest(site, DeploymentStepKind.RemoteDesktop, remoteDesktop, timeout)
                             : sqlServer is not null

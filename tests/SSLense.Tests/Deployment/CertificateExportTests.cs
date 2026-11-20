@@ -195,6 +195,32 @@ public sealed class CertificateExportTests : IDisposable
     }
 
     [Fact]
+    public async Task WebServerSteps_WritePemForApacheAndNginx_AndAPasswordedKeystoreForTomcat()
+    {
+        var store = new JsonManagedCertificateStore(new InMemoryFileSystem(), StatePath, LockPath);
+        var exporter = new FakeExporter();
+        var service = Service(store, exporter);
+        await store.UpsertAsync(new ManagedCertificate("Shop", ["example.com"], "ops@example.com", "AABB", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(60), ExportableKey: true));
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.WebServer, @"iis|D:\Certs|W3SVC")));
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.WebServer, @"apache|certs|Apache2.4")));
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.WebServer, @"tomcat|D:\Tomcat\conf|Tomcat10")));
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.WebServer, @"nginx|D:\nginx\ssl|nginx", Password: "pw")));
+        var apache = await service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.WebServer, @"Apache | D:\Certs\shop | Apache2.4"));
+        var tomcat = await service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.WebServer, @"tomcat|D:\Tomcat\conf|Tomcat10", Password: "changeit"));
+        var result = await service.RunAsync("Shop");
+
+        Assert.True(result.Succeeded, result.Message);
+        Assert.Equal(@"apache|D:\Certs\shop|Apache2.4", apache.Value);
+        Assert.Equal(@"Write a keystore for Tomcat to 'D:\Tomcat\conf\certificate.pfx' and restart 'Tomcat10'", tomcat.Describe());
+        Assert.Equal([@"pem AABB D:\Certs\shop", @"pfx AABB D:\Tomcat\conf\certificate.pfx changeit"], exporter.Calls);
+    }
+
+    [Fact]
     public async Task TheKeyVaultClient_SignsInForKeyVault_AndPostsThePfx()
     {
         var handler = new VaultHandler();

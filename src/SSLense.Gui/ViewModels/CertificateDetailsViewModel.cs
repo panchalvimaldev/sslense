@@ -244,7 +244,8 @@ public partial class CertificateDetailsViewModel : ObservableObject
         new("Import into Azure Key Vault", DeploymentStepKind.KeyVault, "Vault/certificate", "Such as contoso-kv/shop. In the password box, the app registration as tenant:client ID:client secret. Needs an exportable private key."),
         new("Bind it in HTTP.sys outside IIS", DeploymentStepKind.HttpSysBinding, "Endpoint", "An IP address and port, such as 0.0.0.0:5986 for WinRM over HTTPS, or a host name and port for SNI, such as api.example.com:8443. Not one an IIS site binds."),
         new("Use it for Remote Desktop", DeploymentStepKind.RemoteDesktop, "Listener", "Type RDP-Tcp. NETWORK SERVICE is given the key, and new connections use the certificate at once."),
-        new("Use it for SQL Server", DeploymentStepKind.SqlServer, "Instance", "MSSQLSERVER for the default instance, or its name, such as SQLEXPRESS. Its account is given the key, and it is restarted at every renewal.")
+        new("Use it for SQL Server", DeploymentStepKind.SqlServer, "Instance", "MSSQLSERVER for the default instance, or its name, such as SQLEXPRESS. Its account is given the key, and it is restarted at every renewal."),
+        new("Use it for Apache, nginx or Tomcat", DeploymentStepKind.WebServer, "Server|folder|service", "Such as apache|D:\\Certs\\shop|Apache2.4. PEM files for Apache and nginx; for tomcat, certificate.pfx with the password below. The service is restarted. Needs an exportable private key.")
     ];
 
     public IAsyncRelayCommand AddDeploymentStepCommand => _addDeploymentStepCommand;
@@ -859,7 +860,7 @@ public sealed record DeploymentKindChoice(string Label, DeploymentStepKind Kind,
 {
     public bool IsScript => Kind == DeploymentStepKind.Script;
 
-    public bool NeedsPassword => Kind is DeploymentStepKind.ExportPfx or DeploymentStepKind.CentralStore or DeploymentStepKind.KeyVault;
+    public bool NeedsPassword => Kind is DeploymentStepKind.ExportPfx or DeploymentStepKind.CentralStore or DeploymentStepKind.KeyVault or DeploymentStepKind.WebServer;
 
     public override string ToString() => Label;
 }
