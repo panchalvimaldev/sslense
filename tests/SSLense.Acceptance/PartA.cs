@@ -28,10 +28,11 @@ internal sealed class FaultyProbe(Func<string, string, bool> fail) : ITlsBinding
 internal static class PartA
 {
     private const string Subject = "CN=SSLense acceptance";
+    private const string AdminHost = "accept1-admin.sslense.test";
     private const string TrialHost = "sslense-certificate-trial.invalid:443";
     private static readonly string[] Sites = ["SSLenseAccept1", "SSLenseAccept2", "SSLenseAccept3"];
     private static readonly string[] Hosts = ["accept1.sslense.test", "accept2.sslense.test", "accept3.sslense.test"];
-    private static string _a = "", _b = "", _noKey = "", _missing = "";
+    private static string _a = "", _b = "", _noKey = "", _missing = "", _narrow = "";
 
     private static IisService Real() => new(new TlsBindingProbe(), new PhysicalFileSystem());
     private static IisService With(FaultyProbe probe) => new(probe, new PhysicalFileSystem());
@@ -43,6 +44,7 @@ internal static class PartA
         {
             _a = CreateCertificate("A", install: true, keepKey: true);
             _b = CreateCertificate("B", install: true, keepKey: true);
+            _narrow = CreateCertificate("narrow", install: true, keepKey: true, names: [Hosts[0]]);
             _noKey = CreateCertificate("no key", install: true, keepKey: false);
             _missing = CreateCertificate("missing", install: false, keepKey: false);
             Report.Info($"A={Iis.Short(_a)} B={Iis.Short(_b)} noKey={Iis.Short(_noKey)} missing={Iis.Short(_missing)}");
@@ -234,6 +236,127 @@ internal static class PartA
             Report.Check("Problem found", problem is not null, problem ?? "none");
         });
 
+        await Report.Scenario("A16 A binding on another port follows the certificate", async () =>
+        {
+            await Reset();
+            var other = $"*:8443:{Hosts[0]}";
+            Iis.AddHttpsBinding(Sites[0], other, _a, sni: true);
+            try
+            {
+                Report.Check("Port 8443 serves A first", await Iis.IsServingAt("127.0.0.1", 8443, Hosts[0], _a));
+                var undo = await Real().SwitchHttpsBindingsAsync(Sites[0], [Hosts[0]], _b);
+                Report.Check("Port 443 serves B", await Iis.IsServing(Hosts[0], _b));
+                Report.Check("Port 8443 binding holds B", Iis.BindingThumbprint(Sites[0], other) == _b, Iis.Short(Iis.BindingThumbprint(Sites[0], other)));
+                Report.Check("Port 8443 serves B", await Iis.IsServingAt("127.0.0.1", 8443, Hosts[0], _b));
+                Report.Check("Other sites still serve A", await Iis.IsServing(Hosts[1], _a));
+                await Real().UndoHttpsBindingsAsync(undo);
+                Report.Check("Undo: port 443 serves A", await Iis.IsServing(Hosts[0], _a));
+                Report.Check("Undo: port 8443 serves A", await Iis.IsServingAt("127.0.0.1", 8443, Hosts[0], _a));
+            }
+            finally
+            {
+                Iis.RemoveBinding(Sites[0], other);
+            }
+        });
+
+        await Report.Scenario("A17 A binding without a host name is renewed in place", async () =>
+        {
+            await Reset();
+            const string hostLess = "127.0.0.2:443:";
+            Iis.RemoveHostHttps(Sites[2], Hosts[2]);
+            Iis.AddHttpsBinding(Sites[2], hostLess, _a, sni: false);
+            try
+            {
+                Report.Check("Serves A without SNI first", await Iis.IsServingAt("127.0.0.2", 443, Hosts[2], _a));
+                var before = Iis.HttpsBindingCount(Sites[2]);
+                var undo = await Real().SwitchHttpsBindingsAsync(Sites[2], [Hosts[2]], _b);
+                Report.Check("No SNI binding added beside it", Iis.HttpsBindingCount(Sites[2]) == before && !Iis.HasHttpsBinding(Sites[2], Hosts[2]));
+                Report.Check("The binding holds B", Iis.BindingThumbprint(Sites[2], hostLess) == _b, Iis.Short(Iis.BindingThumbprint(Sites[2], hostLess)));
+                Report.Check("Serves B", await Iis.IsServingAt("127.0.0.2", 443, Hosts[2], _b));
+                Report.Check("Recorded as changed, not added", undo.Changes.Count == 1 && !undo.Changes[0].WasAdded, $"{undo.Changes.Count} changes");
+                await Real().UndoHttpsBindingsAsync(undo);
+                Report.Check("Undo: the binding holds A", Iis.BindingThumbprint(Sites[2], hostLess) == _a);
+                Report.Check("Undo: serves A", await Iis.IsServingAt("127.0.0.2", 443, Hosts[2], _a));
+            }
+            finally
+            {
+                Iis.RemoveBinding(Sites[2], hostLess);
+            }
+        });
+
+        await Report.Scenario("A18 A binding the new certificate does not cover keeps the old one", async () =>
+        {
+            await Reset();
+            var admin = $"*:8443:{AdminHost}";
+            Iis.AddHttpsBinding(Sites[0], admin, _a, sni: true);
+            try
+            {
+                var undo = await Real().SwitchHttpsBindingsAsync(Sites[0], [Hosts[0]], _narrow);
+                Report.Check("Port 443 serves the narrow certificate", await Iis.IsServing(Hosts[0], _narrow));
+                Report.Check("The admin binding still holds A", Iis.BindingThumbprint(Sites[0], admin) == _a, Iis.Short(Iis.BindingThumbprint(Sites[0], admin)));
+                Report.Check("The admin binding still serves A", await Iis.IsServingAt("127.0.0.1", 8443, AdminHost, _a));
+                Report.Check("Only the port 443 binding is recorded", undo.Changes.Count == 1, $"{undo.Changes.Count} changes");
+                await Real().UndoHttpsBindingsAsync(undo);
+                Report.Check("Undo: port 443 serves A", await Iis.IsServing(Hosts[0], _a));
+            }
+            finally
+            {
+                Iis.RemoveBinding(Sites[0], admin);
+            }
+        });
+
+        await Report.Scenario("A19 Removing takes the bindings the certificate followed to, and only those", async () =>
+        {
+            await Reset();
+            var otherPort = $"*:8443:{Hosts[0]}";
+            const string hostLess = "127.0.0.2:443:";
+            var unrelated = $"*:8443:{AdminHost}";
+            Iis.AddHttpsBinding(Sites[0], otherPort, _b, sni: true);
+            Iis.AddHttpsBinding(Sites[0], hostLess, _b, sni: false);
+            Iis.AddHttpsBinding(Sites[0], unrelated, _b, sni: true);
+            Iis.BindHttps(Sites[0], Hosts[0], _b);
+            try
+            {
+                await Real().RemoveHttpsBindingsAsync(Sites[0], [Hosts[0]], _b);
+                Report.Check("Port 443 binding removed", !Iis.HasHttpsBinding(Sites[0], Hosts[0]));
+                Report.Check("Port 8443 binding for the host removed", Iis.BindingThumbprint(Sites[0], otherPort) is null);
+                Report.Check("Binding without a host name removed", Iis.BindingThumbprint(Sites[0], hostLess) is null);
+                Report.Check("A binding for another name is left", Iis.BindingThumbprint(Sites[0], unrelated) == _b);
+            }
+            finally
+            {
+                Iis.RemoveBinding(Sites[0], otherPort);
+                Iis.RemoveBinding(Sites[0], hostLess);
+                Iis.RemoveBinding(Sites[0], unrelated);
+            }
+        });
+
+        await Report.Scenario("A20 A binding without a host name is checked without SNI", async () =>
+        {
+            // Codex's case on #79: the port has both a host-less binding that follows and an SNI binding for the same name
+            // with another certificate. Checking with SNI would reach the SNI binding and roll everything back.
+            await Reset();
+            const string hostLess = "*:8443:";
+            var sni = $"*:8443:{Hosts[0]}";
+            Iis.AddHttpsBinding(Sites[0], hostLess, _a, sni: false);
+            Iis.AddHttpsBinding(Sites[0], sni, _narrow, sni: true);
+            try
+            {
+                var undo = await Real().SwitchHttpsBindingsAsync(Sites[0], [Hosts[0]], _b);
+                Report.Check("Port 443 serves B", await Iis.IsServing(Hosts[0], _b));
+                Report.Check("The host-less binding holds B", Iis.BindingThumbprint(Sites[0], hostLess) == _b, Iis.Short(Iis.BindingThumbprint(Sites[0], hostLess)));
+                Report.Check("The SNI binding on 8443 is left alone", Iis.BindingThumbprint(Sites[0], sni) == _narrow);
+                Report.Check("Without SNI, port 8443 serves B", await Iis.IsServingAt("127.0.0.1", 8443, "", _b));
+                await Real().UndoHttpsBindingsAsync(undo);
+                Report.Check("Undo: the host-less binding holds A", Iis.BindingThumbprint(Sites[0], hostLess) == _a);
+            }
+            finally
+            {
+                Iis.RemoveBinding(Sites[0], hostLess);
+                Iis.RemoveBinding(Sites[0], sni);
+            }
+        });
+
         await Report.Scenario("A15 Sites with different certificates work side by side", async () =>
         {
             await Reset();
@@ -292,10 +415,18 @@ internal static class PartA
         Report.Check(name, served.All(value => Same(value, thumbprint)), string.Join(" ", served.Select(Iis.Short)));
     }
 
-    private static string CreateCertificate(string label, bool install, bool keepKey)
+    /// <summary>Every test host by default, so bindings may follow it (docs/design/other-bindings.md).</summary>
+    private static string CreateCertificate(string label, bool install, bool keepKey, string[]? names = null)
     {
         using var rsa = RSA.Create(2048);
         var request = new CertificateRequest($"{Subject} {label}", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var alternativeNames = new SubjectAlternativeNameBuilder();
+        foreach (var name in names ?? [.. Hosts, "accept1-new.sslense.test", AdminHost])
+        {
+            alternativeNames.AddDnsName(name);
+        }
+
+        request.CertificateExtensions.Add(alternativeNames.Build());
         request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, false));
         request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension([new Oid("1.3.6.1.5.5.7.3.1")], false));
         using var created = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
@@ -326,6 +457,12 @@ internal static class PartA
         }
 
         Iis.Netsh("http", "delete", "sslcert", $"hostnameport={TrialHost}");
+
+        // Left by A16 to A18 if a run was stopped.
+        Iis.Netsh("http", "delete", "sslcert", $"hostnameport={Hosts[0]}:8443");
+        Iis.Netsh("http", "delete", "sslcert", $"hostnameport={AdminHost}:8443");
+        Iis.Netsh("http", "delete", "sslcert", "ipport=127.0.0.2:443");
+        Iis.Netsh("http", "delete", "sslcert", "ipport=0.0.0.0:8443");
         Iis.RemoveCertificates(certificate => certificate.Subject.StartsWith(Subject, StringComparison.Ordinal));
         Iis.RemoveTestFolder();
     }

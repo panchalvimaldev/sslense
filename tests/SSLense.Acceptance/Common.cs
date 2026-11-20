@@ -186,6 +186,72 @@ internal static class Iis
         }
     }
 
+    /// <summary>Adds an HTTPS binding exactly as given, such as "*:8443:host" or "127.0.0.2:443:" (docs/design/other-bindings.md).</summary>
+    public static void AddHttpsBinding(string siteName, string bindingInformation, string thumbprint, bool sni)
+    {
+        RemoveBinding(siteName, bindingInformation);
+        using var manager = new ServerManager();
+        manager.Sites[siteName].Bindings.Add(bindingInformation, Convert.FromHexString(thumbprint), "My", sni ? SslFlags.Sni : SslFlags.None);
+        manager.CommitChanges();
+    }
+
+    public static void RemoveBinding(string siteName, string bindingInformation)
+    {
+        using var manager = new ServerManager();
+        var site = manager.Sites[siteName];
+        if (site.Bindings.FirstOrDefault(binding => binding.Protocol == "https" &&
+                                                     string.Equals(binding.BindingInformation, bindingInformation, StringComparison.OrdinalIgnoreCase)) is { } existing)
+        {
+            site.Bindings.Remove(existing);
+            manager.CommitChanges();
+        }
+    }
+
+    public static string? BindingThumbprint(string siteName, string bindingInformation)
+    {
+        using var manager = new ServerManager();
+        return manager.Sites[siteName]?.Bindings.FirstOrDefault(binding => binding.Protocol == "https" &&
+                   string.Equals(binding.BindingInformation, bindingInformation, StringComparison.OrdinalIgnoreCase))?.CertificateHash is { Length: > 0 } hash
+            ? Convert.ToHexString(hash)
+            : null;
+    }
+
+    public static int HttpsBindingCount(string siteName)
+    {
+        using var manager = new ServerManager();
+        return manager.Sites[siteName]?.Bindings.Count(binding => binding.Protocol == "https") ?? 0;
+    }
+
+    /// <summary>Waits until the address and port serve the expected certificate for the host, as <see cref="IsServing"/> does on 443.</summary>
+    public static async Task<bool> IsServingAt(string address, int port, string host, string expected, int seconds = 15)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(seconds);
+        while (true)
+        {
+            string served;
+            try
+            {
+                served = await Probe.GetServedThumbprintAsync(address, host, port, CancellationToken.None);
+            }
+            catch (Exception exception)
+            {
+                served = $"ERR {exception.GetType().Name}";
+            }
+
+            if (string.Equals(served, expected, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (DateTimeOffset.UtcNow >= deadline)
+            {
+                return false;
+            }
+
+            await Task.Delay(300);
+        }
+    }
+
     /// <summary>Removes the host's bindings, leaving the site itself.</summary>
     public static void RemoveHostBindings(string siteName, string host)
     {

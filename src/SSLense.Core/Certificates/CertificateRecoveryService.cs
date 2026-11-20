@@ -233,10 +233,7 @@ internal sealed class CertificateRecoveryService(
     }
 
     private static bool AllBindingsActive(IisSite site, IReadOnlyList<string> hosts, string thumbprint) =>
-        hosts.All(host => site.Bindings.Any(binding =>
-            string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase) &&
-            binding.Port == 443 &&
-            string.Equals(binding.HostName, host, StringComparison.OrdinalIgnoreCase) &&
+        hosts.All(host => site.ServingBindings(host).Any(binding =>
             string.Equals(
                 NormalizeThumbprint(binding.CertificateThumbprint),
                 NormalizeThumbprint(thumbprint),

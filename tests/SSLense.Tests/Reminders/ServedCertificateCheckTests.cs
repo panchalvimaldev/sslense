@@ -92,6 +92,18 @@ public sealed class ServedCertificateCheckTests
     }
 
     [Fact]
+    public async Task ABindingWithoutAHostName_ServesTheHost_AndIsReachedWithoutSni()
+    {
+        Site(new IisBinding("https", "*", 443, "", Expected, "My", false));
+        _probe.Setup(value => value.GetServedThumbprintAsync("127.0.0.1", "", 443, It.IsAny<CancellationToken>())).ReturnsAsync(Expected);
+
+        var result = await Check();
+
+        Assert.Equal(["Shop"], result.Passed);
+        Assert.Empty(result.Problems);
+    }
+
+    [Fact]
     public async Task BindingOnAnAddress_IsProbedThere_AndEveryBindingCounts()
     {
         Site(Binding(), Binding("10.0.0.5"));

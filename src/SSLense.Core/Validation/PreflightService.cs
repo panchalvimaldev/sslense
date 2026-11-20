@@ -62,7 +62,7 @@ internal sealed class PreflightService(
             var hasBinding = site.Bindings.Any(binding =>
                 string.Equals(binding.Protocol, "http", StringComparison.OrdinalIgnoreCase) &&
                 binding.Port == 80 &&
-                string.Equals(binding.HostName, host, StringComparison.OrdinalIgnoreCase));
+                binding.AnswersFor(host));
             results.Add(new PreflightCheck(
                 $"HTTP binding: {host}",
                 hasBinding,
@@ -237,7 +237,7 @@ internal sealed class PreflightService(
         foreach (var host in hosts)
         {
             var hasBinding = site.Bindings.Any(binding =>
-                binding.Protocol is "http" or "https" && string.Equals(binding.HostName, host, StringComparison.OrdinalIgnoreCase));
+                binding.Protocol is "http" or "https" && binding.AnswersFor(host));
             results.Add(new PreflightCheck(
                 $"IIS binding: {host}",
                 hasBinding,
@@ -303,7 +303,7 @@ internal sealed class PreflightService(
 
         if (!site.Bindings.Any(binding =>
                 binding.Protocol is "http" or "https" &&
-                string.Equals(binding.HostName, host, StringComparison.OrdinalIgnoreCase)))
+                binding.AnswersFor(host)))
         {
             return new PreflightCheck(name, false, ErrorCodes.HostHasNoBinding.Format("Add an IIS HTTP or HTTPS binding for this host."));
         }

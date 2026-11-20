@@ -133,17 +133,17 @@ internal sealed class ImportedCertificateService(
                               binding.CertificateThumbprint is not null &&
                               (thumbprint is null || string.Equals(Normalize(binding.CertificateThumbprint), Normalize(thumbprint), StringComparison.Ordinal)))
             .ToArray();
-        // Replacement and health checks manage port 443 only; adopting another port would leave it on the old
-        // certificate after a "successful" replacement.
+        // Bindings on other ports follow the site's port 443 bindings when the certificate is replaced, so one on port 443 is
+        // needed for them to follow (docs/design/other-bindings.md).
         var otherPorts = bindings.Where(binding => binding.Port != 443).ToArray();
-        if (otherPorts.Length > 0)
+        if (otherPorts.Length > 0 && otherPorts.Length == bindings.Length)
         {
-            throw new SslenseException(ErrorCodes.AdoptOtherPort, 
-                $"IIS site '{site.Name}' serves this certificate on port " +
+            throw new SslenseException(ErrorCodes.AdoptOtherPort,
+                $"IIS site '{site.Name}' serves this certificate only on port " +
                 $"{string.Join(", ", otherPorts.Select(binding => binding.Port).Distinct())} " +
-                $"({string.Join(", ", otherPorts.Select(binding => $"{binding.HostName}:{binding.Port}"))}). SSLense manages HTTPS " +
-                "bindings on port 443 only, so it could not replace the certificate there. Monitor this certificate another way, " +
-                "or move the binding to port 443.");
+                $"({string.Join(", ", otherPorts.Select(binding => $"{binding.HostName}:{binding.Port}"))}). SSLense replaces a " +
+                "certificate on the site's port 443 bindings, and other ports follow them. Add an HTTPS binding on port 443 for " +
+                "the site, then adopt it again.");
         }
 
         var thumbprints = bindings.Select(binding => binding.CertificateThumbprint!).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -169,11 +169,31 @@ internal sealed class ImportedCertificateService(
             throw new SslenseException(ErrorCodes.CertificateHasNoPrivateKey, $"Certificate {certificate.Thumbprint} has no private key on this server.");
         }
 
-        var hosts = bindings.Select(binding => NormalizeHost(binding.HostName)).Where(host => host.Length > 0).Distinct().ToArray();
+        var hosts = bindings
+            .Where(binding => binding.Port == 443)
+            .Select(binding => NormalizeHost(binding.HostName))
+            .Where(host => host.Length > 0)
+            .Distinct()
+            .ToArray();
         if (hosts.Length == 0)
         {
-            throw new SslenseException(ErrorCodes.BindingsWithoutHostNames, 
-                $"The HTTPS bindings of IIS site '{site.Name}' have no host names. SSLense manages SNI bindings by host name.");
+            // A binding without a host name serves every name that reaches it: the certificate says which names those are,
+            // except names the site serves through a binding of their own, with whatever certificate that holds.
+            hosts = (certificate.DnsNames ?? [])
+                .Where(name => !name.StartsWith("*.", StringComparison.Ordinal))
+                .Select(NormalizeHost)
+                .Where(name => name.Length > 0)
+                .Distinct()
+                .Where(name => site.ServingBindings(name).All(binding => binding.HostName.Length == 0 &&
+                    string.Equals(Normalize(binding.CertificateThumbprint ?? string.Empty), Normalize(certificate.Thumbprint), StringComparison.Ordinal)))
+                .ToArray();
+        }
+
+        if (hosts.Length == 0)
+        {
+            throw new SslenseException(ErrorCodes.BindingsWithoutHostNames,
+                $"The HTTPS bindings of IIS site '{site.Name}' have no host names, and certificate {certificate.Thumbprint} names " +
+                "no host either (only a wildcard, or none). Add a host name to the site's binding, then adopt it again.");
         }
 
         // Each certificate on the site is managed on its own: the first under the site's name, others as "site/host".

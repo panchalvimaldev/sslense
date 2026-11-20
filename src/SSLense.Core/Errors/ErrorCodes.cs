@@ -310,7 +310,7 @@ public static class ErrorCodes
         "The message gives the service's answer. Check the credentials and that they may change records in this zone: for Route 53 the IAM policy (route53:ChangeResourceRecordSets, ListResourceRecordSets, GetHostedZone), for Azure the DNS Zone Contributor role, for Google the DNS Administrator role, and that the zone ID is right.");
 
     public static readonly ErrorCode AdoptOtherPort = new("SSL4001", nameof(AdoptOtherPort), "Certificate served on another port",
-        "SSLense manages HTTPS bindings on port 443. Watch it by its port-443 binding, or move the binding to port 443.");
+        "SSLense replaces a certificate on the site's port 443 bindings, and bindings on other ports follow them. A certificate bound only on other ports needs a port 443 binding on the site first.");
 
     public static readonly ErrorCode AdoptNothingBound = new("SSL4002", nameof(AdoptNothingBound), "No certificate to watch",
         "The site has no HTTPS binding with a certificate. Add one in IIS Manager, or issue a certificate instead.");
@@ -325,7 +325,7 @@ public static class ErrorCodes
         "A certificate needs its private key on this server to be served. Import the PFX that includes the key.");
 
     public static readonly ErrorCode BindingsWithoutHostNames = new("SSL4006", nameof(BindingsWithoutHostNames), "HTTPS bindings without host names",
-        "SSLense manages SNI bindings by host name. Add a host name to the binding in IIS Manager.");
+        "SSLense takes the host names from the site's bindings, or from the certificate when a binding has none. Add a host name to the binding in IIS Manager, or use a certificate that names its hosts.");
 
     public static readonly ErrorCode HostsAlreadyManaged = new("SSL4007", nameof(HostsAlreadyManaged), "Host names already managed",
         "These host names are managed as another certificate on the site. Select that certificate instead.");

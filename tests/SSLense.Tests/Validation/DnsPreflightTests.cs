@@ -97,6 +97,17 @@ public sealed class DnsPreflightTests
         Assert.True(Assert.Single(results, check => check.Name == "IIS binding: shop.example.com").Succeeded);
     }
 
+    [Fact]
+    public async Task ASiteWhoseBindingHasNoHostName_AnswersForTheHost()
+    {
+        _iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new IisSite(1, "Legacy", "Started", null, [new IisBinding("https", "*", 443, "", "AABB", "My", false)])]);
+
+        var results = await Check(["old.example.com"], null, ValidationMethod.Dns01Provider, "Legacy");
+
+        Assert.True(Assert.Single(results, check => check.Name == "IIS binding: old.example.com").Succeeded);
+    }
+
     private async Task<IReadOnlyList<PreflightCheck>> Check(string[] hosts, string[]? names, ValidationMethod method, string site = "Shop")
     {
         using var service = new PreflightService(_iis.Object, _files.Object, _dns);

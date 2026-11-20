@@ -177,7 +177,8 @@ public sealed class AcmeServiceTests
                 "AABBCC",
                 DateTimeOffset.UtcNow.AddDays(-1),
                 DateTimeOffset.UtcNow.AddDays(60),
-                true));
+                true,
+                DnsNames: ["example.com"]));
         var site = new IisSite(
             1,
             "My Site",
@@ -204,6 +205,62 @@ public sealed class AcmeServiceTests
         protocol.VerifyNoOtherCalls();
     }
 
+    [Fact]
+    public async Task IssueAsync_ABindingWithoutAHostName_DoesNotCountAsCoverageForANameItsCertificateLacks()
+    {
+        // Codex's case on #79: the site's host-less binding holds a valid certificate for shop.example.com only.
+        var certificateStore = new Mock<ICertificateStore>();
+        certificateStore.Setup(value => value.FindByThumbprintAsync("AABBCC", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new InstalledCertificate("AABBCC", DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(60), true, DnsNames: ["shop.example.com"]));
+        var site = new IisSite(1, "My Site", "Started", "C:\\inetpub\\site",
+        [
+            new IisBinding("http", "*", 80, "", null, null, false),
+            new IisBinding("https", "*", 443, "", "AABBCC", "My", false)
+        ]);
+        var protocol = new Mock<IAcmeProtocolClient>(MockBehavior.Strict);
+        protocol.Setup(value => value.CreateOrderAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateAuthority>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("order reached"));
+        var service = new AcmeService(
+            MockIis(site).Object, protocol.Object, Mock.Of<IChallengeHandler>(), Mock.Of<IChallengeProbe>(),
+            Mock.Of<ICertificateArtifactStore>(), certificateStore.Object, EmptyManagedStore());
+
+        var exception = await Assert.ThrowsAnyAsync<Exception>(() => service.IssueAsync(
+            new AcmeIssueRequest("My Site", ["admin.example.com"], "admin@example.com")));
+
+        Assert.Contains("order reached", exception.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task IssueAsync_AnIpAddressItsBoundCertificateCovers_RequiresForce()
+    {
+        // Codex's case on #79: the store lists DNS names only, so the certificate's IP address is read from the certificate.
+        using var key = System.Security.Cryptography.ECDsa.Create();
+        var request = new CertificateRequest("CN=example.com", key, System.Security.Cryptography.HashAlgorithmName.SHA256);
+        var names = new SubjectAlternativeNameBuilder();
+        names.AddDnsName("example.com");
+        names.AddIpAddress(System.Net.IPAddress.Parse("203.0.113.7"));
+        request.CertificateExtensions.Add(names.Build());
+        using var bound = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(60));
+        var certificateStore = new Mock<ICertificateStore>();
+        certificateStore.Setup(value => value.FindByThumbprintAsync("AABBCC", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new InstalledCertificate("AABBCC", DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(60), true, DnsNames: ["example.com"]));
+        certificateStore.Setup(value => value.OpenAsync("AABBCC", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => X509CertificateLoader.LoadCertificate(bound.RawData));
+        var site = new IisSite(1, "My Site", "Started", "C:\\inetpub\\site",
+            [new IisBinding("https", "203.0.113.7", 443, "", "AABBCC", "My", false)]);
+        var protocol = new Mock<IAcmeProtocolClient>(MockBehavior.Strict);
+        var service = new AcmeService(
+            MockIis(site).Object, protocol.Object, Mock.Of<IChallengeHandler>(), Mock.Of<IChallengeProbe>(),
+            Mock.Of<ICertificateArtifactStore>(), certificateStore.Object, EmptyManagedStore());
+
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.IssueAsync(
+            new AcmeIssueRequest("My Site", ["203.0.113.7"], "admin@example.com", SelfHostedHttp: true)));
+
+        Assert.Contains("--force", exception.Message, StringComparison.Ordinal);
+        protocol.VerifyNoOtherCalls();
+    }
+
     [Theory]
     [InlineData("CN=(STAGING) Pseudo Plum E5, O=(STAGING) Let's Encrypt, C=US", CertificateAuthorities.LetsEncryptId, true)]
     [InlineData("CN=E5, O=Let's Encrypt, C=US", CertificateAuthorities.LetsEncryptStagingId, true)]
@@ -220,7 +277,8 @@ public sealed class AcmeServiceTests
                 DateTimeOffset.UtcNow.AddDays(-1),
                 DateTimeOffset.UtcNow.AddDays(60),
                 true,
-                issuer));
+                issuer,
+                DnsNames: ["example.com"]));
         var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
         managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync([new ManagedCertificate(

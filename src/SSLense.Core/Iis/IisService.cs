@@ -194,7 +194,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
 
         var certificateHash = Convert.FromHexString(NormalizeThumbprint(certificateThumbprint));
         var changes = new List<HttpsBindingChange>();
-        var probeTargets = new List<(string IpAddress, string Host)>();
+        var probeTargets = new List<(string IpAddress, string Host, int Port)>();
         var siteStarted = false;
         try
         {
@@ -202,10 +202,24 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
             {
                 var site = FindSite(serverManager, siteName);
                 siteStarted = IsStarted(site);
+                var touched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var newNames = NamesOf(certificateHash);
                 foreach (var host in hosts)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var binding = FindHttpsBinding(site, host);
+
+                    // A site that serves the name through a binding without a host name keeps that binding, so clients that
+                    // reach it are not left on the old certificate (docs/design/other-bindings.md). Only when the new certificate covers every
+                    // name it answered for; otherwise an SNI binding is added for the host, as before.
+                    var binding = FindHttpsBinding(site, host) ??
+                                  (IsIpAddress(host) ? null : FindHostLessBinding(site) is { } hostLess &&
+                                                              BindingCoverage.CanFollow(newNames, NamesOf(hostLess.CertificateHash), string.Empty) ? hostLess : null);
+                    if (binding is not null && !touched.Add(binding.BindingInformation))
+                    {
+                        probeTargets.Add((ParseBindingInformation(binding.BindingInformation).IpAddress, SniFor(binding.BindingInformation, host), 443));
+                        continue;
+                    }
+
                     if (binding is null)
                     {
                         // An IP address is bound by address, without SNI (docs/design/ip-certificates.md).
@@ -214,6 +228,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
                             certificateHash,
                             certificateStoreName,
                             IsIpAddress(host) ? SslFlags.None : SslFlags.Sni);
+                        touched.Add(binding.BindingInformation);
                         changes.Add(new HttpsBindingChange(host, WasAdded: true, binding.BindingInformation, null, null, (int)SslFlags.None));
                     }
                     else if (!AlreadyUses(binding, host, certificateHash, certificateStoreName))
@@ -229,12 +244,48 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
                         binding.CertificateStoreName = certificateStoreName;
 
                         // Keep unrelated flags such as DisableHTTP2; SSLense binds from the store, not the CCS.
-                        binding.SslFlags = IsIpAddress(host)
-                            ? binding.SslFlags & ~SslFlags.Sni & ~SslFlags.CentralCertStore
-                            : (binding.SslFlags | SslFlags.Sni) & ~SslFlags.CentralCertStore;
+                        binding.SslFlags = UsesSni(binding, host)
+                            ? (binding.SslFlags | SslFlags.Sni) & ~SslFlags.CentralCertStore
+                            : binding.SslFlags & ~SslFlags.Sni & ~SslFlags.CentralCertStore;
                     }
 
-                    probeTargets.Add((ParseBindingInformation(binding.BindingInformation).IpAddress, host));
+                    probeTargets.Add((ParseBindingInformation(binding.BindingInformation).IpAddress, SniFor(binding.BindingInformation, host), 443));
+                }
+
+                // Every other HTTPS binding of the site that served the certificate being replaced follows it: another
+                // port, or a binding without a host name. Each keeps its address, port and flags (docs/design/other-bindings.md).
+                var replaced = changes
+                    .Where(change => !change.WasAdded && change.CertificateHash is not null)
+                    .Select(change => Convert.ToHexString(change.CertificateHash!))
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                foreach (var other in site.Bindings
+                             .Where(candidate => string.Equals(candidate.Protocol, "https", StringComparison.OrdinalIgnoreCase) &&
+                                                 candidate.CertificateHash is { } hash && replaced.Contains(Convert.ToHexString(hash)) &&
+                                                 !touched.Contains(candidate.BindingInformation))
+                             .ToArray())
+                {
+                    var (address, port, bindingHost) = ParseBindingInformation(other.BindingInformation);
+
+                    // A binding whose names the new certificate does not cover stays on the old one; the clean-up then keeps
+                    // the old certificate and names the site still using it.
+                    if (!BindingCoverage.CanFollow(newNames, NamesOf(other.CertificateHash), bindingHost))
+                    {
+                        continue;
+                    }
+
+                    var probeHost = bindingHost.Length > 0 ? bindingHost : hosts.FirstOrDefault(name => !IsIpAddress(name)) ?? hosts[0];
+                    touched.Add(other.BindingInformation);
+                    changes.Add(new HttpsBindingChange(
+                        probeHost,
+                        WasAdded: false,
+                        other.BindingInformation,
+                        other.CertificateHash?.ToArray(),
+                        other.CertificateStoreName,
+                        (int)other.SslFlags));
+                    other.CertificateHash = certificateHash;
+                    other.CertificateStoreName = certificateStoreName;
+                    other.SslFlags &= ~SslFlags.CentralCertStore;
+                    probeTargets.Add((address, SniFor(other.BindingInformation, probeHost), port));
                 }
 
                 // Rewriting a binding that is already right would drop its new connections for nothing.
@@ -248,25 +299,35 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
             var verificationSite = FindSite(verificationManager, siteName);
             foreach (var host in hosts)
             {
-                var binding = FindHttpsBinding(verificationSite, host)
-                    ?? throw new SslenseException(ErrorCodes.HttpsBindingNotFound, 
+                var binding = (FindHttpsBinding(verificationSite, host) ?? (IsIpAddress(host) ? null : FindHostLessBinding(verificationSite)))
+                    ?? throw new SslenseException(ErrorCodes.HttpsBindingNotFound,
                         $"HTTPS binding verification failed for '{host}': the binding was not found.");
                 if (binding.CertificateHash is null ||
                     !binding.CertificateHash.SequenceEqual(certificateHash) ||
                     !string.Equals(binding.CertificateStoreName, certificateStoreName, StringComparison.OrdinalIgnoreCase) ||
-                    ((binding.SslFlags & SslFlags.Sni) == SslFlags.Sni) == IsIpAddress(host))
+                    ((binding.SslFlags & SslFlags.Sni) == SslFlags.Sni) != UsesSni(binding, host))
                 {
-                    throw new SslenseException(ErrorCodes.HttpsBindingNotRetained, 
+                    throw new SslenseException(ErrorCodes.HttpsBindingNotRetained,
                         $"HTTPS binding verification failed for '{host}': IIS did not retain the certificate and SNI settings.");
+                }
+            }
+
+            foreach (var change in changes.Where(change => !change.WasAdded))
+            {
+                if (FindByInformation(verificationSite, change.BindingInformation) is not { CertificateHash: { } kept } ||
+                    !kept.SequenceEqual(certificateHash))
+                {
+                    throw new SslenseException(ErrorCodes.HttpsBindingNotRetained,
+                        $"HTTPS binding verification failed for '{change.BindingInformation}': IIS did not retain the certificate.");
                 }
             }
 
             // A stopped site may have no listener, so there may be nothing live to verify yet.
             if (siteStarted)
             {
-                foreach (var (ipAddress, host) in probeTargets)
+                foreach (var (ipAddress, host, port) in probeTargets.Distinct())
                 {
-                    await VerifyServedCertificateAsync(ipAddress, host, certificateThumbprint, cancellationToken)
+                    await VerifyServedCertificateAsync(ipAddress, host, certificateThumbprint, cancellationToken, port)
                         .ConfigureAwait(false);
                 }
             }
@@ -387,13 +448,13 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
 
     private async Task<string?> FindRestoreProblemAsync(HttpsBindingUndo undo)
     {
-        var probes = new List<(string IpAddress, string Host, string Thumbprint)>();
+        var probes = new List<(string IpAddress, int Port, string Host, string Thumbprint)>();
         using (var serverManager = new ServerManager())
         {
             var site = FindSite(serverManager, undo.SiteName);
             foreach (var change in undo.Changes)
             {
-                var binding = FindHttpsBinding(site, change.Host);
+                var binding = FindChanged(site, change);
                 if (change.WasAdded)
                 {
                     if (binding is not null)
@@ -419,17 +480,17 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
                     return $"the HTTPS binding for '{change.Host}' does not have its previous certificate.";
                 }
 
-                probes.Add((ParseBindingInformation(binding.BindingInformation).IpAddress, change.Host, Convert.ToHexString(change.CertificateHash)));
+                probes.Add((ParseBindingInformation(binding.BindingInformation).IpAddress, ParseBindingInformation(binding.BindingInformation).Port, SniFor(binding.BindingInformation, change.Host), Convert.ToHexString(change.CertificateHash)));
             }
         }
 
         if (undo.SiteStarted)
         {
-            foreach (var (ipAddress, host, thumbprint) in probes)
+            foreach (var (ipAddress, port, host, thumbprint) in probes)
             {
                 try
                 {
-                    await VerifyServedCertificateAsync(ipAddress, host, thumbprint, CancellationToken.None).ConfigureAwait(false);
+                    await VerifyServedCertificateAsync(ipAddress, host, thumbprint, CancellationToken.None, port).ConfigureAwait(false);
                 }
                 catch (InvalidOperationException exception)
                 {
@@ -445,8 +506,78 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
         binding.CertificateHash is { } hash &&
         hash.SequenceEqual(certificateHash) &&
         string.Equals(binding.CertificateStoreName, certificateStoreName, StringComparison.OrdinalIgnoreCase) &&
-        ((binding.SslFlags & SslFlags.Sni) == SslFlags.Sni) != IsIpAddress(host) &&
+        ((binding.SslFlags & SslFlags.Sni) == SslFlags.Sni) == UsesSni(binding, host) &&
         (binding.SslFlags & SslFlags.CentralCertStore) == 0;
+
+    /// <summary>SNI for a host name on a binding that names it; never for an IP address or a binding without a host name.</summary>
+    private static bool UsesSni(Binding binding, string host) =>
+        !IsIpAddress(host) && ParseBindingInformation(binding.BindingInformation).HostName.Length > 0;
+
+    /// <summary>The site's HTTPS binding on port 443 without a host name, which serves every name that reaches it.</summary>
+    /// <summary>
+    /// What a check sends as SNI to reach a binding: the host for a binding with a host name (or an IP address, which sends
+    /// none anyway); nothing for a binding without one, so the check reaches that binding and not an SNI binding for the
+    /// same name on the same port (docs/design/other-bindings.md).
+    /// </summary>
+    internal static string SniFor(string bindingInformation, string host) =>
+        ParseBindingInformation(bindingInformation).HostName.Length > 0 || IsIpAddress(host) ? host : string.Empty;
+
+    /// <summary>The site's HTTPS bindings that hold the certificate and belong to the hosts, on any port.</summary>
+    private static Binding[] ManagedBindings(Site site, IReadOnlyList<string> hosts, byte[] certificateHash) =>
+    [
+        .. site.Bindings.Where(binding =>
+            string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase) &&
+            binding.CertificateHash is { } hash && hash.SequenceEqual(certificateHash) &&
+            BindingCoverage.BelongsTo(ParseBindingInformation(binding.BindingInformation).IpAddress, ParseBindingInformation(binding.BindingInformation).HostName, hosts))
+    ];
+
+    /// <summary>The DNS names of a bound certificate, from LocalMachine\My; null when it is not there or cannot be read.</summary>
+    private static IReadOnlyList<string>? NamesOf(byte[]? certificateHash)
+    {
+        if (certificateHash is not { Length: > 0 })
+        {
+            return null;
+        }
+
+        try
+        {
+            using var store = new System.Security.Cryptography.X509Certificates.X509Store(
+                System.Security.Cryptography.X509Certificates.StoreName.My,
+                System.Security.Cryptography.X509Certificates.StoreLocation.LocalMachine);
+            store.Open(System.Security.Cryptography.X509Certificates.OpenFlags.ReadOnly | System.Security.Cryptography.X509Certificates.OpenFlags.OpenExistingOnly);
+            var found = store.Certificates.Find(
+                System.Security.Cryptography.X509Certificates.X509FindType.FindByThumbprint, Convert.ToHexString(certificateHash), validOnly: false);
+            try
+            {
+                return found.Count == 0 ? null : BindingCoverage.IdentitiesOf(found[0]);
+            }
+            finally
+            {
+                foreach (var certificate in found)
+                {
+                    certificate.Dispose();
+                }
+            }
+        }
+        catch (System.Security.Cryptography.CryptographicException)
+        {
+            return null;
+        }
+    }
+
+    private static Binding? FindHostLessBinding(Site site) =>
+        site.Bindings.FirstOrDefault(binding =>
+            string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase) &&
+            ParseBindingInformation(binding.BindingInformation) is { Port: 443, HostName.Length: 0 });
+
+    private static Binding? FindByInformation(Site site, string bindingInformation) =>
+        site.Bindings.FirstOrDefault(binding =>
+            string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(binding.BindingInformation, bindingInformation, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>The binding a recorded change is about: an added one by its host, a changed one by exactly where it listens.</summary>
+    private static Binding? FindChanged(Site site, HttpsBindingChange change) =>
+        change.WasAdded ? FindHttpsBinding(site, change.Host) : FindByInformation(site, change.BindingInformation);
 
     /// <summary>The name of SSLense's rule, so it is found again and never confused with the administrator's own.</summary>
     internal const string RedirectRuleName = "SSLense: HTTP to HTTPS";
@@ -631,18 +762,19 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
             var site = FindSite(serverManager, siteName);
             foreach (var host in hosts)
             {
-                var binding = FindHttpsBinding(site, host);
-                if (binding is null)
+                // A host's own binding with another certificate means the site changed under SSLense: stop.
+                if (FindHttpsBinding(site, host) is { } own &&
+                    (own.CertificateHash is null || !own.CertificateHash.SequenceEqual(expectedHash)))
                 {
-                    continue;
-                }
-
-                if (binding.CertificateHash is null || !binding.CertificateHash.SequenceEqual(expectedHash))
-                {
-                    throw new SslenseException(ErrorCodes.HttpsBindingUsesOtherCertificate, 
+                    throw new SslenseException(ErrorCodes.HttpsBindingUsesOtherCertificate,
                         $"The HTTPS binding for '{host}' uses a different certificate and was not removed.");
                 }
+            }
 
+            // Every binding that serves the managed certificate for these hosts goes: its own on port 443, those that followed
+            // it on other ports, and one without a host name that it was renewed in place on (docs/design/other-bindings.md).
+            foreach (var binding in ManagedBindings(site, hosts, expectedHash))
+            {
                 site.Bindings.Remove(binding);
             }
 
@@ -650,14 +782,10 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
 
             using var verificationManager = new ServerManager();
             var verificationSite = FindSite(verificationManager, siteName);
-            foreach (var host in hosts)
+            if (ManagedBindings(verificationSite, hosts, expectedHash).FirstOrDefault() is { } left)
             {
-                var binding = FindHttpsBinding(verificationSite, host);
-                if (binding?.CertificateHash is { } hash && hash.SequenceEqual(expectedHash))
-                {
-                    throw new SslenseException(ErrorCodes.HttpsBindingRemovalUnverified, 
-                        $"HTTPS binding removal verification failed for '{host}'. The certificate was not removed from the store.");
-                }
+                throw new SslenseException(ErrorCodes.HttpsBindingRemovalUnverified,
+                    $"HTTPS binding removal verification failed for '{left.BindingInformation}'. The certificate was not removed from the store.");
             }
 
             return Task.CompletedTask;
@@ -674,7 +802,8 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
         string bindingIpAddress,
         string host,
         string expectedThumbprint,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int port = 443)
     {
         // A wildcard binding also listens on loopback, so the check never leaves this machine.
         var ipAddress = bindingIpAddress is "*" or "" ? "127.0.0.1" : bindingIpAddress.Trim('[', ']');
@@ -686,7 +815,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
             try
             {
                 observed = NormalizeThumbprint(await tlsProbe
-                    .GetServedThumbprintAsync(ipAddress, host, 443, cancellationToken)
+                    .GetServedThumbprintAsync(ipAddress, host, port, cancellationToken)
                     .ConfigureAwait(false));
                 if (string.Equals(observed, expected, StringComparison.Ordinal))
                 {
@@ -705,7 +834,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
             if (DateTimeOffset.UtcNow >= deadline)
             {
                 throw new SslenseException(ErrorCodes.HttpsCertificateNotServed, 
-                    $"HTTPS verification failed for '{host}': {ipAddress}:443 did not serve certificate " +
+                    $"HTTPS verification failed for '{(host.Length > 0 ? host : "the binding without a host name")}': {ipAddress}:{port} did not serve certificate " +
                     $"{expected} within {LiveVerificationTimeout.TotalSeconds:0} seconds (last result: {observed}).");
             }
 
@@ -808,7 +937,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
         var site = FindSite(serverManager, siteName);
         foreach (var change in changes)
         {
-            var binding = FindHttpsBinding(site, change.Host);
+            var binding = FindChanged(site, change);
             if (change.WasAdded)
             {
                 if (binding is not null)
@@ -839,7 +968,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
         var site = FindSite(serverManager, siteName);
         foreach (var change in changes)
         {
-            if (FindHttpsBinding(site, change.Host) is { } binding)
+            if (FindChanged(site, change) is { } binding)
             {
                 site.Bindings.Remove(binding);
             }

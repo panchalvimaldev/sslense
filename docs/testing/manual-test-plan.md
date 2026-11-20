@@ -80,6 +80,7 @@ Run each linked document's steps in order. The count is its number of steps.
 | [Azure Key Vault](key-vault.md) | 8 | |
 | [Azure App Service](app-service.md) | 6 | |
 | [Sharing from a site with several certificates](sharing-from-multi-certificate-site.md) | 4 | |
+| [Bindings without a host name, and on other ports](other-bindings.md) — **blocks release** | 10 | |
 
 ### Day-to-day
 

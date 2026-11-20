@@ -221,9 +221,8 @@ internal sealed partial class AcmeService : IAcmeService
         // An IP address needs no host binding: SSLense binds the certificate to the address.
         foreach (var host in sharedRecord is null && !request.NoSite ? hosts.Where(host => !IsIpAddress(host)) : [])
         {
-            var hasBinding = site.Bindings.Any(binding =>
-                IsUsableBinding(binding) &&
-                string.Equals(NormalizeHost(binding.HostName), host, StringComparison.OrdinalIgnoreCase));
+            // A binding without a host name answers for this host too (docs/design/other-bindings.md).
+            var hasBinding = site.Bindings.Any(binding => IsUsableBinding(binding) && binding.AnswersFor(host));
             if (!hasBinding)
             {
                 throw new SslenseException(ErrorCodes.HostHasNoBinding, usesDns || selfHosted
@@ -991,7 +990,7 @@ internal sealed partial class AcmeService : IAcmeService
         site.Bindings.Any(binding =>
             (string.Equals(binding.Protocol, "http", StringComparison.OrdinalIgnoreCase) ||
              string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase)) &&
-            string.Equals(NormalizeHost(binding.HostName), host, StringComparison.OrdinalIgnoreCase));
+            binding.AnswersFor(host));
 
     /// <summary>A site left out keeps the date it first fell behind; every other site is up to date.</summary>
     private static IReadOnlyList<CertificateTarget> MarkLeftOut(
@@ -1077,6 +1076,28 @@ internal sealed partial class AcmeService : IAcmeService
         }
     }
 
+    /// <summary>
+    /// What an installed certificate answers for, IP addresses included: the store's list has DNS names only, so the
+    /// certificate is opened when it can be, to count an IP address certificate as covering its address.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> IdentitiesAsync(InstalledCertificate certificate, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var opened = await _certificateStore.OpenAsync(certificate.Thumbprint, cancellationToken).ConfigureAwait(false);
+            if (opened is not null)
+            {
+                return BindingCoverage.IdentitiesOf(opened);
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Falls back to the names the store listed.
+        }
+
+        return certificate.DnsNames ?? [];
+    }
+
     private async Task ThrowIfAlreadyCoveredAsync(
         IisSite site,
         IReadOnlyList<string> hosts,
@@ -1084,10 +1105,7 @@ internal sealed partial class AcmeService : IAcmeService
         CancellationToken cancellationToken)
     {
         var httpsBindings = hosts
-            .Select(host => site.Bindings.SingleOrDefault(binding =>
-                string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase) &&
-                binding.Port == 443 &&
-                string.Equals(NormalizeHost(binding.HostName), host, StringComparison.OrdinalIgnoreCase)))
+            .Select(host => site.ServingBindings(host) is { Count: 1 } serving ? serving[0] : null)
             .ToArray();
         if (httpsBindings.Any(binding => binding?.CertificateThumbprint is null))
         {
@@ -1107,8 +1125,13 @@ internal sealed partial class AcmeService : IAcmeService
             .FindByThumbprintAsync(thumbprints[0], cancellationToken)
             .ConfigureAwait(false);
         var now = DateTimeOffset.UtcNow;
+
+        // It must name every requested host: a binding without a host name answers for any name, so finding it does not mean
+        // its certificate covers the request (docs/design/other-bindings.md).
         if (certificate is not null && certificate.HasPrivateKey &&
-            certificate.NotBefore <= now && certificate.NotAfter > now)
+            certificate.NotBefore <= now && certificate.NotAfter > now &&
+            await IdentitiesAsync(certificate, cancellationToken).ConfigureAwait(false) is { Count: > 0 } names &&
+            hosts.All(host => CertificateInspector.Covers(names, host)))
         {
             // A certificate from a test CA is untrusted, so it never satisfies a request to a real CA.
             if (!requestedAuthority.IsTest &&

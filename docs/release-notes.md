@@ -31,6 +31,7 @@ Prepared for the combined test. Read [upgrading.md](upgrading.md) first: this ve
   - Azure Key Vault;
   - Azure App Service.
 - **Certificates on other machines:** load balancers and appliances are watched and reminded about (`watch`).
+- **Older binding layouts:** HTTPS bindings without a host name are renewed in place, and bindings on other ports, such as 8443, follow the certificate. Sites with them can now be adopted.
 
 ### Day-to-day work
 

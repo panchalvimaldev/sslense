@@ -93,12 +93,7 @@ internal sealed class OutsideRenewalDetector(
     private async Task<InstalledCertificate?> FindReplacementAsync(ManagedCertificate record, IisSite site, CancellationToken cancellationToken)
     {
         var bindings = record.Hosts
-            .Select(host => site.Bindings
-                .Where(binding =>
-                    string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase) &&
-                    binding.Port == 443 &&
-                    string.Equals(binding.HostName, host, StringComparison.OrdinalIgnoreCase))
-                .ToArray())
+            .Select(host => site.ServingBindings(host).ToArray())
             .ToArray();
         if (bindings.Any(forHost => forHost.Length == 0))
         {

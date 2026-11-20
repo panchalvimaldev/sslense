@@ -158,13 +158,9 @@ internal sealed class ServedCertificateCheck(
         var problems = new List<string>();
         foreach (var host in certificate.Hosts)
         {
-            var bindings = site.Bindings
-                .Where(binding =>
-                    string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase) &&
-                    binding.Port == 443 &&
-                    string.Equals(binding.HostName, host, StringComparison.OrdinalIgnoreCase))
-                .ToArray();
-            if (bindings.Length == 0)
+            // Its own binding, or the site's binding without a host name (docs/design/other-bindings.md).
+            var bindings = site.ServingBindings(host);
+            if (bindings.Count == 0)
             {
                 problems.Add($"{host} has no HTTPS binding on port 443.");
             }
@@ -227,7 +223,9 @@ internal sealed class ServedCertificateCheck(
         string served;
         try
         {
-            served = Normalize(await tlsProbe.GetServedThumbprintAsync(address, host, 443, cancellationToken).ConfigureAwait(false));
+            // A binding without a host name is reached without SNI, as its clients reach it (docs/design/other-bindings.md).
+            var sni = binding.HostName.Length > 0 || System.Net.IPAddress.TryParse(host, out _) ? host : string.Empty;
+            served = Normalize(await tlsProbe.GetServedThumbprintAsync(address, sni, 443, cancellationToken).ConfigureAwait(false));
         }
         catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {

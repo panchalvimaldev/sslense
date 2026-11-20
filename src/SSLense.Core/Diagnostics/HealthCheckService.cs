@@ -509,10 +509,7 @@ internal sealed class HealthCheckService(
         }
 
         var missing = certificate.Hosts
-            .Where(host => !site.Bindings.Any(binding =>
-                string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase) &&
-                binding.Port == 443 &&
-                string.Equals(binding.HostName, host, StringComparison.OrdinalIgnoreCase) &&
+            .Where(host => !site.ServingBindings(host).Any(binding =>
                 string.Equals(binding.CertificateThumbprint, certificate.Thumbprint, StringComparison.OrdinalIgnoreCase)))
             .ToArray();
         return missing.Length == 0
