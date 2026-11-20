@@ -706,6 +706,10 @@ The service runs as LocalSystem. Running it under a different account would also
 
 On a certificate's ⋯ menu, **Redirect HTTP to HTTPS** adds an IIS URL Rewrite rule that sends plain HTTP to HTTPS, except validation requests, and checks that validation still works; **Stop redirecting HTTP** removes it. In the CLI: `SSLense.Cli redirect on|off|show --site <name>`. It needs the IIS URL Rewrite module ([design](docs/design/https-redirect.md)).
 
+## Automation
+
+Every command takes `--json` and writes one JSON document with its exit code, error code and result; exit codes are 0 (success), 1 (failed), 2 (invalid command line) and 3 (not elevated). `config export` and `config import` move the settings to another server, with the secrets encrypted by a password when you choose, and a PowerShell module (`Import-Module "C:\Program Files\SSLense\cli\PowerShell\SSLense"`) wraps the CLI. See [docs/automation.md](docs/automation.md).
+
 ## Certificate history and rollback
 
 Each certificate's **History** tab (or `SSLense.Cli history --site <name>`) shows what happened to it: issued, renewed, renewal failed, rolled back, revoked. A renewal keeps the certificate it replaced while that is still valid, so if the new one breaks something, **⋯ › Roll back to the previous certificate…** (or `SSLense.Cli rollback --site <name>`) binds the previous one again and holds automatic renewal for up to a week; the same command rolls forward ([design](docs/design/history-and-rollback.md)).

@@ -55,7 +55,7 @@ Already done and only to be marked on the roadmap: private-key permissions for I
 | 18 | New version notice **(done)** | S | Reads GitHub releases; can be turned off; never installs anything |
 | 19 | Clean-up of unused certificates **(done)** | M | Expired, duplicate, self-signed and staging certificates in `LocalMachine\My` that nothing uses, with a confirmation before each removal |
 | 20 | Certificate history and one-click rollback **(done)** | L | A timeline per certificate, and going back to the previous certificate while it is still valid |
-| 21 | Automation | L | JSON output for every CLI command, documented exit codes, configuration export and import. A PowerShell module would need the PowerShell SDK package: needs approval, or it becomes a script module over the CLI |
+| 21 | Automation **(done: the PowerShell module is a script module over the CLI)** | L | JSON output for every CLI command, documented exit codes, configuration export and import. A PowerShell module would need the PowerShell SDK package: needs approval, or it becomes a script module over the CLI |
 | 22 | More notifications | M | Signed webhook payloads; email through Microsoft Graph for Microsoft 365 tenants without SMTP |
 
 ### Wave 4: more places to put certificates (Later, After 1.0)
