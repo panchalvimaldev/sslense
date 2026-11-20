@@ -55,6 +55,8 @@ From then on the service renews Let's Encrypt certificates on its own, and the d
 
 </details>
 
+**More documentation:** [docs/README.md](docs/README.md) has the firewall, DNS and proxy requirements, upgrading and known issues, moving from another tool, runbooks for when something goes wrong, the threat model, and the release notes.
+
 ## Get involved
 
 - **Questions and ideas:** [GitHub Discussions](https://github.com/panchalvimaldev/sslense/discussions). **Bugs:** [Issues](https://github.com/panchalvimaldev/sslense/issues); run `SSLense.Cli diagnostics` and attach the bundle.
