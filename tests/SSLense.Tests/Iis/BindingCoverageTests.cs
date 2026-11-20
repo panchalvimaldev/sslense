@@ -22,6 +22,16 @@ public sealed class BindingCoverageTests
         Assert.Equal(follows, BindingCoverage.CanFollow(newNames.Split(','), oldNames.Split(','), bindingHost));
     }
 
+    [Theory]
+    [InlineData("shop.example.com", true)]
+    [InlineData("SHOP.example.com", true)]
+    [InlineData("", true)]
+    [InlineData("admin.example.com", false)]
+    public void Removing_TakesTheHostsBindingsOnAnyPort_AndOnesWithoutAHostName(string bindingHost, bool removed)
+    {
+        Assert.Equal(removed, BindingCoverage.BelongsTo(bindingHost, ["shop.example.com", "www.example.com"]));
+    }
+
     [Fact]
     public void UnknownNames_NeverFollow()
     {

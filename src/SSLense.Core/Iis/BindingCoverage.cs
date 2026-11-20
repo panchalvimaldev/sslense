@@ -28,6 +28,14 @@ public static class BindingCoverage
     }
 
     /// <summary>
+    /// Whether a binding that holds a managed certificate is one of its own, so removing the certificate removes it: one for
+    /// any of its hosts on any port, or one without a host name, which serves its hosts there. An IP address is bound
+    /// without a host name too, so it is covered by the same rule.
+    /// </summary>
+    internal static bool BelongsTo(string bindingHost, IReadOnlyList<string> hosts) =>
+        bindingHost.Length == 0 || hosts.Contains(bindingHost, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Whether a binding that served the replaced certificate may take the new one: a binding with a host name when the new
     /// certificate covers it; one without a host name when the new certificate covers every name the old one did, since
     /// that binding answered for all of them. Unknown names never qualify, so a binding stays on its certificate rather

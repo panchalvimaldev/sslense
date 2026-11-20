@@ -514,6 +514,15 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
         !IsIpAddress(host) && ParseBindingInformation(binding.BindingInformation).HostName.Length > 0;
 
     /// <summary>The site's HTTPS binding on port 443 without a host name, which serves every name that reaches it.</summary>
+    /// <summary>The site's HTTPS bindings that hold the certificate and belong to the hosts, on any port.</summary>
+    private static Binding[] ManagedBindings(Site site, IReadOnlyList<string> hosts, byte[] certificateHash) =>
+    [
+        .. site.Bindings.Where(binding =>
+            string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase) &&
+            binding.CertificateHash is { } hash && hash.SequenceEqual(certificateHash) &&
+            BindingCoverage.BelongsTo(ParseBindingInformation(binding.BindingInformation).HostName, hosts))
+    ];
+
     /// <summary>The DNS names of a bound certificate, from LocalMachine\My; null when it is not there or cannot be read.</summary>
     private static IReadOnlyList<string>? NamesOf(byte[]? certificateHash)
     {
@@ -745,18 +754,19 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
             var site = FindSite(serverManager, siteName);
             foreach (var host in hosts)
             {
-                var binding = FindHttpsBinding(site, host);
-                if (binding is null)
+                // A host's own binding with another certificate means the site changed under SSLense: stop.
+                if (FindHttpsBinding(site, host) is { } own &&
+                    (own.CertificateHash is null || !own.CertificateHash.SequenceEqual(expectedHash)))
                 {
-                    continue;
-                }
-
-                if (binding.CertificateHash is null || !binding.CertificateHash.SequenceEqual(expectedHash))
-                {
-                    throw new SslenseException(ErrorCodes.HttpsBindingUsesOtherCertificate, 
+                    throw new SslenseException(ErrorCodes.HttpsBindingUsesOtherCertificate,
                         $"The HTTPS binding for '{host}' uses a different certificate and was not removed.");
                 }
+            }
 
+            // Every binding that serves the managed certificate for these hosts goes: its own on port 443, those that followed
+            // it on other ports, and one without a host name that it was renewed in place on (docs/design/other-bindings.md).
+            foreach (var binding in ManagedBindings(site, hosts, expectedHash))
+            {
                 site.Bindings.Remove(binding);
             }
 
@@ -764,14 +774,10 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
 
             using var verificationManager = new ServerManager();
             var verificationSite = FindSite(verificationManager, siteName);
-            foreach (var host in hosts)
+            if (ManagedBindings(verificationSite, hosts, expectedHash).FirstOrDefault() is { } left)
             {
-                var binding = FindHttpsBinding(verificationSite, host);
-                if (binding?.CertificateHash is { } hash && hash.SequenceEqual(expectedHash))
-                {
-                    throw new SslenseException(ErrorCodes.HttpsBindingRemovalUnverified, 
-                        $"HTTPS binding removal verification failed for '{host}'. The certificate was not removed from the store.");
-                }
+                throw new SslenseException(ErrorCodes.HttpsBindingRemovalUnverified,
+                    $"HTTPS binding removal verification failed for '{left.BindingInformation}'. The certificate was not removed from the store.");
             }
 
             return Task.CompletedTask;

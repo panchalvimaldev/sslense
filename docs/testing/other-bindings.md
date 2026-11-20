@@ -4,7 +4,7 @@ Design in [docs/design/other-bindings.md](../design/other-bindings.md). On a tes
 
 | # | Steps | Expected |
 |---|---|---|
-| 1 | `SSLense.Acceptance parta` | A16, A17 and A18 pass with the other scenarios |
+| 1 | `SSLense.Acceptance parta` | A16 to A19 pass with the other scenarios |
 | 2 | A site with `*:443:shop.<zone>` and `*:8443:shop.<zone>`, both on a bought or self-signed certificate; **Add certificate › already in IIS** | Adopted; hosts list `shop.<zone>` only |
 | 3 | Issue a staging certificate for that site with `--force` | Port 443 and port 8443 both serve the new certificate (`Test-NetConnection` and a browser on `https://shop.<zone>:8443`) |
 | 4 | **Renew now**, then roll back | Both ports follow each time |
@@ -13,3 +13,4 @@ Design in [docs/design/other-bindings.md](../design/other-bindings.md). On a tes
 | 7 | A site whose certificate is bound only on port 8443; adopt it | Refused with SSL4001, saying to add a port 443 binding |
 | 8 | A site with `*:443:shop.<zone>` and `*:8443:admin.<zone>` on one certificate naming both; issue a staging certificate for `shop.<zone>` only, with `--force` | Port 443 serves the new certificate; port 8443 keeps the old one, which stays in the store; at the next renewal SSLense keeps it again and says the site still uses it |
 | 9 | Adopt a host-less site, then run `SSLense.Cli health` and wait for the daily served-certificate check | No "missing binding" or "no HTTPS binding" report for its hosts |
+| 10 | On the site from step 6, **⋯ › Remove certificate and HTTPS bindings…** | The host-less binding is gone and the certificate is removed from the store |

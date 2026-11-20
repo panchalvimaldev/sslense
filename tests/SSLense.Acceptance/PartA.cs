@@ -305,6 +305,32 @@ internal static class PartA
             }
         });
 
+        await Report.Scenario("A19 Removing takes the bindings the certificate followed to, and only those", async () =>
+        {
+            await Reset();
+            var otherPort = $"*:8443:{Hosts[0]}";
+            const string hostLess = "127.0.0.2:443:";
+            var unrelated = $"*:8443:{AdminHost}";
+            Iis.AddHttpsBinding(Sites[0], otherPort, _b, sni: true);
+            Iis.AddHttpsBinding(Sites[0], hostLess, _b, sni: false);
+            Iis.AddHttpsBinding(Sites[0], unrelated, _b, sni: true);
+            Iis.BindHttps(Sites[0], Hosts[0], _b);
+            try
+            {
+                await Real().RemoveHttpsBindingsAsync(Sites[0], [Hosts[0]], _b);
+                Report.Check("Port 443 binding removed", !Iis.HasHttpsBinding(Sites[0], Hosts[0]));
+                Report.Check("Port 8443 binding for the host removed", Iis.BindingThumbprint(Sites[0], otherPort) is null);
+                Report.Check("Binding without a host name removed", Iis.BindingThumbprint(Sites[0], hostLess) is null);
+                Report.Check("A binding for another name is left", Iis.BindingThumbprint(Sites[0], unrelated) == _b);
+            }
+            finally
+            {
+                Iis.RemoveBinding(Sites[0], otherPort);
+                Iis.RemoveBinding(Sites[0], hostLess);
+                Iis.RemoveBinding(Sites[0], unrelated);
+            }
+        });
+
         await Report.Scenario("A15 Sites with different certificates work side by side", async () =>
         {
             await Reset();
