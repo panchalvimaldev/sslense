@@ -11,7 +11,7 @@ SSLense includes or is built with the components below. Each is used under its o
 | CommunityToolkit.Mvvm | MIT | <https://github.com/CommunityToolkit/dotnet> |
 | Certes | MIT | <https://github.com/fszlin/certes> |
 | BouncyCastle.Cryptography | MIT | <https://github.com/bcgit/bc-csharp> |
-| MailKit, MimeKit | MIT | <https://github.com/jstedfast/MailKit> |
+| MailKit, MimeKit.Core | MIT | <https://github.com/jstedfast/MailKit>, <https://github.com/jstedfast/MimeKit> |
 | DnsClient | Apache-2.0 | <https://github.com/MichaCo/DnsClient.NET> |
 | Serilog, Serilog.Extensions.Hosting, Serilog.Extensions.Logging, Serilog.Sinks.Console, Serilog.Sinks.File | Apache-2.0 | <https://github.com/serilog/serilog> |
 | Microsoft.Web.Administration | Microsoft .NET Library License | <https://www.nuget.org/packages/Microsoft.Web.Administration> |
