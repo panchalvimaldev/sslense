@@ -348,7 +348,9 @@ public sealed class PebbleTests(PebbleServer pebble) : IClassFixture<PebbleServe
         Assert.NotEqual(second, bound["b.example.com"]);
         Assert.Equal(bound["b.example.com"], managed.Single(record => record.SiteName == "Main/b.example.com").Thumbprint);
         Assert.Equal(["b.example.com"], managed.Single(record => record.SiteName == "Main/b.example.com").Hosts);
-        Assert.Equal([second], removed);
+        // Kept for rollback (docs/design/history-and-rollback.md), not removed.
+        Assert.Empty(removed);
+        Assert.Equal(second, managed.Single(record => record.SiteName == "Main/b.example.com").PreviousThumbprint);
     }
 
     /// <summary>docs/design/compromise-recovery.md: revocation and a new account key, against a real ACME server.</summary>
