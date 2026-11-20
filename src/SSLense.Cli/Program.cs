@@ -230,6 +230,8 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     issueCommand.Options.Add(caOption);
     issueCommand.Options.Add(outputOption);
     issueCommand.Options.Add(forceOption);
+    var farmFoldersOption = new Option<string?>("--farm-folders") { Description = "In a web farm with HTTP validation: semicolon-separated UNC paths to the other servers' site folders, which get each challenge too. Kept for renewals; see 'farm'." };
+    issueCommand.Options.Add(farmFoldersOption);
     issueCommand.SetAction((parseResult, cancellationToken) => IssueAsync(
         services.GetRequiredService<IAcmeService>(),
         parseResult.GetValue(siteOption),
@@ -249,6 +251,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         parseResult.GetValue(preferredChainOption),
         parseResult.GetValue(profileOption),
         parseResult.GetValue(reuseKeyOption),
+        parseResult.GetValue(farmFoldersOption),
         cancellationToken));
     rootCommand.Subcommands.Add(issueCommand);
     rootCommand.Subcommands.Add(CreateCaCommand(services));
@@ -433,6 +436,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     rootCommand.Subcommands.Add(CreateHistoryCommand(services));
     rootCommand.Subcommands.Add(CreateRollbackCommand(services));
     rootCommand.Subcommands.Add(CreateConfigCommand(services));
+    rootCommand.Subcommands.Add(CreateFarmCommand(services));
     rootCommand.Subcommands.Add(CreateBulkCommand(services));
     rootCommand.Subcommands.Add(CreateVersionCommand(services));
     rootCommand.Subcommands.Add(CreateWatchCommand(services));
@@ -2074,6 +2078,65 @@ static Command CreateConfigCommand(IServiceProvider services)
     return command;
 }
 
+// HTTP validation in a web farm (docs/design/web-farms.md).
+static Command CreateFarmCommand(IServiceProvider services)
+{
+    var command = new Command("farm", "In a web farm with HTTP validation: the other servers' site folders that get each challenge too.");
+    var siteOption = new Option<string>("--site") { Required = true, Description = "The certificate SSLense manages, by its name." };
+    var foldersOption = new Option<string>("--folders") { Required = true, Description = "Semicolon-separated UNC paths to the other servers' site roots, such as \\\\web2\\c$\\inetpub\\shop." };
+
+    var showCommand = new Command("show", "List the folders a certificate's challenges are copied to.");
+    showCommand.Options.Add(siteOption);
+    showCommand.SetAction(async (parseResult, token) =>
+    {
+        try
+        {
+            var folders = await services.GetRequiredService<SSLense.Core.Validation.IWebFarmService>().GetFoldersAsync(parseResult.GetRequiredValue(siteOption), token).ConfigureAwait(false);
+            CliJson.Data = folders;
+            Console.WriteLine(folders.Count == 0 ? "No web farm folders: challenges are written to this server's site only." : string.Join(Environment.NewLine, folders));
+            return CliExitCodes.Success;
+        }
+        catch (Exception exception)
+        {
+            WriteError(exception);
+            return CliExitCodes.Failed;
+        }
+    });
+    command.Subcommands.Add(showCommand);
+
+    var setCommand = new Command("set", "Copy each challenge to these folders too, from the next issue or renewal. Each must be reachable now.");
+    setCommand.Options.Add(siteOption);
+    setCommand.Options.Add(foldersOption);
+    setCommand.SetAction((parseResult, token) => ChangeAsync(
+        parseResult.GetRequiredValue(siteOption),
+        parseResult.GetRequiredValue(foldersOption).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+        token));
+    command.Subcommands.Add(setCommand);
+
+    var clearCommand = new Command("clear", "Stop copying challenges to other servers.");
+    clearCommand.Options.Add(siteOption);
+    clearCommand.SetAction((parseResult, token) => ChangeAsync(parseResult.GetRequiredValue(siteOption), [], token));
+    command.Subcommands.Add(clearCommand);
+    return command;
+
+    async Task<int> ChangeAsync(string site, IReadOnlyList<string> folders, CancellationToken token)
+    {
+        try
+        {
+            var saved = await services.GetRequiredService<SSLense.Core.Validation.IWebFarmService>().SetFoldersAsync(site, folders, token).ConfigureAwait(false);
+            Console.WriteLine(saved.Count == 0
+                ? "Challenges are written to this server's site only."
+                : $"Each challenge is also written to {saved.Count} folder(s). Keep the certificate in step on every server with a Central Certificate Store step.");
+            return CliExitCodes.Success;
+        }
+        catch (Exception exception)
+        {
+            WriteError(exception);
+            return CliExitCodes.Failed;
+        }
+    }
+}
+
 // Clean-up of unused certificates (docs/design/certificate-cleanup.md).
 static Command CreateCleanupCommand(IServiceProvider services)
 {
@@ -3149,6 +3212,7 @@ static async Task<int> IssueAsync(
     string? preferredChain,
     string? profile,
     bool reuseKey,
+    string? farmFolders,
     CancellationToken cancellationToken)
 {
     try
@@ -3206,7 +3270,8 @@ static async Task<int> IssueAsync(
                     PreferredChain: preferredChain,
                     Profile: profile,
                     ReuseKey: reuseKey,
-                    SelfHostedHttp: validation == "http-self"),
+                    SelfHostedHttp: validation == "http-self",
+                    FarmFolders: farmFolders?.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)),
                 new ConsoleProgress(),
                 cancellationToken)
             .ConfigureAwait(false);

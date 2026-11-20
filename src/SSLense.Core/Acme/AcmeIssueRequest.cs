@@ -20,6 +20,7 @@ namespace SSLense.Core.Acme;
 /// <param name="Profile">An ACME profile the CA lists, such as <c>shortlived</c>.</param>
 /// <param name="ReuseKey">Sign the request with the key of the site's current certificate, when it still matches the key type, so the key stays the same.</param>
 /// <param name="KeepReplacedForRollback">Keep the certificate this one replaces while it is valid, so the site can go back to it. Off when replacing a compromised certificate.</param>
+/// <param name="FarmFolders">For HTTP validation in a web farm, the other servers' site folders that get the challenge too (docs/design/web-farms.md). Null keeps the certificate's saved folders.</param>
 public sealed record AcmeIssueRequest(
     string SiteName,
     IReadOnlyList<string> Hosts,
@@ -39,7 +40,8 @@ public sealed record AcmeIssueRequest(
     string? Profile = null,
     bool ReuseKey = false,
     bool SelfHostedHttp = false,
-    bool KeepReplacedForRollback = true)
+    bool KeepReplacedForRollback = true,
+    IReadOnlyList<string>? FarmFolders = null)
 {
     public AcmeOrderOptions OrderOptions => new(KeyType, string.IsNullOrWhiteSpace(PreferredChain) ? null : PreferredChain.Trim(), string.IsNullOrWhiteSpace(Profile) ? null : Profile.Trim());
 }

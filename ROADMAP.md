@@ -128,7 +128,7 @@ Ordered roughly by expected demand. Community feedback decides the order.
 
 - **Existing-certificate discovery:** adopting a certificate already bound in IIS was added in 0.10, and the clean-up of unused expired, test and replaced certificates is built ([design](docs/design/certificate-cleanup.md)).
 - **Certificate history and one-click rollback:** a timeline for each certificate (issued, renewed, failed, rolled back, revoked), and going back to the certificate the last renewal replaced while it is still valid, is built ([design](docs/design/history-and-rollback.md)).
-- **Web farms and load-balanced sites:** HTTP-01 validation across several servers (shared storage, FTP, SFTP, or WebDAV) and keeping the certificate in step on every server.
+- **Web farms and load-balanced sites:** HTTP-01 validation across several servers (shared storage, FTP, SFTP, or WebDAV) and keeping the certificate in step on every server. Built: challenge copies to shared and WebDAV folders, with the Central Certificate Store keeping every server in step ([design](docs/design/web-farms.md)); SFTP and FTP are not built.
 - **More validation methods:** TLS-ALPN-01, self-hosted HTTP validation for servers whose sites cannot serve the challenge, and newer DNS methods such as dns-persist-01 as certificate authorities adopt them.
 - **ACME profiles and IP address certificates,** including shorter-lived certificates, as certificate authorities offer them.
 - **Automation:** JSON output for every CLI command (`--json`), documented exit codes, settings export and import, and a PowerShell script module are built ([docs/automation.md](docs/automation.md)).

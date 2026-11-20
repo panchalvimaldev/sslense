@@ -636,6 +636,9 @@ public static class ErrorCodes
     public static readonly ErrorCode ConfigImportRefused = new("SSL6032", nameof(ConfigImportRefused), "Settings not imported",
         "Importing would leave a certificate without the certificate authority that renews it. Add that authority to the source server and export again, or stop managing the certificate first.");
 
+    public static readonly ErrorCode FarmFolderInvalid = new("SSL6033", nameof(FarmFolderInvalid), "Web farm folder not usable",
+        "Each folder is another server's site root, as a full UNC path this server can write to, such as \\web2\\c$\\inetpub\\shop, for a certificate validated over HTTP from its IIS site. When SSLense runs as SYSTEM, give the computer account write access to the share.");
+
     public static readonly ErrorCode ChatRejected = new("SSL7001", nameof(ChatRejected), "Chat message rejected",
         "The chat service refused the message. Check the webhook URL still exists, and send a test.");
 
@@ -996,6 +999,7 @@ public static class ErrorCodes
         ConfigFileInvalid,
         ConfigPasswordMissingOrWrong,
         ConfigImportRefused,
+        FarmFolderInvalid,
         ChatRejected,
         SmtpUsernameMissing,
         SmtpPasswordMissing,

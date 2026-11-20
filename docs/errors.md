@@ -1276,6 +1276,12 @@ Secrets in an exported settings file are encrypted with a password. Set the envi
 
 Importing would leave a certificate without the certificate authority that renews it. Add that authority to the source server and export again, or stop managing the certificate first.
 
+<a id="ssl6033"></a>
+
+### SSL6033: Web farm folder not usable
+
+Each folder is another server's site root, as a full UNC path this server can write to, such as \web2\c$\inetpub\shop, for a certificate validated over HTTP from its IIS site. When SSLense runs as SYSTEM, give the computer account write access to the share.
+
 ## SSL7xxx: Notifications
 
 <a id="ssl7001"></a>
