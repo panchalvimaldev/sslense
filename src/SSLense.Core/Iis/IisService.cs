@@ -460,6 +460,60 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
             : [.. System.Text.RegularExpressions.Regex.Matches(output, @"\b[0-9A-Fa-f]{40}\b").Select(match => match.Value.ToUpperInvariant()).Distinct()];
     }
 
+    public Task<IReadOnlyList<FtpSite>> GetFtpSitesAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using var serverManager = new ServerManager();
+        IReadOnlyList<FtpSite> sites =
+        [
+            .. serverManager.Sites
+                .Where(site => site.Bindings.Any(binding => string.Equals(binding.Protocol, "ftp", StringComparison.OrdinalIgnoreCase)))
+                .Select(site => new FtpSite(
+                    site.Name,
+                    [.. site.Bindings
+                        .Where(binding => string.Equals(binding.Protocol, "ftp", StringComparison.OrdinalIgnoreCase))
+                        .Select(binding => binding.BindingInformation.Split(':') is { Length: 3 } parts ? parts[2] : string.Empty)
+                        .Where(host => host.Length > 0)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)],
+                    FtpSsl(site)["serverCertHash"] is string { Length: > 0 } hash ? hash.ToUpperInvariant() : null))
+        ];
+        return Task.FromResult(sites);
+    }
+
+    /// <summary>
+    /// Sets ftpServer/security/ssl on the site: the certificate's hash and store. The FTP service reads it for each new
+    /// connection, so nothing restarts (docs/design/ftp-sites.md).
+    /// </summary>
+    public Task SetFtpCertificateAsync(string siteName, string thumbprint, string storeName = "My", CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using (var serverManager = new ServerManager())
+        {
+            var site = FindSite(serverManager, siteName);
+            if (!site.Bindings.Any(binding => string.Equals(binding.Protocol, "ftp", StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new SslenseException(ErrorCodes.FtpSiteNotFound, $"IIS site '{site.Name}' has no FTP binding.");
+            }
+
+            var ssl = FtpSsl(site);
+            ssl["serverCertHash"] = thumbprint.ToUpperInvariant();
+            ssl["serverCertStoreName"] = storeName;
+            serverManager.CommitChanges();
+        }
+
+        // Read back, as for HTTPS bindings: a commit that did not reach applicationHost.config would otherwise pass unnoticed.
+        using var verification = new ServerManager();
+        if (!string.Equals(FtpSsl(FindSite(verification, siteName))["serverCertHash"] as string, thumbprint, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new SslenseException(ErrorCodes.FtpSiteNotFound, $"IIS did not keep the certificate for FTP site '{siteName}'.");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private static ConfigurationElement FtpSsl(Site site) =>
+        site.GetChildElement("ftpServer").GetChildElement("security").GetChildElement("ssl");
+
     public Task<HttpsRedirectState> GetHttpsRedirectAsync(string siteName, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

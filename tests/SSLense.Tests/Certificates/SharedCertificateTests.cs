@@ -1120,6 +1120,19 @@ public sealed class SharedCertificateTests
     }
 
     [Fact]
+    public async Task Cleanup_KeepsTheOldCertificate_WhileAnFtpSiteUsesIt()
+    {
+        var store = new Mock<ICertificateStore>();
+        var iis = IisShowing(SiteWithHttps("Shop", "shop.example.com", New));
+        iis.Setup(value => value.GetFtpSitesAsync(It.IsAny<CancellationToken>())).ReturnsAsync([new FtpSite("Files", ["ftp.example.com"], Old)]);
+
+        var message = await ReplacedCertificateCleanup.RemoveIfUnusedAsync(iis.Object, store.Object, Old, New, CancellationToken.None, []);
+
+        Assert.Contains("FTP site 'Files'", message, StringComparison.Ordinal);
+        store.Verify(value => value.RemoveAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task Cleanup_RemovesTheOldCertificate_WhenNothingUsesItAndNoSiteIsLeftOut()
     {
         var store = new Mock<ICertificateStore>();

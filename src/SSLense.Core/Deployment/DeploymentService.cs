@@ -183,6 +183,12 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
             case DeploymentStepKind.ExportPfx or DeploymentStepKind.ExportPem or DeploymentStepKind.CentralStore:
                 step = CreateExportStep(record, id, request);
                 break;
+            case DeploymentStepKind.FtpSite:
+                var ftpSite = ((await _iis.GetFtpSitesAsync(cancellationToken).ConfigureAwait(false)) ?? [])
+                    .FirstOrDefault(site => string.Equals(site.Name, request.Value.Trim(), StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException(ErrorCodes.FtpSiteNotFound.Format($"No IIS site named '{request.Value.Trim()}' has an FTP binding."));
+                step = new DeploymentStep(id, request.Kind, ftpSite.Name);
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(request), request.Kind, "Unknown deployment step.");
         }
@@ -481,6 +487,9 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
                 await Exporter()
                     .ExportCentralStoreAsync(record.Thumbprint, record.CertificateNames ?? record.Hosts, step.Value, Password(step), cancellationToken)
                     .ConfigureAwait(false);
+                break;
+            case DeploymentStepKind.FtpSite:
+                await _iis.SetFtpCertificateAsync(step.Value, record.Thumbprint, "My", cancellationToken).ConfigureAwait(false);
                 break;
             default:
                 throw new SslenseException(ErrorCodes.DeploymentStepUnknown, $"This SSLense version does not know deployment step kind {(int)step.Kind}.");

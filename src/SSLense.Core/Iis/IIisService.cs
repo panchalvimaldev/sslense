@@ -66,7 +66,18 @@ public interface IIisService
     /// <summary>Thumbprints HTTP.sys binds outside IIS, such as WinRM or ADFS, from "netsh http show sslcert".</summary>
     Task<IReadOnlyList<string>> GetHttpSysCertificateThumbprintsAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<string>>([]);
+
+    /// <summary>IIS sites with an FTP binding, and the certificate each one's FTP over TLS uses (docs/design/ftp-sites.md).</summary>
+    Task<IReadOnlyList<FtpSite>> GetFtpSitesAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<FtpSite>>([]);
+
+    /// <summary>Sets the certificate an FTP site uses for FTP over TLS. New connections use it; open ones keep theirs.</summary>
+    Task SetFtpCertificateAsync(string siteName, string thumbprint, string storeName = "My", CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This IIS service cannot change FTP sites.");
 }
+
+/// <param name="Thumbprint">The certificate for FTP over TLS; null when the site has none.</param>
+public sealed record FtpSite(string Name, IReadOnlyList<string> Hosts, string? Thumbprint);
 
 public enum HttpsRedirectState
 {

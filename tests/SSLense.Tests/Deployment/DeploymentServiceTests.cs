@@ -90,6 +90,23 @@ public sealed class DeploymentServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task FtpSiteStep_NeedsAnFtpSite_AndSetsTheCertificateOnIt()
+    {
+        await SaveRecordAsync();
+        _iis.Setup(value => value.GetFtpSitesAsync(It.IsAny<CancellationToken>())).ReturnsAsync([new FtpSite("Files", ["ftp.example.com"], null)]);
+
+        var missing = await Assert.ThrowsAsync<ArgumentException>(() =>
+            _service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.FtpSite, "Shop")));
+        Assert.StartsWith("SSL4056", missing.Message, StringComparison.Ordinal);
+        var step = await _service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.FtpSite, "files"));
+        var result = await _service.RunAsync("Shop");
+
+        Assert.Equal("Files", step.Value);
+        Assert.True(result.Succeeded, result.Message);
+        _iis.Verify(value => value.SetFtpCertificateAsync("Files", OldThumbprint, "My", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task ScriptStep_RunsSSLensesCopyWithTheCertificatesDetails_AndRefusesAChangedCopy()
     {
         await SaveRecordAsync();

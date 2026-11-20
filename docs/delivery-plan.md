@@ -62,7 +62,7 @@ Already done and only to be marked on the roadmap: private-key permissions for I
 
 | # | Feature | Size | Notes |
 |---|---|---|---|
-| 23 | IIS FTP sites | M | The FTP site's SSL certificate, renewed like a web site's |
+| 23 | IIS FTP sites **(done)** | M | The FTP site's SSL certificate, renewed like a web site's |
 | 24 | Export to Azure Key Vault | M | Over its REST API with an app registration, so no SDK package |
 | 25 | Other deployment targets | L, several PRs | HTTP.sys, Kestrel, Remote Desktop Services, SQL Server and Exchange as first-class targets (scripts exist today); Apache, nginx and Tomcat on Windows (files and a reload); Azure App Service (REST). Each with install, verify, rollback and remove |
 | 26 | Web farms | L, design first | HTTP validation across servers through a shared folder or WebDAV, and the certificate kept in step on every server. SFTP would need a package: needs approval |

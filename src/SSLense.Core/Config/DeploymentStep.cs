@@ -18,7 +18,10 @@ public enum DeploymentStepKind
     ExportPem = 4,
 
     /// <summary>Writes one PFX per name to an IIS Central Certificate Store folder.</summary>
-    CentralStore = 5
+    CentralStore = 5,
+
+    /// <summary>Sets the certificate as the SSL certificate of an IIS FTP site (docs/design/ftp-sites.md).</summary>
+    FtpSite = 6
 }
 
 /// <summary>Something that runs after every install and renewal of a certificate. See docs/design/deployment-steps.md.</summary>
@@ -42,6 +45,7 @@ public sealed record DeploymentStep(
         DeploymentStepKind.ExportPfx => $"Export a PFX to '{Value}'",
         DeploymentStepKind.ExportPem => $"Export PEM files to '{Value}'",
         DeploymentStepKind.CentralStore => $"Export to the IIS Central Certificate Store at '{Value}'",
+        DeploymentStepKind.FtpSite => $"Use it for the IIS FTP site '{Value}'",
         _ => $"Unknown step '{Value}'"
     };
 }
