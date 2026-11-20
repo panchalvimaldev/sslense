@@ -74,6 +74,13 @@ public interface IIisService
     /// <summary>Sets the certificate an FTP site uses for FTP over TLS. New connections use it; open ones keep theirs.</summary>
     Task SetFtpCertificateAsync(string siteName, string thumbprint, string storeName = "My", CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("This IIS service cannot change FTP sites.");
+
+    /// <summary>
+    /// Binds the certificate to an HTTP.sys endpoint outside IIS, keeping the binding's application ID when it exists, and
+    /// reads it back (docs/design/httpsys-bindings.md).
+    /// </summary>
+    Task SetHttpSysCertificateAsync(HttpSysEndpoint endpoint, string thumbprint, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("This IIS service cannot change HTTP.sys bindings.");
 }
 
 /// <param name="Thumbprint">The certificate for FTP over TLS; null when the site has none.</param>

@@ -24,7 +24,10 @@ public enum DeploymentStepKind
     FtpSite = 6,
 
     /// <summary>Imports the certificate and its key into an Azure Key Vault, as a new version (docs/design/key-vault.md).</summary>
-    KeyVault = 7
+    KeyVault = 7,
+
+    /// <summary>Binds the certificate to an HTTP.sys endpoint outside IIS, such as WinRM or a service on its own port (docs/design/httpsys-bindings.md).</summary>
+    HttpSysBinding = 8
 }
 
 /// <summary>Something that runs after every install and renewal of a certificate. See docs/design/deployment-steps.md.</summary>
@@ -50,6 +53,7 @@ public sealed record DeploymentStep(
         DeploymentStepKind.CentralStore => $"Export to the IIS Central Certificate Store at '{Value}'",
         DeploymentStepKind.FtpSite => $"Use it for the IIS FTP site '{Value}'",
         DeploymentStepKind.KeyVault => $"Import it into Azure Key Vault as '{Value}'",
+        DeploymentStepKind.HttpSysBinding => $"Bind it in HTTP.sys to {Value}",
         _ => $"Unknown step '{Value}'"
     };
 }

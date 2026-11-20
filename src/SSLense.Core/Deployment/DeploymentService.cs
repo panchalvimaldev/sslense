@@ -189,6 +189,9 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
             case DeploymentStepKind.KeyVault:
                 step = CreateKeyVaultStep(record, id, request);
                 break;
+            case DeploymentStepKind.HttpSysBinding:
+                step = new DeploymentStep(id, request.Kind, (await CheckHttpSysEndpointAsync(request.Value, cancellationToken).ConfigureAwait(false)).ToString());
+                break;
             case DeploymentStepKind.FtpSite:
                 var ftpSite = ((await _iis.GetFtpSitesAsync(cancellationToken).ConfigureAwait(false)) ?? [])
                     .FirstOrDefault(site => string.Equals(site.Name, request.Value.Trim(), StringComparison.OrdinalIgnoreCase))
@@ -497,12 +500,35 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
             case DeploymentStepKind.KeyVault:
                 await ImportIntoKeyVaultAsync(record, step, cancellationToken).ConfigureAwait(false);
                 break;
+            case DeploymentStepKind.HttpSysBinding:
+                await _iis.SetHttpSysCertificateAsync(HttpSysEndpoint.Parse(step.Value), record.Thumbprint, cancellationToken).ConfigureAwait(false);
+                break;
             case DeploymentStepKind.FtpSite:
                 await _iis.SetFtpCertificateAsync(step.Value, record.Thumbprint, "My", cancellationToken).ConfigureAwait(false);
                 break;
             default:
                 throw new SslenseException(ErrorCodes.DeploymentStepUnknown, $"This SSLense version does not know deployment step kind {(int)step.Kind}.");
         }
+    }
+
+    /// <summary>An endpoint an IIS site binds is the site's to change, so the step is refused for it (docs/design/httpsys-bindings.md).</summary>
+    private async Task<HttpSysEndpoint> CheckHttpSysEndpointAsync(string value, CancellationToken cancellationToken)
+    {
+        var endpoint = HttpSysEndpoint.Parse(value);
+        var site = (await _iis.GetSitesAsync(cancellationToken).ConfigureAwait(false) ?? [])
+            .FirstOrDefault(candidate => candidate.Bindings.Any(binding =>
+                string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase) &&
+                binding.Port == endpoint.Port &&
+                (endpoint.IsHostName
+                    ? binding.UsesSni && string.Equals(binding.HostName, endpoint.Address, StringComparison.OrdinalIgnoreCase)
+                    : !binding.UsesSni && (binding.IpAddress is "*" or "" ? endpoint.Address is "0.0.0.0" or "::" : string.Equals(binding.IpAddress, endpoint.Address, StringComparison.OrdinalIgnoreCase)))));
+        if (site is not null)
+        {
+            throw new ArgumentException(ErrorCodes.DeploymentStepInvalid.Format(
+                $"IIS site '{site.Name}' binds {endpoint}, and SSLense changes it with the site's certificate. Choose an endpoint outside IIS."));
+        }
+
+        return endpoint;
     }
 
     /// <summary>The vault and certificate are checked now; the app registration is kept with DPAPI (docs/design/key-vault.md).</summary>

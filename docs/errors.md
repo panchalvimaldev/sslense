@@ -942,6 +942,12 @@ SSLense goes back only to the certificate the last renewal replaced, while it is
 
 The step needs an IIS site with an FTP binding, from the FTP Server role service of IIS. Check the site's name in IIS Manager and that it has an ftp binding.
 
+<a id="ssl4057"></a>
+
+### SSL4057: HTTP.sys binding not changed
+
+SSLense binds the certificate with 'netsh http add sslcert' or 'update sslcert' and reads it back. Run SSLense as Administrator, check the endpoint with 'netsh http show sslcert', and that the certificate has its private key.
+
 ## SSL5xxx: Renewal, reminders and the service
 
 <a id="ssl5001"></a>

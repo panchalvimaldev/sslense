@@ -460,6 +460,36 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
             : [.. System.Text.RegularExpressions.Regex.Matches(output, @"\b[0-9A-Fa-f]{40}\b").Select(match => match.Value.ToUpperInvariant()).Distinct()];
     }
 
+    /// <summary>The application ID SSLense gives an HTTP.sys binding it creates; an existing binding keeps its own.</summary>
+    internal const string HttpSysAppId = "{6f1d5a3c-2b7e-4c41-9e0a-5d8b3c2f7a91}";
+
+    public async Task SetHttpSysCertificateAsync(HttpSysEndpoint endpoint, string thumbprint, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(endpoint);
+        var hash = NormalizeThumbprint(thumbprint);
+        var (shown, existing) = await RunNetshAsync(["http", "show", "sslcert", endpoint.NetshParameter], cancellationToken).ConfigureAwait(false);
+        var appId = shown == 0 && System.Text.RegularExpressions.Regex.Match(existing, @"\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}") is { Success: true } match
+            ? match.Value
+            : null;
+        string[] arguments =
+        [
+            "http", appId is null ? "add" : "update", "sslcert", endpoint.NetshParameter,
+            $"certhash={hash}", "certstorename=MY", $"appid={appId ?? HttpSysAppId}"
+        ];
+        var (exitCode, output) = await RunNetshAsync(arguments, cancellationToken).ConfigureAwait(false);
+        if (exitCode != 0)
+        {
+            throw new SslenseException(ErrorCodes.HttpSysBindingFailed, $"HTTP.sys did not take the certificate for {endpoint}: {output.Trim()}");
+        }
+
+        // Read back: netsh reports success for some refusals only in the binding it then shows.
+        var (_, after) = await RunNetshAsync(["http", "show", "sslcert", endpoint.NetshParameter], cancellationToken).ConfigureAwait(false);
+        if (!after.Contains(hash, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new SslenseException(ErrorCodes.HttpSysBindingFailed, $"HTTP.sys does not show certificate {hash} for {endpoint} after the change.");
+        }
+    }
+
     public Task<IReadOnlyList<FtpSite>> GetFtpSitesAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

@@ -241,7 +241,8 @@ public partial class CertificateDetailsViewModel : ObservableObject
         new("Export PEM files", DeploymentStepKind.ExportPem, "Folder", "cert.pem, chain.pem, fullchain.pem, and key.pem, which only administrators can read. Needs an exportable private key."),
         new("Export to the IIS Central Certificate Store", DeploymentStepKind.CentralStore, "Store folder", "One PFX per name, protected by the store's password as set in IIS. Needs an exportable private key."),
         new("Use it for an IIS FTP site", DeploymentStepKind.FtpSite, "FTP site", "The IIS site with the FTP binding, as IIS Manager names it. Set again after every renewal; new FTP connections use the new certificate."),
-        new("Import into Azure Key Vault", DeploymentStepKind.KeyVault, "Vault/certificate", "Such as contoso-kv/shop. In the password box, the app registration as tenant:client ID:client secret. Needs an exportable private key.")
+        new("Import into Azure Key Vault", DeploymentStepKind.KeyVault, "Vault/certificate", "Such as contoso-kv/shop. In the password box, the app registration as tenant:client ID:client secret. Needs an exportable private key."),
+        new("Bind it in HTTP.sys outside IIS", DeploymentStepKind.HttpSysBinding, "Endpoint", "An IP address and port, such as 0.0.0.0:5986 for WinRM over HTTPS, or a host name and port for SNI, such as api.example.com:8443. Not one an IIS site binds.")
     ];
 
     public IAsyncRelayCommand AddDeploymentStepCommand => _addDeploymentStepCommand;
