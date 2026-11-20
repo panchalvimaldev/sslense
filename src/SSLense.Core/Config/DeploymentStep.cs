@@ -33,7 +33,10 @@ public enum DeploymentStepKind
     RemoteDesktop = 9,
 
     /// <summary>Makes a SQL Server instance encrypt connections with the certificate, then restarts it (docs/design/service-targets.md).</summary>
-    SqlServer = 10
+    SqlServer = 10,
+
+    /// <summary>Writes the files Apache, nginx or Tomcat on Windows reads, then restarts its service (docs/design/web-servers.md).</summary>
+    WebServer = 11
 }
 
 /// <summary>Something that runs after every install and renewal of a certificate. See docs/design/deployment-steps.md.</summary>
@@ -62,6 +65,7 @@ public sealed record DeploymentStep(
         DeploymentStepKind.HttpSysBinding => $"Bind it in HTTP.sys to {Value}",
         DeploymentStepKind.RemoteDesktop => "Use it for Remote Desktop on this server",
         DeploymentStepKind.SqlServer => $"Use it for SQL Server '{Value}', and restart it",
+        DeploymentStepKind.WebServer => WebServerTarget.Parse(Value).Describe(),
         _ => $"Unknown step '{Value}'"
     };
 }
