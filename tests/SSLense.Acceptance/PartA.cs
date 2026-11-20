@@ -28,10 +28,11 @@ internal sealed class FaultyProbe(Func<string, string, bool> fail) : ITlsBinding
 internal static class PartA
 {
     private const string Subject = "CN=SSLense acceptance";
+    private const string AdminHost = "accept1-admin.sslense.test";
     private const string TrialHost = "sslense-certificate-trial.invalid:443";
     private static readonly string[] Sites = ["SSLenseAccept1", "SSLenseAccept2", "SSLenseAccept3"];
     private static readonly string[] Hosts = ["accept1.sslense.test", "accept2.sslense.test", "accept3.sslense.test"];
-    private static string _a = "", _b = "", _noKey = "", _missing = "";
+    private static string _a = "", _b = "", _noKey = "", _missing = "", _narrow = "";
 
     private static IisService Real() => new(new TlsBindingProbe(), new PhysicalFileSystem());
     private static IisService With(FaultyProbe probe) => new(probe, new PhysicalFileSystem());
@@ -43,6 +44,7 @@ internal static class PartA
         {
             _a = CreateCertificate("A", install: true, keepKey: true);
             _b = CreateCertificate("B", install: true, keepKey: true);
+            _narrow = CreateCertificate("narrow", install: true, keepKey: true, names: [Hosts[0]]);
             _noKey = CreateCertificate("no key", install: true, keepKey: false);
             _missing = CreateCertificate("missing", install: false, keepKey: false);
             Report.Info($"A={Iis.Short(_a)} B={Iis.Short(_b)} noKey={Iis.Short(_noKey)} missing={Iis.Short(_missing)}");
@@ -282,6 +284,27 @@ internal static class PartA
             }
         });
 
+        await Report.Scenario("A18 A binding the new certificate does not cover keeps the old one", async () =>
+        {
+            await Reset();
+            var admin = $"*:8443:{AdminHost}";
+            Iis.AddHttpsBinding(Sites[0], admin, _a, sni: true);
+            try
+            {
+                var undo = await Real().SwitchHttpsBindingsAsync(Sites[0], [Hosts[0]], _narrow);
+                Report.Check("Port 443 serves the narrow certificate", await Iis.IsServing(Hosts[0], _narrow));
+                Report.Check("The admin binding still holds A", Iis.BindingThumbprint(Sites[0], admin) == _a, Iis.Short(Iis.BindingThumbprint(Sites[0], admin)));
+                Report.Check("The admin binding still serves A", await Iis.IsServingAt("127.0.0.1", 8443, AdminHost, _a));
+                Report.Check("Only the port 443 binding is recorded", undo.Changes.Count == 1, $"{undo.Changes.Count} changes");
+                await Real().UndoHttpsBindingsAsync(undo);
+                Report.Check("Undo: port 443 serves A", await Iis.IsServing(Hosts[0], _a));
+            }
+            finally
+            {
+                Iis.RemoveBinding(Sites[0], admin);
+            }
+        });
+
         await Report.Scenario("A15 Sites with different certificates work side by side", async () =>
         {
             await Reset();
@@ -340,10 +363,18 @@ internal static class PartA
         Report.Check(name, served.All(value => Same(value, thumbprint)), string.Join(" ", served.Select(Iis.Short)));
     }
 
-    private static string CreateCertificate(string label, bool install, bool keepKey)
+    /// <summary>Every test host by default, so bindings may follow it (docs/design/other-bindings.md).</summary>
+    private static string CreateCertificate(string label, bool install, bool keepKey, string[]? names = null)
     {
         using var rsa = RSA.Create(2048);
         var request = new CertificateRequest($"{Subject} {label}", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+        var alternativeNames = new SubjectAlternativeNameBuilder();
+        foreach (var name in names ?? [.. Hosts, "accept1-new.sslense.test", AdminHost])
+        {
+            alternativeNames.AddDnsName(name);
+        }
+
+        request.CertificateExtensions.Add(alternativeNames.Build());
         request.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, false));
         request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension([new Oid("1.3.6.1.5.5.7.3.1")], false));
         using var created = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
@@ -374,6 +405,11 @@ internal static class PartA
         }
 
         Iis.Netsh("http", "delete", "sslcert", $"hostnameport={TrialHost}");
+
+        // Left by A16 to A18 if a run was stopped.
+        Iis.Netsh("http", "delete", "sslcert", $"hostnameport={Hosts[0]}:8443");
+        Iis.Netsh("http", "delete", "sslcert", $"hostnameport={AdminHost}:8443");
+        Iis.Netsh("http", "delete", "sslcert", "ipport=127.0.0.2:443");
         Iis.RemoveCertificates(certificate => certificate.Subject.StartsWith(Subject, StringComparison.Ordinal));
         Iis.RemoveTestFolder();
     }

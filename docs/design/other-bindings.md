@@ -15,13 +15,15 @@ Adoption refused such sites. If SSLense had issued for one anyway, a renewal wou
 
 All of this happens in the same transaction as the site's other binding changes. Every change is recorded for undo, read back from IIS, and checked over TLS where it listens.
 
-1. **A host served through a binding without a host name:** when the site has no SNI binding on port 443 for the host, but has a host-less binding on port 443, SSLense updates the host-less binding.
+1. **A host served through a binding without a host name:** when the site has no SNI binding on port 443 for the host, but has a host-less binding on port 443, SSLense updates the host-less binding. This happens only when the new certificate covers every name the old certificate on that binding had; otherwise an SNI binding is added for the host, as before.
    - It keeps its address and stays without SNI.
    - No SNI binding is added beside it.
 2. **Bindings that follow the certificate:** every other HTTPS binding of the same site that served the certificate being replaced follows it. That includes another port, or a host-less binding.
+   - **Only when the new certificate covers it:** a binding with a host name needs that name in the new certificate. One without a host name needs every name the old certificate had, because it answered for all of them. A binding that is not covered stays on the old certificate, and the clean-up keeps that certificate and names the site still using it, instead of serving a certificate without the binding's name.
    - Each keeps its address, port and flags, such as SNI or DisableHTTP2. Only the Central Certificate Store flag is cleared, because SSLense binds from the machine store.
    - Each is checked on its own port. A host-less one is checked with the certificate's first name.
 3. **Undo and recovery:** a changed binding is found again by exactly where it listens (its binding information), not by host name. So an SNI binding that was added and removed again is never confused with a host-less binding.
+4. **Monitoring:** the served-certificate check, the health check and outside-renewal detection find a host's binding the same way, through its own binding or else the site's host-less one, so adopted host-less sites are not reported as missing a binding.
 
 **Adopting:**
 - A certificate bound on port 443 and on other ports is adopted. Its host names come from the port 443 bindings, and the bindings on other ports follow them.
@@ -40,5 +42,7 @@ All of this happens in the same transaction as the site's other binding changes.
 - **On real IIS** (`SSLense.Acceptance parta`):
   - A16: a binding on port 8443 follows a switch on 443, serves the new certificate, and goes back on undo.
   - A17: a host-less binding is renewed in place, with no SNI binding added, and goes back on undo.
+  - A18: a port 8443 binding for a name the new certificate does not cover keeps the old certificate.
+- **Unit tests for coverage:** which bindings may follow a certificate, and which binding serves a host, including IP addresses.
 
 Manual steps: [docs/testing/other-bindings.md](../testing/other-bindings.md).

@@ -203,13 +203,17 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
                 var site = FindSite(serverManager, siteName);
                 siteStarted = IsStarted(site);
                 var touched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var newNames = NamesOf(certificateHash);
                 foreach (var host in hosts)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
                     // A site that serves the name through a binding without a host name keeps that binding, so clients that
-                    // reach it are not left on the old certificate (docs/design/other-bindings.md).
-                    var binding = FindHttpsBinding(site, host) ?? (IsIpAddress(host) ? null : FindHostLessBinding(site));
+                    // reach it are not left on the old certificate (docs/design/other-bindings.md). Only when the new certificate covers every
+                    // name it answered for; otherwise an SNI binding is added for the host, as before.
+                    var binding = FindHttpsBinding(site, host) ??
+                                  (IsIpAddress(host) ? null : FindHostLessBinding(site) is { } hostLess &&
+                                                              BindingCoverage.CanFollow(newNames, NamesOf(hostLess.CertificateHash), string.Empty) ? hostLess : null);
                     if (binding is not null && !touched.Add(binding.BindingInformation))
                     {
                         probeTargets.Add((ParseBindingInformation(binding.BindingInformation).IpAddress, host, 443));
@@ -261,6 +265,14 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
                              .ToArray())
                 {
                     var (address, port, bindingHost) = ParseBindingInformation(other.BindingInformation);
+
+                    // A binding whose names the new certificate does not cover stays on the old one; the clean-up then keeps
+                    // the old certificate and names the site still using it.
+                    if (!BindingCoverage.CanFollow(newNames, NamesOf(other.CertificateHash), bindingHost))
+                    {
+                        continue;
+                    }
+
                     var probeHost = bindingHost.Length > 0 ? bindingHost : hosts.FirstOrDefault(name => !IsIpAddress(name)) ?? hosts[0];
                     touched.Add(other.BindingInformation);
                     changes.Add(new HttpsBindingChange(
@@ -502,6 +514,40 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
         !IsIpAddress(host) && ParseBindingInformation(binding.BindingInformation).HostName.Length > 0;
 
     /// <summary>The site's HTTPS binding on port 443 without a host name, which serves every name that reaches it.</summary>
+    /// <summary>The DNS names of a bound certificate, from LocalMachine\My; null when it is not there or cannot be read.</summary>
+    private static IReadOnlyList<string>? NamesOf(byte[]? certificateHash)
+    {
+        if (certificateHash is not { Length: > 0 })
+        {
+            return null;
+        }
+
+        try
+        {
+            using var store = new System.Security.Cryptography.X509Certificates.X509Store(
+                System.Security.Cryptography.X509Certificates.StoreName.My,
+                System.Security.Cryptography.X509Certificates.StoreLocation.LocalMachine);
+            store.Open(System.Security.Cryptography.X509Certificates.OpenFlags.ReadOnly | System.Security.Cryptography.X509Certificates.OpenFlags.OpenExistingOnly);
+            var found = store.Certificates.Find(
+                System.Security.Cryptography.X509Certificates.X509FindType.FindByThumbprint, Convert.ToHexString(certificateHash), validOnly: false);
+            try
+            {
+                return found.Count == 0 ? null : SSLense.Core.Certificates.CertificateInspector.GetDnsNames(found[0]);
+            }
+            finally
+            {
+                foreach (var certificate in found)
+                {
+                    certificate.Dispose();
+                }
+            }
+        }
+        catch (System.Security.Cryptography.CryptographicException)
+        {
+            return null;
+        }
+    }
+
     private static Binding? FindHostLessBinding(Site site) =>
         site.Bindings.FirstOrDefault(binding =>
             string.Equals(binding.Protocol, "https", StringComparison.OrdinalIgnoreCase) &&
