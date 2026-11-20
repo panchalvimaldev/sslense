@@ -106,6 +106,45 @@ public sealed class DeploymentServiceTests : IDisposable
         _iis.Verify(value => value.SetFtpCertificateAsync("Files", OldThumbprint, "My", It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Theory]
+    [InlineData("0.0.0.0:5986", "ipport=0.0.0.0:5986")]
+    [InlineData("[::]:8443", "ipport=[::]:8443")]
+    [InlineData(" API.example.com:8443 ", "hostnameport=api.example.com:8443")]
+    public void HttpSysEndpoints_AreReadAsNetshNamesThem(string value, string expected)
+    {
+        Assert.Equal(expected, HttpSysEndpoint.Parse(value).NetshParameter);
+    }
+
+    [Theory]
+    [InlineData("api.example.com")]
+    [InlineData("0.0.0.0:70000")]
+    [InlineData("*.example.com:443")]
+    [InlineData("bad host:443")]
+    public void HttpSysEndpoints_ThatAreNotOne_AreRefused(string value)
+    {
+        Assert.Throws<ArgumentException>(() => HttpSysEndpoint.Parse(value));
+    }
+
+    [Fact]
+    public async Task HttpSysStep_RefusesAnEndpointAnIisSiteBinds_AndBindsOthersWhenItRuns()
+    {
+        await SaveRecordAsync();
+        _iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>())).ReturnsAsync([
+            new IisSite(1, "Shop", "Started", null, [new IisBinding("https", "*", 443, "", OldThumbprint, "My", false),
+                new IisBinding("https", "*", 8443, "api.example.com", OldThumbprint, "My", true)])
+        ]);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => _service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.HttpSysBinding, "0.0.0.0:443")));
+        await Assert.ThrowsAsync<ArgumentException>(() => _service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.HttpSysBinding, "api.example.com:8443")));
+        var step = await _service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.HttpSysBinding, "0.0.0.0:5986"));
+        var result = await _service.RunAsync("Shop");
+
+        Assert.True(result.Succeeded, result.Message);
+        Assert.Equal("0.0.0.0:5986", step.Value);
+        _iis.Verify(value => value.SetHttpSysCertificateAsync(
+            It.Is<HttpSysEndpoint>(endpoint => endpoint.NetshParameter == "ipport=0.0.0.0:5986"), OldThumbprint, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     [Fact]
     public async Task ScriptStep_RunsSSLensesCopyWithTheCertificatesDetails_AndRefusesAChangedCopy()
     {
