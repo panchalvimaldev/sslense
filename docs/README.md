@@ -26,6 +26,11 @@ Start with the [quick start in the main README](../README.md#quick-start).
 - [Reporting a vulnerability](../SECURITY.md)
 - [Dependency scanning and the software bill of materials](design/supply-chain.md)
 
+## Testing
+
+- [Automated tests](testing/automated-tests.md): what runs in CI and on a test server, and what it covers
+- [Manual test plan](testing/manual-test-plan.md): the combined test before a release, with sign-off
+
 ## How features work
 
 Each feature has a design in [design/](design/) and manual test steps in [testing/](testing/). The [delivery plan](delivery-plan.md) lists them in order.

@@ -81,6 +81,6 @@ Not planned: code signing, which the owner has declined. Compatibility work in R
 
 ## After the last feature
 
-1. The automated test document: what CI covers, the Pebble end-to-end tests, and any new automated tests for gaps found while writing it.
-2. The manual test document: every feature's steps from `docs/testing/`, in an order that sets up a test server once, on Let's Encrypt staging.
+1. The automated test document: what CI covers, the Pebble end-to-end tests, and any new automated tests for gaps found while writing it. **Written:** [testing/automated-tests.md](testing/automated-tests.md).
+2. The manual test document: every feature's steps from `docs/testing/`, in an order that sets up a test server once, on Let's Encrypt staging. **Written:** [testing/manual-test-plan.md](testing/manual-test-plan.md).
 3. The combined test, fixes, then a release.
