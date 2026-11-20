@@ -74,7 +74,7 @@ In priority order. Feedback from real users can change the order. The order of w
 7. **Bulk operations** (built, awaiting release). Adopt every unmanaged certificate at once, and issue for many sites from a CSV file.
 8. **New version notice** (built, awaiting release). Tell the administrator when a newer release is available, with a setting to turn the check off. Never install anything automatically.
 
-Later, by demand: certificates for IP addresses, TLS-ALPN-01 validation, and managing several servers from one place. IIS FTP sites ([design](docs/design/ftp-sites.md)) and export to Azure Key Vault over its REST API, with no new dependency ([design](docs/design/key-vault.md)), are built. For several servers, fleet reports through a shared folder are built ([design](docs/design/fleet.md)); a central view is designed, not built.
+Later, by demand: certificates for IP addresses, TLS-ALPN-01 validation (decided against: [why](docs/design/tls-alpn-01.md)), and managing several servers from one place. IIS FTP sites ([design](docs/design/ftp-sites.md)) and export to Azure Key Vault over its REST API, with no new dependency ([design](docs/design/key-vault.md)), are built. For several servers, fleet reports through a shared folder are built ([design](docs/design/fleet.md)); a central view is designed, not built.
 
 ## 5. Before 1.0
 
@@ -129,7 +129,7 @@ Ordered roughly by expected demand. Community feedback decides the order.
 - **Existing-certificate discovery:** adopting a certificate already bound in IIS was added in 0.10, and the clean-up of unused expired, test and replaced certificates is built ([design](docs/design/certificate-cleanup.md)).
 - **Certificate history and one-click rollback:** a timeline for each certificate (issued, renewed, failed, rolled back, revoked), and going back to the certificate the last renewal replaced while it is still valid, is built ([design](docs/design/history-and-rollback.md)).
 - **Web farms and load-balanced sites:** HTTP-01 validation across several servers (shared storage, FTP, SFTP, or WebDAV) and keeping the certificate in step on every server. Built: challenge copies to shared and WebDAV folders, with the Central Certificate Store keeping every server in step ([design](docs/design/web-farms.md)); SFTP and FTP are not built.
-- **More validation methods:** TLS-ALPN-01, self-hosted HTTP validation for servers whose sites cannot serve the challenge, and newer DNS methods such as dns-persist-01 as certificate authorities adopt them.
+- **More validation methods:** newer DNS methods such as dns-persist-01 as certificate authorities adopt them ([note](docs/design/dns-persist-01.md)). Self-hosted HTTP validation is built; TLS-ALPN-01 is [decided against](docs/design/tls-alpn-01.md).
 - **ACME profiles and IP address certificates,** including shorter-lived certificates, as certificate authorities offer them.
 - **Automation:** JSON output for every CLI command (`--json`), documented exit codes, settings export and import, and a PowerShell script module are built ([docs/automation.md](docs/automation.md)).
 - **More notification channels:** signed webhook payloads ([design](docs/design/signed-webhooks.md)) and email through the Microsoft Graph API for Microsoft 365 tenants that disable SMTP ([design](docs/design/graph-email.md)) are built. (Teams, Slack, Discord, Telegram, ntfy, a heartbeat, the Event Log, and email for any SMTP setup were added October 28, 2026.)
