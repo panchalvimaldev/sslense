@@ -167,7 +167,48 @@ public sealed class CertificateExportTests : IDisposable
         Assert.DoesNotContain("secret", result.Message, StringComparison.Ordinal);
     }
 
-    private static DeploymentService Service(JsonManagedCertificateStore store, FakeExporter exporter)
+    [Fact]
+    public async Task KeyVaultStep_ChecksTheVaultAndCredentials_AndImportsAPfxUnderAOneTimePassword()
+    {
+        var store = new JsonManagedCertificateStore(new InMemoryFileSystem(), StatePath, LockPath);
+        var exporter = new FakeExporter();
+        var vault = new FakeKeyVault();
+        var service = Service(store, exporter, vault);
+        await store.UpsertAsync(new ManagedCertificate("Shop", ["example.com"], "ops@example.com", "AABB", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(60), ExportableKey: true));
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.KeyVault, "no slash", Password: "t:c:s")));
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.KeyVault, "contoso-kv/shop", Password: "only-a-secret")));
+        var step = await service.AddAsync(new DeploymentStepRequest(
+            "Shop", DeploymentStepKind.KeyVault, "https://Contoso-KV.vault.azure.net/certificates/shop-cert/0123", Password: "tenant: client :s:e:c"));
+        var result = await service.RunAsync("Shop");
+
+        Assert.True(result.Succeeded, result.Message);
+        Assert.Equal("contoso-kv/shop-cert", step.Value);
+        Assert.DoesNotContain("s:e:c", step.ProtectedPassword, StringComparison.Ordinal);
+        var call = Assert.Single(vault.Calls);
+        Assert.Equal("https://contoso-kv.vault.azure.net/certificates/shop-cert/import?api-version=7.4", call.Target.ImportUri.AbsoluteUri);
+        Assert.Equal("tenant:client:s:e:c", call.Credentials);
+        Assert.Equal($"pkcs12 AABB {call.Password}", Assert.Single(exporter.Calls));
+        Assert.True(call.Password.Length >= 24);
+    }
+
+    [Fact]
+    public async Task TheKeyVaultClient_SignsInForKeyVault_AndPostsThePfx()
+    {
+        var handler = new VaultHandler();
+        using var client = new KeyVaultClient(new HttpClient(handler));
+
+        var id = await client.ImportAsync(KeyVaultTarget.Parse("contoso-kv/shop"), "tenant:client:secret", [1, 2, 3], "upload-pw", CancellationToken.None);
+
+        Assert.Equal("https://contoso-kv.vault.azure.net/certificates/shop/v1", id);
+        Assert.Contains("scope=https%3A%2F%2Fvault.azure.net%2F.default", handler.Bodies[0], StringComparison.Ordinal);
+        Assert.Contains("\"value\":\"AQID\"", handler.Bodies[1], StringComparison.Ordinal);
+        Assert.Contains("\"pwd\":\"upload-pw\"", handler.Bodies[1], StringComparison.Ordinal);
+    }
+
+    private static DeploymentService Service(JsonManagedCertificateStore store, FakeExporter exporter, FakeKeyVault? vault = null)
     {
         var iis = new Mock<IIisService>();
         iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>())).ReturnsAsync([]);
@@ -180,7 +221,8 @@ public sealed class CertificateExportTests : IDisposable
             iis.Object,
             Mock.Of<ICertificateStore>(),
             exporter: exporter,
-            protector: new ReversingProtector());
+            protector: new ReversingProtector(),
+            keyVault: vault);
     }
 
     private sealed class NoKeys : IPrivateKeyAccess
@@ -225,6 +267,36 @@ public sealed class CertificateExportTests : IDisposable
         {
             Calls.Add($"ccs {thumbprint} {string.Join(",", names)} {folder} {password}");
             return Task.CompletedTask;
+        }
+
+        public Task<byte[]> ExportPkcs12Async(string thumbprint, string password, CancellationToken cancellationToken)
+        {
+            Calls.Add($"pkcs12 {thumbprint} {password}");
+            return Task.FromResult(new byte[] { 1, 2, 3 });
+        }
+    }
+
+    private sealed class FakeKeyVault : IKeyVaultClient
+    {
+        public List<(KeyVaultTarget Target, string Credentials, string Password)> Calls { get; } = [];
+
+        public Task<string> ImportAsync(KeyVaultTarget target, string credentials, byte[] pfx, string password, CancellationToken cancellationToken)
+        {
+            Calls.Add((target, credentials, password));
+            return Task.FromResult("id");
+        }
+    }
+
+    private sealed class VaultHandler : HttpMessageHandler
+    {
+        public List<string> Bodies { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Bodies.Add(await request.Content!.ReadAsStringAsync(cancellationToken));
+            return Bodies.Count == 1
+                ? new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent("{\"access_token\":\"t\"}") }
+                : new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent("{\"id\":\"https://contoso-kv.vault.azure.net/certificates/shop/v1\"}") };
         }
     }
 

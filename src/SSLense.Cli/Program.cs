@@ -940,6 +940,9 @@ static Command CreateDeployCommand(IServiceProvider services)
     var exportPemOption = new Option<string?>("--export-pem") { Description = "Write cert.pem, chain.pem, fullchain.pem, and key.pem to this folder; key.pem only for Administrators and SYSTEM. Needs an exportable key." };
     var centralStoreOption = new Option<string?>("--central-store") { Description = "Write one PFX per name to this IIS Central Certificate Store folder. The store's password is asked for. Needs an exportable key." };
     var ftpSiteOption = new Option<string?>("--ftp-site") { Description = "Use the certificate for FTP over TLS on this IIS FTP site, set again after every renewal." };
+    var keyVaultOption = new Option<string?>("--key-vault") { Description = "Import the certificate into Azure Key Vault after every renewal, as <vault>/<certificate>. Needs an exportable key, --tenant and --client-id; the client secret is asked for." };
+    var tenantOption = new Option<string?>("--tenant") { Description = "With --key-vault: the Microsoft Entra tenant ID or domain of the app registration." };
+    var clientIdOption = new Option<string?>("--client-id") { Description = "With --key-vault: the app registration's application (client) ID." };
     var addCommand = new Command("add", "Add a step at the end. It runs after the next renewal, or now with 'deploy run'.");
     addCommand.Options.Add(siteOption);
     addCommand.Options.Add(keyAccessOption);
@@ -950,6 +953,9 @@ static Command CreateDeployCommand(IServiceProvider services)
     addCommand.Options.Add(exportPemOption);
     addCommand.Options.Add(centralStoreOption);
     addCommand.Options.Add(ftpSiteOption);
+    addCommand.Options.Add(keyVaultOption);
+    addCommand.Options.Add(tenantOption);
+    addCommand.Options.Add(clientIdOption);
     addCommand.SetAction((parseResult, token) => AddDeploymentStepAsync(
         Deployment(),
         parseResult.GetRequiredValue(siteOption),
@@ -961,6 +967,9 @@ static Command CreateDeployCommand(IServiceProvider services)
         parseResult.GetValue(exportPemOption),
         parseResult.GetValue(centralStoreOption),
         parseResult.GetValue(ftpSiteOption),
+        parseResult.GetValue(keyVaultOption),
+        parseResult.GetValue(tenantOption),
+        parseResult.GetValue(clientIdOption),
         token));
     command.Subcommands.Add(addCommand);
 
@@ -998,12 +1007,21 @@ static async Task<int> AddDeploymentStepAsync(
     string? exportPem,
     string? centralStore,
     string? ftpSite,
+    string? keyVault,
+    string? tenant,
+    string? clientId,
     CancellationToken token)
 {
-    var given = new[] { keyAccess, restartService, script, exportPfx, exportPem, centralStore, ftpSite }.Count(value => value is not null);
+    var given = new[] { keyAccess, restartService, script, exportPfx, exportPem, centralStore, ftpSite, keyVault }.Count(value => value is not null);
     if (given != 1)
     {
-        Console.Error.WriteLine("Error: give exactly one of --grant-key-access, --restart-service, --script, --export-pfx, --export-pem, --central-store, or --ftp-site.");
+        Console.Error.WriteLine("Error: give exactly one of --grant-key-access, --restart-service, --script, --export-pfx, --export-pem, --central-store, --ftp-site, or --key-vault.");
+        return 1;
+    }
+
+    if (keyVault is not null && (string.IsNullOrWhiteSpace(tenant) || string.IsNullOrWhiteSpace(clientId)))
+    {
+        Console.Error.WriteLine("Error: --key-vault needs --tenant and --client-id.");
         return 1;
     }
 
@@ -1028,6 +1046,9 @@ static async Task<int> AddDeploymentStepAsync(
                             ? new DeploymentStepRequest(site, DeploymentStepKind.ExportPfx, exportPfx, timeout, ReadPassword("Password for the PFX file: "))
                             : ftpSite is not null
                                 ? new DeploymentStepRequest(site, DeploymentStepKind.FtpSite, ftpSite, timeout)
+                            : keyVault is not null
+                                ? new DeploymentStepRequest(site, DeploymentStepKind.KeyVault, keyVault, timeout,
+                                    $"{tenant!.Trim()}:{clientId!.Trim()}:{ReadHiddenValue("Client secret of the app registration: ")}")
                             : new DeploymentStepRequest(site, DeploymentStepKind.CentralStore, centralStore!, timeout,
                                 ReadPassword("The Central Certificate Store's private key password, as set in IIS: "));
         var step = await deployment.AddAsync(request, token).ConfigureAwait(false);
