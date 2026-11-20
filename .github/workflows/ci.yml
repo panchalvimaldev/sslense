@@ -21,6 +21,18 @@ jobs:
       - name: Build
         run: dotnet build SSLense.sln -c Release -nologo
 
+      # Known vulnerabilities in any package, direct or transitive, fail the build; the SBOM is kept with the run
+      # (docs/design/supply-chain.md).
+      - name: Check dependencies and write the SBOM
+        shell: pwsh
+        run: ./installer/Test-Dependencies.ps1 -SbomPath artifacts/sbom/sslense.cdx.json
+
+      - name: Keep the SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: artifacts/sbom/sslense.cdx.json
+
       # Pebble is Let's Encrypt's ACME server for tests. One pinned release, checked by SHA-256, runs on this machine
       # only, so the ACME client is tested end to end, with External Account Binding, without contacting any real CA.
       - name: Get Pebble

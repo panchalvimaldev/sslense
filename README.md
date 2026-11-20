@@ -807,6 +807,7 @@ Review the current daily log in `C:\ProgramData\SSLense\logs` for the full excep
 - **Contributing:** see [CONTRIBUTING.md](CONTRIBUTING.md). Commits are signed off under the Developer Certificate of Origin.
 - **Website:** [sslense.com](https://sslense.com) is the static site in [`site/`](site/), deployed by Cloudflare (Workers static assets, `site/wrangler.jsonc`) whenever `site/` changes; there is no build step.
 - **Security issues:** report them privately as described in [SECURITY.md](SECURITY.md), never in a public issue.
+- **Dependencies:** every build fails on a package with a known vulnerability, and each release has a CycloneDX software bill of materials next to the MSI ([design](docs/design/supply-chain.md)).
 - **Bugs and questions:** open a GitHub issue with the output of `SSLense.Cli health` and a bundle from `SSLense.Cli diagnostics` (add `--redact-hosts` if your site names, host names, or folders are private).
 
 ## License

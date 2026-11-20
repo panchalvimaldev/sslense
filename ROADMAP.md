@@ -117,7 +117,7 @@ Remaining:
 ### 5.5 Project health
 
 - A documented threat model, updated with each major architecture change.
-- Dependency and vulnerability scanning in CI, and a software bill of materials for each release.
+- Dependency and vulnerability scanning in CI, and a software bill of materials for each release: built with the .NET SDK alone ([design](docs/design/supply-chain.md)).
 - ~~Private vulnerability reporting (see [SECURITY.md](SECURITY.md)) with response targets.~~ Done October 28, 2026.
 - Release notes, known issues, and an upgrade compatibility table.
 - Documentation: a quick start, firewall/DNS/proxy requirements, troubleshooting runbooks, and migration guides from manual IIS certificates and other ACME clients.
