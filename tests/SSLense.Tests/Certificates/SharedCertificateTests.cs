@@ -293,7 +293,7 @@ public sealed class SharedCertificateTests
             Managed.Verify(value => value.UpsertAsync(It.IsAny<ManagedCertificate>(), It.IsAny<CancellationToken>()), Times.Never);
 
         public ManagedCertificate SavedRecord() =>
-            (ManagedCertificate)Managed.Invocations.Single(invocation => invocation.Method.Name == nameof(IManagedCertificateStore.UpsertAsync)).Arguments[0];
+            (ManagedCertificate)Managed.Invocations.Single(invocation => invocation.Method.Name == nameof(IManagedCertificateStore.UpsertAsync)).Arguments[0]!;
     }
 
     private static AcmeIssueRequest Renewal(string site = "Shop", string[]? names = null) => new(
@@ -534,7 +534,7 @@ public sealed class SharedCertificateTests
         }
 
         public ManagedCertificate SavedRecord() =>
-            (ManagedCertificate)Managed.Invocations.Single(invocation => invocation.Method.Name == nameof(IManagedCertificateStore.UpsertAsync)).Arguments[0];
+            (ManagedCertificate)Managed.Invocations.Single(invocation => invocation.Method.Name == nameof(IManagedCertificateStore.UpsertAsync)).Arguments[0]!;
     }
 
     private static ManagedCertificate SingleSite(ValidationMethod method = ValidationMethod.Dns01Provider, string site = "Shop", string thumbprint = Old, CertificateSource source = CertificateSource.Acme) => new(
@@ -741,7 +741,7 @@ public sealed class SharedCertificateTests
         await harness.Service.RemoveSiteAsync("Shop");
 
         var saved = (ManagedCertificate)harness.Managed.Invocations
-            .Single(invocation => invocation.Method.Name == nameof(IManagedCertificateStore.ReplaceAsync)).Arguments[1];
+            .Single(invocation => invocation.Method.Name == nameof(IManagedCertificateStore.ReplaceAsync)).Arguments[1]!;
         Assert.Equal("B", saved.SiteName);
         Assert.Equal(["b.example.com"], saved.Hosts);
         Assert.Equal(names, saved.CertificateNames);

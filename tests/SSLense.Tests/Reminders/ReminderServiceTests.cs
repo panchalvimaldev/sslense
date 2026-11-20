@@ -106,7 +106,7 @@ public sealed class ReminderServiceTests
         _clock.Now = _clock.Now.AddHours(1);
         await service.CheckAsync();
 
-        var retried = (NotificationMessage)_notifier.Invocations[^1].Arguments[0];
+        var retried = (NotificationMessage)_notifier.Invocations[^1].Arguments[0]!;
         Assert.DoesNotContain("likely to fail", retried.Body, StringComparison.Ordinal);
         Assert.Equal(new DateOnly(2026, 12, 1), (await _state.GetAsync()).LastDigestDate);
     }
