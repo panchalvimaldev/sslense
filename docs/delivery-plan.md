@@ -74,7 +74,7 @@ Already done and only to be marked on the roadmap: private-key permissions for I
 |---|---|---|---|
 | 28 | Accessibility **(done)** | M | Keyboard navigation, high contrast and scalable text across the app |
 | 29 | Dependency scanning and a software bill of materials in CI **(done)** | S | |
-| 30 | Documentation | M | Threat model, quick start, firewall, DNS and proxy requirements, troubleshooting runbooks, migration guides, release notes, known issues and an upgrade table |
+| 30 | Documentation **(done)** | M | Threat model, quick start, firewall, DNS and proxy requirements, troubleshooting runbooks, migration guides, release notes, known issues and an upgrade table |
 | 31 | winget package | S | The manifest is ready in the repository; it is submitted to winget after the first release that follows the combined test |
 
 Not planned: code signing, which the owner has declined. Compatibility work in ROADMAP 5.4 (Windows and IIS versions, proxies, NAT, IPv6, international names, accessibility checks) becomes part of the combined test documents rather than code.
