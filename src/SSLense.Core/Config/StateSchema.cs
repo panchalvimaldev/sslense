@@ -21,9 +21,10 @@ internal static class StateSchema
     /// replace with the defaults at renewal. Version 10 adds reusing the key at renewal, which 0.21 would not do. Version 11 adds
     /// further certificates on an IIS site, named "site/host", which 0.22 would report as sites that do not exist. Version 12
     /// adds HTTP validation answered by SSLense, which 0.23 would drop on its next save. Version 13 adds
-    /// certificates on other machines, which 0.23 would try to renew.
+    /// certificates on other machines, which 0.23 would try to renew. Version 14 adds the previous certificate kept for rollback,
+    /// which 0.23 would drop on its next save and then leave in the store.
     /// </summary>
-    public const int ManagedCertificates = 13;
+    public const int ManagedCertificates = 14;
 
     /// <summary>
     /// Version 0 had no version field. Version 2 replaced the single SMTP server and generic webhook with
@@ -48,6 +49,8 @@ internal static class StateSchema
 
     /// <summary>Version 2 adds the proactive-check failure counts, which default to none.</summary>
     public const int ReminderState = 2;
+
+    public const int History = 1;
 
     public static void EnsureSupported(int version, int supportedVersion, string path)
     {

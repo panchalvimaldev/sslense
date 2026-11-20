@@ -592,6 +592,12 @@ ManagedCertificate record, DeploymentStep step, string? previous, CancellationTo
         IProgress<ProgressEvent>? progress,
         CancellationToken cancellationToken)
     {
+        // Kept for rollback as well, until the next renewal (docs/design/history-and-rollback.md).
+        if (string.Equals(retained, record.PreviousThumbprint, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
         try
         {
             var message = await ReplacedCertificateCleanup

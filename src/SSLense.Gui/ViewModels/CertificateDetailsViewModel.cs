@@ -35,6 +35,8 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private readonly AsyncRelayCommand _unmanageCommand;
     private readonly AsyncRelayCommand _revokeCommand;
     private readonly IRevocationService? _revocationService;
+    private readonly ICertificateHistoryService? _historyService;
+    private readonly AsyncRelayCommand _rollbackCommand;
     private readonly SSLense.Core.Iis.IHttpsRedirectService? _redirectService;
     private bool _suppressSelectionRefresh;
     private bool _isNoSite;
@@ -74,6 +76,8 @@ public partial class CertificateDetailsViewModel : ObservableObject
     [ObservableProperty] private DeploymentKindChoice? selectedDeploymentKind;
     [ObservableProperty] private string deploymentValue = string.Empty;
     [ObservableProperty] private string deploymentPassword = string.Empty;
+    [ObservableProperty] private string rollbackMessage = string.Empty;
+    [ObservableProperty] private bool canRollBack;
 
     public CertificateDetailsViewModel(
         ICertificateManagementService managementService,
@@ -86,8 +90,11 @@ public partial class CertificateDetailsViewModel : ObservableObject
         IDeploymentService deploymentService,
         InstallRenewalViewModel installRenewal,
         IRevocationService? revocationService = null,
-        SSLense.Core.Iis.IHttpsRedirectService? redirectService = null)
+        SSLense.Core.Iis.IHttpsRedirectService? redirectService = null,
+        ICertificateHistoryService? historyService = null)
     {
+        _historyService = historyService;
+        _rollbackCommand = new AsyncRelayCommand(RollBackAsync, () => CanOperate() && CanRollBack && _historyService is not null);
         _revocationService = revocationService;
         _redirectService = redirectService;
         RedirectOnCommand = new AsyncRelayCommand(token => ChangeRedirectAsync(true, token), () => CanOperate() && _redirectService is not null);
@@ -128,6 +135,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
         SharedSites.CollectionChanged += (_, _) => OnPropertyChanged(nameof(ShowSites));
         DeploymentSteps.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasDeploymentSteps));
         RecentLogLines.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasHistory));
+        Timeline.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasTimeline));
 
         // Last: setting it notifies the commands, so they must all exist by now.
         SelectedDeploymentKind = DeploymentKinds[0];
@@ -194,6 +202,9 @@ public partial class CertificateDetailsViewModel : ObservableObject
         SharedSites.Clear();
         DeploymentSteps.Clear();
         RecentLogLines.Clear();
+        Timeline.Clear();
+        RollbackMessage = string.Empty;
+        CanRollBack = false;
     }
 
     /// <summary>Each manual DNS renewal needs new records, so it goes through the wizard, which shows them.</summary>
@@ -201,6 +212,14 @@ public partial class CertificateDetailsViewModel : ObservableObject
 
     public ObservableCollection<string> Sites { get; } = [];
     public ObservableCollection<string> RecentLogLines { get; } = [];
+
+    /// <summary>What happened to the certificate, newest first (docs/design/history-and-rollback.md).</summary>
+    public ObservableCollection<string> Timeline { get; } = [];
+
+    public bool HasTimeline => Timeline.Count > 0;
+
+    /// <summary>Binds the certificate the last renewal replaced again.</summary>
+    public IAsyncRelayCommand RollBackCommand => _rollbackCommand;
 
     /// <summary>Every site using the selected certificate, starting with the first site.</summary>
     public ObservableCollection<SharedSiteRow> SharedSites { get; } = [];
@@ -356,6 +375,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
             await LoadDeploymentAsync(token).ConfigureAwait(true);
             RecentLogLines.Clear();
             foreach (var line in detail.RecentLogLines) RecentLogLines.Add(line);
+            await LoadHistoryAsync(site, token).ConfigureAwait(true);
         }, load.Token);
     }
 
@@ -668,6 +688,58 @@ public partial class CertificateDetailsViewModel : ObservableObject
         }, cancellationToken);
     }
 
+    private async Task LoadHistoryAsync(string site, CancellationToken cancellationToken)
+    {
+        Timeline.Clear();
+        CanRollBack = false;
+        if (_historyService is null)
+        {
+            RollbackMessage = string.Empty;
+            return;
+        }
+
+        try
+        {
+            var view = await _historyService.GetAsync(site, cancellationToken).ConfigureAwait(true);
+            foreach (var entry in view.Entries)
+            {
+                Timeline.Add($"{entry.At.ToLocalTime():yyyy-MM-dd HH:mm}  {Describe(entry.Kind)}  {entry.Message}");
+            }
+
+            RollbackMessage = view.Rollback.Message;
+            CanRollBack = view.Rollback.Available;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // The rest of the certificate's details are still worth showing.
+            RollbackMessage = $"The history could not be read: {exception.Message}";
+        }
+    }
+
+    private static string Describe(CertificateHistoryKind kind) => kind switch
+    {
+        CertificateHistoryKind.Issued => "Issued",
+        CertificateHistoryKind.Renewed => "Renewed",
+        CertificateHistoryKind.RenewalFailed => "Renewal failed",
+        CertificateHistoryKind.RolledBack => "Rolled back",
+        CertificateHistoryKind.Revoked => "Revoked",
+        _ => kind.ToString()
+    };
+
+    private async Task RollBackAsync(CancellationToken cancellationToken)
+    {
+        if (SelectedSite is null || _historyService is null) return;
+        var name = SelectedSite;
+        await RunAsync(async token =>
+        {
+            var message = await _historyService.RollBackAsync(name, cancellationToken: token).ConfigureAwait(true);
+            _logger.LogWarning("Rolled back {Certificate} to its previous certificate", name);
+            Report(message);
+            CertificatesChanged?.Invoke(null);
+            await RefreshAsync(token).ConfigureAwait(true);
+        }, cancellationToken);
+    }
+
     private async Task UnmanageAsync(CancellationToken cancellationToken)
     {
         if (SelectedSite is null) return;
@@ -737,6 +809,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private bool CanOperate() => !IsBusy && SelectedSite is not null;
     partial void OnIsImportedChanged(bool value) => NotifyCommands();
     partial void OnIsManualDnsChanged(bool value) => NotifyCommands();
+    partial void OnCanRollBackChanged(bool value) => NotifyCommands();
     partial void OnCanShareChanged(bool value) { NotifyCommands(); OnPropertyChanged(nameof(ShowSites)); }
     partial void OnSiteToAddChanged(string? value) => NotifyCommands();
     partial void OnHasSitesLeftBehindChanged(bool value) { NotifyCommands(); OnPropertyChanged(nameof(ShowSites)); }
@@ -745,7 +818,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
     private void NotifyCommands()
     {
         (RenewByHandCommand as RelayCommand)?.NotifyCanExecuteChanged();
-        _refreshCommand?.NotifyCanExecuteChanged(); _renewCommand?.NotifyCanExecuteChanged(); _removeCommand?.NotifyCanExecuteChanged(); _unmanageCommand?.NotifyCanExecuteChanged(); _revokeCommand?.NotifyCanExecuteChanged(); (RedirectOnCommand as AsyncRelayCommand)?.NotifyCanExecuteChanged(); (RedirectOffCommand as AsyncRelayCommand)?.NotifyCanExecuteChanged();
+        _refreshCommand?.NotifyCanExecuteChanged(); _renewCommand?.NotifyCanExecuteChanged(); _removeCommand?.NotifyCanExecuteChanged(); _unmanageCommand?.NotifyCanExecuteChanged(); _revokeCommand?.NotifyCanExecuteChanged(); _rollbackCommand?.NotifyCanExecuteChanged(); (RedirectOnCommand as AsyncRelayCommand)?.NotifyCanExecuteChanged(); (RedirectOffCommand as AsyncRelayCommand)?.NotifyCanExecuteChanged();
         (InstallRenewalCommand as RelayCommand)?.NotifyCanExecuteChanged();
         (CheckCommand as AsyncRelayCommand)?.NotifyCanExecuteChanged();
         (RemindersOffCommand as RelayCommand)?.NotifyCanExecuteChanged();

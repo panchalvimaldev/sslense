@@ -47,7 +47,15 @@ public sealed class CertificateCleanupTests
         Assert.StartsWith("SSL4054: BOUND", results[1], StringComparison.Ordinal);
     }
 
-    private CertificateCleanupService Service()
+    [Fact]
+    public async Task TheCertificateKeptForRollback_IsNotACandidate()
+    {
+        var candidates = await Service(previous: "OLDER").FindAsync();
+
+        Assert.DoesNotContain(candidates, candidate => candidate.Thumbprint == "OLDER");
+    }
+
+    private CertificateCleanupService Service(string? previous = null)
     {
         var store = new Mock<ICertificateStore>();
         store.Setup(value => value.ListAsync(It.IsAny<CancellationToken>())).ReturnsAsync(_store);
@@ -61,7 +69,7 @@ public sealed class CertificateCleanupTests
         iis.Setup(value => value.GetHttpSysCertificateThumbprintsAsync(It.IsAny<CancellationToken>())).ReturnsAsync(["HTTPSYS"]);
         var managed = new Mock<IManagedCertificateStore>();
         managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([
-            new ManagedCertificate("Blog", ["blog.example.com"], "", "MANAGED", Now.AddDays(-90), Now.AddDays(-5))
+            new ManagedCertificate("Blog", ["blog.example.com"], "", "MANAGED", Now.AddDays(-90), Now.AddDays(-5), PreviousThumbprint: previous)
         ]);
         return new CertificateCleanupService(store.Object, iis.Object, managed.Object);
     }

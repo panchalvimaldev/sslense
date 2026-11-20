@@ -40,7 +40,8 @@ internal sealed class RevocationService(
     IAcmeProtocolClient protocolClient,
     ICertificateAuthorityRegistry authorities,
     IFileSystem fileSystem,
-    ICertificateAuthorityLock? authorityLock = null) : IRevocationService
+    ICertificateAuthorityLock? authorityLock = null,
+    ICertificateHistoryStore? history = null) : IRevocationService
 {
     private readonly ICertificateAuthorityLock _authorityLock = authorityLock ?? NoOpCertificateAuthorityLock.Instance;
 
@@ -101,6 +102,9 @@ internal sealed class RevocationService(
                         // The old key may be the one that leaked, so the replacement never reuses it.
                         ReuseKey: false,
                         SelfHostedHttp: record.SelfHostedHttp,
+
+                        // A compromised certificate is never one to go back to.
+                        KeepReplacedForRollback: false,
                         // Confirmed when the certificate was first issued from this CA.
                         AcceptProductionRisk: true),
                     progress,
@@ -137,6 +141,10 @@ internal sealed class RevocationService(
                 exception);
         }
 
+        await history.TryAddAsync(new CertificateHistoryEntry(
+                DateTimeOffset.UtcNow, record.Id, record.SiteName, CertificateHistoryKind.Revoked,
+                $"Revoked by {authority.Name} ({Describe(reason)}).", record.Thumbprint, NotAfter: record.NotAfter))
+            .ConfigureAwait(false);
         var message = newThumbprint is null
             ? $"Certificate {record.Thumbprint} of '{record.SiteName}' was revoked. Its sites still serve it, and browsers will refuse it: issue or install a replacement now."
             : $"'{record.SiteName}' now uses certificate {newThumbprint} with a new key, and the old certificate {record.Thumbprint} was revoked.";
@@ -155,6 +163,10 @@ internal sealed class RevocationService(
         var sameAccount = (await managedStore.GetAllAsync(cancellationToken).ConfigureAwait(false))
             .FirstOrDefault(value => string.Equals(value.AuthorityId, authority.Id, StringComparison.OrdinalIgnoreCase));
         await protocolClient.RevokeAsync(sameAccount?.Email ?? string.Empty, authority, certificate.RawData, reason, cancellationToken).ConfigureAwait(false);
+        await history.TryAddAsync(new CertificateHistoryEntry(
+                DateTimeOffset.UtcNow, Guid.Empty, CertificateInspector.Describe(certificate), CertificateHistoryKind.Revoked,
+                $"Revoked from a file by {authority.Name} ({Describe(reason)}).", certificate.Thumbprint, NotAfter: certificate.NotAfter))
+            .ConfigureAwait(false);
         var pending = Path.Combine(PendingDirectory, $"{certificate.Thumbprint}.cer");
         if (fileSystem.FileExists(pending))
         {

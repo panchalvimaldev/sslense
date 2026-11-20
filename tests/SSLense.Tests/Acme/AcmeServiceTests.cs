@@ -1095,7 +1095,8 @@ public sealed class AcmeServiceTests
             Force: true,
             ExpectedCurrentThumbprint: "OLD",
             ValidationMethod: method,
-            ConfirmManualDns: (_, _) => Task.FromResult(true)));
+            ConfirmManualDns: (_, _) => Task.FromResult(true),
+            KeepReplacedForRollback: false));
 
         Assert.Equal(["saved", "removed"], order);
     }
@@ -1108,11 +1109,56 @@ public sealed class AcmeServiceTests
         var lines = new List<string>();
 
         await harness.Service.IssueAsync(
-            new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider),
+            new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider, KeepReplacedForRollback: false),
             new SynchronousProgress(value => lines.Add(value.Message)));
 
         harness.Store.Verify(value => value.RemoveAsync("OLD", It.IsAny<CancellationToken>()), Times.Never);
         Assert.Contains(lines, line => line.Contains("'My Site'", StringComparison.Ordinal) && line.Contains("retained", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task IssueAsync_ReplacingAValidCertificate_KeepsItForRollback()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "AABBCC", "My", true));
+        harness.SetManaged(Previous());
+
+        var result = await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider));
+
+        Assert.True(result.PreviousCertificateKept);
+        harness.Managed.Verify(value => value.UpsertAsync(
+            It.Is<ManagedCertificate>(record => record.Thumbprint == "AABBCC" && record.PreviousThumbprint == "OLD"),
+            CancellationToken.None));
+        harness.Store.Verify(value => value.RemoveAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task IssueAsync_ReplacingAgain_RemovesTheCertificateKeptBefore()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "AABBCC", "My", true));
+        harness.SetManaged(Previous() with { PreviousThumbprint = "OLDER" });
+
+        await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider));
+
+        harness.Store.Verify(value => value.RemoveAsync("OLDER", It.IsAny<CancellationToken>()), Times.Once);
+        harness.Store.Verify(value => value.RemoveAsync("OLD", It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task IssueAsync_ReplacingAnExpiredCertificate_RemovesIt_AndKeepsNothing()
+    {
+        var harness = new DnsHarness(new IisBinding("https", "*", 443, "example.com", "AABBCC", "My", true));
+        harness.SetManaged(Previous() with { NotAfter = DateTimeOffset.UtcNow.AddHours(-1) });
+
+        var result = await harness.Service.IssueAsync(new AcmeIssueRequest(
+            "My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider));
+
+        Assert.False(result.PreviousCertificateKept);
+        harness.Managed.Verify(value => value.UpsertAsync(
+            It.Is<ManagedCertificate>(record => record.PreviousThumbprint == null),
+            CancellationToken.None));
+        harness.Store.Verify(value => value.RemoveAsync("OLD", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -1354,7 +1400,7 @@ public sealed class AcmeServiceTests
         var lines = new List<string>();
 
         var result = await harness.Service.IssueAsync(
-            new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider),
+            new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com", Force: true, ValidationMethod: ValidationMethod.Dns01Provider, KeepReplacedForRollback: false),
             new SynchronousProgress(value => lines.Add(value.Message)));
 
         Assert.Equal("AABBCC", result.CertificateThumbprint);

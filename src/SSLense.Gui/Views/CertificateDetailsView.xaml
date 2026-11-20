@@ -67,6 +67,8 @@
                                       Visibility="{Binding Summary.IsNoSite, Converter={StaticResource InverseBooleanToVisibilityConverter}, FallbackValue=Visible}" />
                             <MenuItem Header="Refresh" Command="{Binding RefreshCommand}" />
                             <Separator />
+                            <MenuItem Header="Roll back to the previous certificate…" Click="OnRollbackClick" ToolTip="Binds the certificate the last renewal replaced again, while it is still valid. See the History tab."
+                                      Visibility="{Binding Summary.IsAutomatic, Converter={StaticResource BooleanToVisibilityConverter}, FallbackValue=Collapsed}" />
                             <MenuItem Header="Stop managing, keep it in IIS…" Click="OnUnmanageClick" ToolTip="SSLense stops renewing it. The site keeps working with this certificate until it expires." />
                             <MenuItem Header="Revoke and replace (key compromised)…" Click="OnRevokeClick" ToolTip="Installs a new certificate with a new key, then has the certificate authority revoke this one."
                                       Visibility="{Binding Summary.IsAutomatic, Converter={StaticResource BooleanToVisibilityConverter}, FallbackValue=Collapsed}" />
@@ -354,7 +356,38 @@
             </TabItem>
 
             <TabItem Header="History">
-                <Border Style="{StaticResource Card}" Padding="0" ClipToBounds="True">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Border Style="{StaticResource Card}" Margin="0,0,0,10">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Roll back…" Click="OnRollbackClick" IsEnabled="{Binding CanRollBack}" VerticalAlignment="Center" Margin="12,0,0,0"
+                                    ToolTip="Bind the certificate the last renewal replaced again. The current one is kept, so you can roll forward the same way." />
+                            <StackPanel>
+                                <TextBlock Text="Previous certificate" Style="{StaticResource FieldLabel}" />
+                                <TextBlock Text="{Binding RollbackMessage}" TextWrapping="Wrap" Foreground="{StaticResource TextBrush}" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                    <Border Grid.Row="1" Style="{StaticResource Card}" Padding="0" ClipToBounds="True" Margin="0,0,0,10">
+                        <Grid>
+                            <ListBox ItemsSource="{Binding Timeline}" BorderThickness="0" Background="Transparent" Padding="14,10"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Timeline of this certificate">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" Foreground="{StaticResource TextBrush}" Margin="0,2" /></DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                            <TextBlock Text="No issues, renewals, rollbacks or revocations recorded yet." Margin="16" Foreground="{StaticResource MutedTextBrush}">
+                                <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers><DataTrigger Binding="{Binding HasTimeline}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                                </Style></TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+                    </Border>
+                    <Border Grid.Row="2" Style="{StaticResource Card}" Padding="0" ClipToBounds="True">
                     <Grid>
                         <ListBox ItemsSource="{Binding RecentLogLines}" BorderThickness="0" Background="Transparent" Padding="14,10"
                                  FontFamily="Cascadia Mono, Consolas" FontSize="12" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
@@ -363,13 +396,14 @@
                                 <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" Foreground="{StaticResource TextBrush}" Margin="0,2" /></DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
-                        <TextBlock Text="Nothing recorded for this certificate yet." Margin="16" Foreground="{StaticResource MutedTextBrush}">
+                        <TextBlock Text="No recent log lines for this certificate." Margin="16" Foreground="{StaticResource MutedTextBrush}">
                             <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers><DataTrigger Binding="{Binding HasHistory}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
                             </Style></TextBlock.Style>
                         </TextBlock>
                     </Grid>
                 </Border>
+                </Grid>
             </TabItem>
         </TabControl>
     </Grid>
