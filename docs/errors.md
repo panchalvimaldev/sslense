@@ -1282,6 +1282,12 @@ Importing would leave a certificate without the certificate authority that renew
 
 Each folder is another server's site root, as a full UNC path this server can write to, such as \web2\c$\inetpub\shop, for a certificate validated over HTTP from its IIS site. When SSLense runs as SYSTEM, give the computer account write access to the share.
 
+<a id="ssl6034"></a>
+
+### SSL6034: Fleet folder not usable
+
+Fleet reports go to one shared folder every server can write to and read, as a full path such as \files\sslense-fleet. When the SSLense service runs as SYSTEM, give each server's computer account modify access to the share.
+
 ## SSL7xxx: Notifications
 
 <a id="ssl7001"></a>

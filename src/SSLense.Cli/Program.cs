@@ -437,6 +437,7 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     rootCommand.Subcommands.Add(CreateRollbackCommand(services));
     rootCommand.Subcommands.Add(CreateConfigCommand(services));
     rootCommand.Subcommands.Add(CreateFarmCommand(services));
+    rootCommand.Subcommands.Add(CreateFleetCommand(services));
     rootCommand.Subcommands.Add(CreateBulkCommand(services));
     rootCommand.Subcommands.Add(CreateVersionCommand(services));
     rootCommand.Subcommands.Add(CreateWatchCommand(services));
@@ -2135,6 +2136,104 @@ static Command CreateFarmCommand(IServiceProvider services)
             return CliExitCodes.Failed;
         }
     }
+}
+
+// Several servers from one place, first part (docs/design/fleet.md).
+static Command CreateFleetCommand(IServiceProvider services)
+{
+    var command = new Command("fleet", "Reports from several SSLense servers in one shared folder: each server writes its own, and any can show them all.");
+    SSLense.Core.Diagnostics.IFleetService Fleet() => services.GetRequiredService<SSLense.Core.Diagnostics.IFleetService>();
+
+    var pathOption = new Option<string?>("--path") { Description = "The shared folder, such as \\\\files\\sslense-fleet. Every server must be able to write to it." };
+    var offOption = new Option<bool>("--off") { Description = "Stop writing this server's report." };
+    var folderCommand = new Command("folder", "Set the shared folder this server reports to, or turn reports off. Without options, show it.");
+    folderCommand.Options.Add(pathOption);
+    folderCommand.Options.Add(offOption);
+    folderCommand.SetAction(async (parseResult, token) =>
+    {
+        try
+        {
+            var path = parseResult.GetValue(pathOption);
+            if (path is not null || parseResult.GetValue(offOption))
+            {
+                await Fleet().SetFolderAsync(parseResult.GetValue(offOption) ? null : path, token).ConfigureAwait(false);
+            }
+
+            var folder = await Fleet().GetFolderAsync(token).ConfigureAwait(false);
+            CliJson.Data = new { Folder = folder };
+            Console.WriteLine(folder is null
+                ? "Fleet reports are off."
+                : $"This server reports to '{folder}' after every hourly check. Run 'SSLense.Cli fleet report' to write it now.");
+            return CliExitCodes.Success;
+        }
+        catch (Exception exception)
+        {
+            WriteError(exception);
+            return CliExitCodes.Failed;
+        }
+    });
+    command.Subcommands.Add(folderCommand);
+
+    var reportCommand = new Command("report", "Write this server's report now.");
+    reportCommand.SetAction(async (_, token) =>
+    {
+        try
+        {
+            var path = await Fleet().WriteReportAsync(cancellationToken: token).ConfigureAwait(false);
+            Console.WriteLine(path is null ? "Fleet reports are off. Set a folder with 'fleet folder --path <share>'." : $"Report written to '{path}'.");
+            return path is null ? CliExitCodes.Failed : CliExitCodes.Success;
+        }
+        catch (Exception exception)
+        {
+            WriteError(exception);
+            return CliExitCodes.Failed;
+        }
+    });
+    command.Subcommands.Add(reportCommand);
+
+    var statusCommand = new Command("status", "Show every server's report: its certificates, which need attention, and servers that stopped reporting.");
+    statusCommand.SetAction(async (_, token) =>
+    {
+        try
+        {
+            var servers = await Fleet().ReadAsync(token).ConfigureAwait(false);
+            CliJson.Data = servers;
+            var attention = 0;
+            foreach (var server in servers)
+            {
+                if (server.Report is not { } report)
+                {
+                    attention++;
+                    Console.WriteLine($"{server.Server}: {server.Problem}");
+                    continue;
+                }
+
+                var state = server.Stale
+                    ? $"NOT REPORTING since {report.WrittenAt.ToLocalTime():yyyy-MM-dd HH:mm}"
+                    : report.LastCycleSucceeded == false ? $"PROBLEM: {report.LastCycleMessage}" : $"OK at {report.WrittenAt.ToLocalTime():yyyy-MM-dd HH:mm}";
+                attention += server.Stale || report.LastCycleSucceeded == false ? 1 : 0;
+                Console.WriteLine($"{report.Server} (SSLense {report.Version}): {state}");
+                foreach (var certificate in report.Certificates.OrderBy(value => value.NotAfter))
+                {
+                    var failed = certificate.LastRenewalSucceeded == false;
+                    attention += failed ? 1 : 0;
+                    Console.WriteLine($"    {certificate.NotAfter:yyyy-MM-dd}  {certificate.Name} ({string.Join(", ", certificate.Hosts)}){(failed ? $"  RENEWAL FAILED x{certificate.ConsecutiveFailures}: {certificate.LastRenewalMessage}" : string.Empty)}");
+                }
+            }
+
+            Console.WriteLine(servers.Count == 0
+                ? "No reports yet. Each server writes one after its hourly check, or with 'fleet report'."
+                : $"{servers.Count} server(s); {attention} item(s) need attention.");
+            return attention == 0 ? CliExitCodes.Success : CliExitCodes.Failed;
+        }
+        catch (Exception exception)
+        {
+            WriteError(exception);
+            return CliExitCodes.Failed;
+        }
+    });
+    command.Subcommands.Add(statusCommand);
+    return command;
 }
 
 // Clean-up of unused certificates (docs/design/certificate-cleanup.md).

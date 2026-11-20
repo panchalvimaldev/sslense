@@ -74,7 +74,7 @@ In priority order. Feedback from real users can change the order. The order of w
 7. **Bulk operations** (built, awaiting release). Adopt every unmanaged certificate at once, and issue for many sites from a CSV file.
 8. **New version notice** (built, awaiting release). Tell the administrator when a newer release is available, with a setting to turn the check off. Never install anything automatically.
 
-Later, by demand: certificates for IP addresses, TLS-ALPN-01 validation, and managing several servers from one place. IIS FTP sites ([design](docs/design/ftp-sites.md)) and export to Azure Key Vault over its REST API, with no new dependency ([design](docs/design/key-vault.md)), are built.
+Later, by demand: certificates for IP addresses, TLS-ALPN-01 validation, and managing several servers from one place. IIS FTP sites ([design](docs/design/ftp-sites.md)) and export to Azure Key Vault over its REST API, with no new dependency ([design](docs/design/key-vault.md)), are built. For several servers, fleet reports through a shared folder are built ([design](docs/design/fleet.md)); a central view is designed, not built.
 
 ## 5. Before 1.0
 
