@@ -113,10 +113,11 @@ Release settings live in one place each:
 
 **With winget** (once the package is published, after the next release): `winget install panchalvimal.SSLense`, and later `winget upgrade panchalvimal.SSLense`. winget checks the installer against the SHA-256 in its manifest before running it.
 
-**Downloading and verifying in PowerShell:** this checks the MSI against the SHA-256 published with the release before installing. It confirms the file is exactly what was published, and Windows usually does not show the SmartScreen prompt for a file downloaded this way.
+**Downloading and verifying in PowerShell:** this checks the MSI against the SHA-256 published with the release before installing. It confirms the file is exactly what was published. A file downloaded this way carries no "from the internet" mark, so SmartScreen does not step in.
 
 ```powershell
 $version = '0.24.0'   # the release to install
+$ProgressPreference = 'SilentlyContinue'   # Windows PowerShell downloads far faster without the progress bar
 $base = "https://github.com/panchalvimaldev/sslense/releases/download/v$version"
 $msi = Join-Path $env:TEMP "SSLense-$version-x64.msi"
 Invoke-WebRequest "$base/SSLense-$version-x64.msi" -OutFile $msi -UseBasicParsing
