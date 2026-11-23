@@ -68,6 +68,36 @@ internal static class StateSchema
     }
 
     /// <summary>
+    /// Checks the file's <c>schemaVersion</c> before it is read into its type. A newer SSLense may store values this one cannot
+    /// read, such as a DNS provider added later, and that must be reported as newer data, not as a damaged file.
+    /// Text that is not a JSON object, or has no version, is left for the caller to read and report.
+    /// </summary>
+    public static void EnsureSupported(string json, int supportedVersion, string path)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(json);
+            // A number, or a number in quotes, which the settings file's reader also accepts. Any other value is the reader's to report.
+            if (document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                document.RootElement.TryGetProperty("schemaVersion", out var value) &&
+                value.ValueKind switch
+                {
+                    System.Text.Json.JsonValueKind.Number => value.TryGetInt32(out var number) ? number : (int?)null,
+                    System.Text.Json.JsonValueKind.String => int.TryParse(value.GetString(), System.Globalization.NumberStyles.None,
+                        System.Globalization.CultureInfo.InvariantCulture, out var quoted) ? quoted : null,
+                    _ => null
+                } is { } version)
+            {
+                EnsureSupported(version, supportedVersion, path);
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // Damaged: the caller's own read reports it.
+        }
+    }
+
+    /// <summary>
     /// Copies the file to <c>&lt;path&gt;.v&lt;version&gt;.bak</c> before its first rewrite in a newer schema.
     /// An existing backup is kept, so the oldest copy of each version survives.
     /// </summary>

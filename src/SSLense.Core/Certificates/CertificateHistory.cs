@@ -124,9 +124,9 @@ internal sealed class JsonCertificateHistoryStore : ICertificateHistoryStore
 
         try
         {
-            var document = JsonSerializer.Deserialize<HistoryDocument>(
-                await _fileSystem.ReadAllTextAsync(_path, cancellationToken).ConfigureAwait(false),
-                SerializerOptions);
+            var json = await _fileSystem.ReadAllTextAsync(_path, cancellationToken).ConfigureAwait(false);
+            StateSchema.EnsureSupported(json, StateSchema.History, _path);
+            var document = JsonSerializer.Deserialize<HistoryDocument>(json, SerializerOptions);
             if (document is null)
             {
                 return [];

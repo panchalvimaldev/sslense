@@ -106,6 +106,7 @@ public sealed class JsonConfigStore : IConfigStore
         {
             var json = await _fileSystem.ReadAllTextAsync(_configPath, cancellationToken)
                 .ConfigureAwait(false);
+            StateSchema.EnsureSupported(json, StateSchema.Config, _configPath);
             var config = JsonSerializer.Deserialize<AppConfig>(json, SerializerOptions)
                 ?? throw new InvalidDataException(ErrorCodes.DataFileDamaged.Format($"Configuration file '{_configPath}' is empty."));
             StateSchema.EnsureSupported(config.SchemaVersion, StateSchema.Config, _configPath);

@@ -59,9 +59,9 @@ internal sealed class JsonReminderStateStore : IReminderStateStore
 
         try
         {
-            var state = JsonSerializer.Deserialize<ReminderState>(
-                await _fileSystem.ReadAllTextAsync(_path, cancellationToken).ConfigureAwait(false),
-                SerializerOptions) ?? new ReminderState();
+            var json = await _fileSystem.ReadAllTextAsync(_path, cancellationToken).ConfigureAwait(false);
+            StateSchema.EnsureSupported(json, StateSchema.ReminderState, _path);
+            var state = JsonSerializer.Deserialize<ReminderState>(json, SerializerOptions) ?? new ReminderState();
             StateSchema.EnsureSupported(state.SchemaVersion, StateSchema.ReminderState, _path);
             return state;
         }

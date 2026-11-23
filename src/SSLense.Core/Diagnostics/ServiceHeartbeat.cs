@@ -55,9 +55,9 @@ internal sealed class JsonServiceHeartbeatStore : IServiceHeartbeatStore
 
         try
         {
-            var heartbeat = JsonSerializer.Deserialize<ServiceHeartbeat>(
-                await _fileSystem.ReadAllTextAsync(_path, cancellationToken).ConfigureAwait(false),
-                SerializerOptions);
+            var json = await _fileSystem.ReadAllTextAsync(_path, cancellationToken).ConfigureAwait(false);
+            StateSchema.EnsureSupported(json, StateSchema.ServiceHeartbeat, _path);
+            var heartbeat = JsonSerializer.Deserialize<ServiceHeartbeat>(json, SerializerOptions);
             if (heartbeat is not null)
             {
                 StateSchema.EnsureSupported(heartbeat.SchemaVersion, StateSchema.ServiceHeartbeat, _path);

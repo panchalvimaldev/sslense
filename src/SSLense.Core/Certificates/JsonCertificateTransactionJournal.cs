@@ -111,6 +111,7 @@ internal sealed class JsonCertificateTransactionJournal : ICertificateTransactio
 
     private static CertificateTransaction Deserialize(string json, string path)
     {
+        StateSchema.EnsureSupported(json, StateSchema.Transactions, path);
         try
         {
             var node = JsonNode.Parse(json) as JsonObject
