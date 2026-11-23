@@ -42,11 +42,11 @@ Run each command from [tests/SSLense.Acceptance](../../tests/SSLense.Acceptance/
 
 | # | Command | Result |
 |---|---|---|
-| 1 | `parta` | |
-| 2 | `partb --zone <zone>` | |
-| 3 | `httpcheck --zone <zone>` | |
-| 4 | `scriptcheck --zone <zone>` | |
-| 5 | `servicecheck --zone <zone>` | |
+| 1 | `parta` | ✅ 83/83 (79b9460) |
+| 2 | `partb --zone <zone>` | ✅ 124/124 (482c14c); the first run on 79b9460 found [#82](https://github.com/panchalvimaldev/sslense/pull/82) |
+| 3 | `httpcheck --zone <zone>` | ✅ 14/14 (482c14c) |
+| 4 | `scriptcheck --zone <zone>` | ✅ 38/38 (79b9460) |
+| 5 | `servicecheck --zone <zone>` | ✅ 13/13 (79b9460) |
 
 ## 4. Features
 

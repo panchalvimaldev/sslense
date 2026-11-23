@@ -696,6 +696,20 @@ public sealed class SharedCertificateTests
     }
 
     [Fact]
+    public async Task Add_ReplaceExisting_AlsoRemovesTheCertificateTheOldRecordKeptForRollback()
+    {
+        var harness = new SharingHarness(
+            [SingleSite(), SingleSite(site: "Blog", thumbprint: "BLOGCERT") with { PreviousThumbprint = "BLOGKEPT" }],
+            Site("Shop", "shop.example.com"),
+            Site("Blog", "blog.example.com", thumbprint: Old));
+
+        await harness.Service.AddSiteAsync("Shop", "Blog", [], replaceExisting: true);
+
+        harness.Store.Verify(value => value.RemoveAsync("BLOGCERT", It.IsAny<CancellationToken>()), Times.Once);
+        harness.Store.Verify(value => value.RemoveAsync("BLOGKEPT", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task Add_RestoredAfterFailure_SavesNothing()
     {
         var harness = new SharingHarness([SingleSite()], Site("Shop", "shop.example.com"), Site("Blog", "blog.example.com", thumbprint: null));

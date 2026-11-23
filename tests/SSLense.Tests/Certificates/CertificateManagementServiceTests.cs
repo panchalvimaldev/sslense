@@ -36,6 +36,37 @@ public sealed class CertificateManagementServiceTests
         iis.VerifyAll();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RemoveAsync_TheCertificateKeptForRollback_LeavesTheStoreToo_UnlessABindingUsesIt(bool previousStillBound)
+    {
+        var record = new ManagedCertificate(
+            "My Site", ["example.com"], "admin@example.com", "NEW",
+            DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(89), PreviousThumbprint: "KEPT");
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([record]);
+        managed.Setup(value => value.RemoveAsync("My Site", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        var iis = new Mock<IIisService>(MockBehavior.Strict);
+        iis.Setup(value => value.RemoveHttpsBindingsAsync(
+            "My Site", It.IsAny<IReadOnlyList<string>>(), "NEW", It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        IReadOnlyList<IisSite> sites = previousStillBound
+            ? [new IisSite(2, "Other", "Started", null, [new IisBinding("https", "*", 443, "other.example.com", "kept", "My", true)])]
+            : [];
+        iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>())).ReturnsAsync(sites);
+        iis.Setup(value => value.GetFtpSitesAsync(It.IsAny<CancellationToken>())).ReturnsAsync([]);
+        var certificates = new Mock<ICertificateStore>(MockBehavior.Strict);
+        certificates.Setup(value => value.RemoveAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        var service = new CertificateManagementService(
+            managed.Object, certificates.Object, iis.Object, Mock.Of<ILogService>());
+
+        await service.RemoveAsync("My Site");
+
+        certificates.Verify(value => value.RemoveAsync("NEW", It.IsAny<CancellationToken>()), Times.Once);
+        certificates.Verify(value => value.RemoveAsync("KEPT", It.IsAny<CancellationToken>()), previousStillBound ? Times.Never : Times.Once);
+        managed.VerifyAll();
+    }
+
     [Fact]
     public async Task RemoveAsync_NoSiteCertificate_StopsManagingIt_AndLeavesIisAndTheStoreAlone()
     {
