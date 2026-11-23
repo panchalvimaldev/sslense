@@ -56,5 +56,5 @@ The numbers are the schema versions of `managed-certificates.json` and `config.j
 - **High contrast:** turning it on or off while the app runs takes effect at the next start.
 - **TLS-ALPN-01 validation is not available:** IIS owns port 443 through HTTP.sys ([plan](delivery-plan.md), item 12).
 - **Exchange:** it is updated through the ready-made `Exchange.ps1` script, not a built-in step. Its settings are reachable only through the Exchange Management Shell.
-- **Unsigned releases:** Windows SmartScreen may warn. Check the SHA-256 published with each release.
+- **Unsigned releases:** Windows SmartScreen may warn about a downloaded MSI. Check its SHA-256, or install with winget or the PowerShell commands in the README, which check it for you ([about the warning](../README.md#about-the-smartscreen-warning)).
 - **SFTP for web farms is not built:** it would need a package that the project spec does not list.

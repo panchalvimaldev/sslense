@@ -25,7 +25,7 @@ SSLense is a Windows application for IIS administrators. It gets free Let's Encr
 
 ## Quick start
 
-1. Download the latest `SSLense-<version>-x64.msi` from [Releases](https://github.com/panchalvimaldev/sslense/releases) and run it on the IIS server. It installs the desktop app, the command line, and the renewal service. No separate .NET installation is needed. Releases are not code-signed yet, so Windows SmartScreen may warn; each release lists a SHA-256 checksum to verify the download.
+1. Download `SSLense-<version>-x64.msi` from [Releases](https://github.com/panchalvimaldev/sslense/releases) and run it on the IIS server, or install with winget once the package is published ([installing and verifying](#installing-with-the-msi)). It installs the desktop app, the command line, and the renewal service. No separate .NET installation is needed. Releases are not code-signed, so Windows SmartScreen may warn about a downloaded MSI ([why, and what to do](#about-the-smartscreen-warning)).
 2. Open **SSLense** from the Start menu.
 3. Then either:
    - **Let's Encrypt:** **Add certificate** → **Free and automatic**, choose the site and host names, choose **Check**, and issue. Use staging first; production needs an explicit confirmation. With HTTP validation, the site needs a public DNS record and a port 80 binding. For a wildcard, or without port 80, choose DNS validation; see [DNS validation and wildcard certificates](#dns-validation-and-wildcard-certificates).
@@ -110,6 +110,34 @@ Release settings live in one place each:
 - **Bundled .NET runtime:** `build.ps1 -RuntimeVersion` (default `10.0.14`). Raise it to the latest .NET 10 servicing release before each SSLense release so customers receive runtime security fixes.
 
 ## Installing with the MSI
+
+**With winget** (once the package is published, after the next release): `winget install panchalvimal.SSLense`, and later `winget upgrade panchalvimal.SSLense`. winget checks the installer against the SHA-256 in its manifest before running it.
+
+**Downloading and verifying in PowerShell:** this checks the MSI against the SHA-256 published with the release before installing. It confirms the file is exactly what was published, and Windows usually does not show the SmartScreen prompt for a file downloaded this way.
+
+```powershell
+$version = '0.24.0'   # the release to install
+$base = "https://github.com/panchalvimaldev/sslense/releases/download/v$version"
+$msi = Join-Path $env:TEMP "SSLense-$version-x64.msi"
+Invoke-WebRequest "$base/SSLense-$version-x64.msi" -OutFile $msi -UseBasicParsing
+Invoke-WebRequest "$base/SSLense-$version-x64.msi.sha256" -OutFile "$msi.sha256" -UseBasicParsing
+$expected = (Get-Content "$msi.sha256" -Raw).Trim().Split(' ')[0]
+if ((Get-FileHash $msi -Algorithm SHA256).Hash -ne $expected) { Remove-Item $msi; throw 'The SHA-256 does not match, so SSLense was not installed.' }
+Start-Process msiexec.exe -ArgumentList "/i `"$msi`"" -Wait
+```
+
+### About the SmartScreen warning
+
+Windows SmartScreen warns about installers it has not seen often, and about installers that are not code-signed. SSLense releases are not signed, so a newly published MSI downloaded in a browser may show **"Windows protected your PC"**. This does not mean anything was found in the file. Reputation is tied to each release's file, so every new release starts again until enough people have installed it.
+
+To install anyway, safely:
+
+1. Check the file: in PowerShell, `Get-FileHash .\SSLense-<version>-x64.msi -Algorithm SHA256` must match the SHA-256 published with the release (the `.sha256` file and the release notes).
+2. Then choose **More info → Run anyway**, or right-click the MSI, choose **Properties**, tick **Unblock**, and run it.
+
+Or install with winget or the PowerShell commands above, which check the SHA-256 for you. Each release's MSI is also submitted to Microsoft for analysis, and a published release is never rebuilt, so its reputation can only grow.
+
+### Command-line installs
 
 ```powershell
 msiexec /i SSLense-0.9.0-x64.msi                      # interactive
