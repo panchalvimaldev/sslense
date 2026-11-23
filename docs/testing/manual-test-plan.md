@@ -57,7 +57,7 @@ Run each linked document's steps in order. The count is its number of steps.
 | Feature | Steps | Result |
 |---|---|---|
 | [Certificate history and rollback](history-and-rollback.md) | 9 | ✅ 9/9 (5ffea16); step 1 checked through the CLI |
-| [Maintenance windows](maintenance-windows.md) | 7 | |
+| [Maintenance windows](maintenance-windows.md) | 7 | ✅ 7/7 (5ffea16); steps 3 and 5 used revoked certificates, which ARI makes due at once |
 | [ARI replaces](ari-replaces.md) | 2 | |
 | [Recovery from a compromised key or account](compromise-recovery.md) | 7 | |
 | [Error codes](error-codes.md) | 7 | |
