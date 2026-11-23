@@ -72,11 +72,11 @@ internal sealed class JsonDnsChallengeJournal : IDnsChallengeJournal
         {
             cancellationToken.ThrowIfCancellationRequested();
             DnsChallengeEntry? entry;
+            var json = await _fileSystem.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+            StateSchema.EnsureSupported(json, StateSchema.DnsChallenges, path);
             try
             {
-                entry = JsonSerializer.Deserialize<DnsChallengeEntry>(
-                    await _fileSystem.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false),
-                    SerializerOptions);
+                entry = JsonSerializer.Deserialize<DnsChallengeEntry>(json, SerializerOptions);
             }
             catch (JsonException exception)
             {

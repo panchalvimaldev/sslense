@@ -89,11 +89,11 @@ internal sealed class JsonChallengeJournal : IChallengeJournal
         {
             cancellationToken.ThrowIfCancellationRequested();
             ChallengeArtifacts? artifacts;
+            var json = await _fileSystem.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+            StateSchema.EnsureSupported(json, StateSchema.Transactions, path);
             try
             {
-                artifacts = JsonSerializer.Deserialize<ChallengeArtifacts>(
-                    await _fileSystem.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false),
-                    SerializerOptions);
+                artifacts = JsonSerializer.Deserialize<ChallengeArtifacts>(json, SerializerOptions);
             }
             catch (JsonException exception)
             {

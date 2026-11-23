@@ -92,9 +92,9 @@ internal sealed class JsonPendingRequestStore : IPendingRequestStore
 
         try
         {
-            var document = JsonSerializer.Deserialize<Document>(
-                    await _fileSystem.ReadAllTextAsync(_path, cancellationToken).ConfigureAwait(false),
-                    SerializerOptions)
+            var json = await _fileSystem.ReadAllTextAsync(_path, cancellationToken).ConfigureAwait(false);
+            StateSchema.EnsureSupported(json, StateSchema.PendingRequests, _path);
+            var document = JsonSerializer.Deserialize<Document>(json, SerializerOptions)
                 ?? throw new InvalidDataException(ErrorCodes.DataFileDamaged.Format($"Pending requests file '{_path}' is empty."));
             StateSchema.EnsureSupported(document.SchemaVersion, StateSchema.PendingRequests, _path);
             return document.Requests ?? [];
