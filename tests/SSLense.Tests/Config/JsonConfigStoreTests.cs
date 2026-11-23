@@ -94,7 +94,14 @@ public sealed class JsonConfigStoreTests
 
     [Theory]
     [InlineData("""{ "schemaVersion": 99, "x": "unreadable" }""", true)]
+    [InlineData("""{ "schemaVersion": "99" }""", true)]
     [InlineData("""{ "schemaVersion": 2 }""", false)]
+    [InlineData("""{ "schemaVersion": "2" }""", false)]
+    [InlineData("""{ "schemaVersion": null }""", false)]
+    [InlineData("""{ "schemaVersion": true }""", false)]
+    [InlineData("""{ "schemaVersion": { "a": 1 } }""", false)]
+    [InlineData("""{ "schemaVersion": "eleven" }""", false)]
+    [InlineData("""{ "schemaVersion": 1.5 }""", false)]
     [InlineData("""{ "x": 1 }""", false)]
     [InlineData("""[ 1, 2 ]""", false)]
     [InlineData("""{ not json""", false)]
@@ -104,6 +111,20 @@ public sealed class JsonConfigStoreTests
 
         Assert.Equal(newer, exception is InvalidDataException { Message: var message } && message.StartsWith(ErrorCodes.DataFromNewerVersion.Code, StringComparison.Ordinal));
         Assert.Equal(newer, exception is not null);
+    }
+
+    [Fact]
+    public async Task Load_AQuotedSchemaVersion_StillReads_AndADamagedOneIsReportedAsDamaged()
+    {
+        var fileSystem = new InMemoryFileSystem();
+        fileSystem.Files[ConfigPath] = """{ "schemaVersion": "11", "defaultEmail": "admin@example.com" }""";
+        var store = new JsonConfigStore(fileSystem, ConfigPath);
+
+        Assert.Equal("admin@example.com", (await store.LoadAsync()).DefaultEmail);
+
+        fileSystem.Files[ConfigPath] = """{ "schemaVersion": true }""";
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(() => store.LoadAsync());
+        Assert.StartsWith(ErrorCodes.DataFileDamaged.Code, exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

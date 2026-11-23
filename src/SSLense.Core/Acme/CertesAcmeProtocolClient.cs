@@ -109,6 +109,13 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
             var authorizationResource = await authorization.Resource()
                 .WaitAsync(cancellationToken)
                 .ConfigureAwait(false);
+
+            // A reused authorization is already valid; asking to validate it again is refused by stricter CAs.
+            if (string.Equals(authorizationResource.Status.ToString(), "Valid", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             var challenge = await authorization.Http().WaitAsync(cancellationToken).ConfigureAwait(false)
                 ?? throw new SslenseException(ErrorCodes.Http01NotOffered, 
                     $"The ACME server did not offer HTTP-01 for '{authorizationResource.Identifier.Value}'.");

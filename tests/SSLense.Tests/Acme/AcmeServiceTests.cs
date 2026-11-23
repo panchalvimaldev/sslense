@@ -932,6 +932,38 @@ public sealed class AcmeServiceTests
     }
 
     [Fact]
+    public async Task IssueAsync_AnAuthorizationTheCaReused_IsNotValidatedAgain()
+    {
+        // The CA kept the host's authorization valid from an earlier order, so the order has no challenge for it.
+        var iis = MockIis(CreateSite("example.com"));
+        iis.Setup(value => value.ConfigureHttpsBindingsAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var order = new Mock<IAcmeOrderSession>();
+        order.SetupGet(value => value.Challenges).Returns([]);
+        order.Setup(value => value.FinalizeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(CreateBundle());
+        var protocol = new Mock<IAcmeProtocolClient>();
+        protocol.Setup(value => value.CreateOrderAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateAuthority>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(order.Object);
+        var handler = new Mock<IChallengeHandler>(MockBehavior.Strict);
+        var store = new Mock<ICertificateStore>();
+        store.Setup(value => value.ImportPfxAsync(It.IsAny<byte[]>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new InstalledCertificate("AABBCC", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(60), true));
+        var artifacts = new Mock<ICertificateArtifactStore>();
+        artifacts.Setup(value => value.SaveAsync(
+                It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateBundle>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AcmeIssueResult("certificate.pem", null, ["example.com"]));
+        var service = new AcmeService(iis.Object, protocol.Object, handler.Object, Mock.Of<IChallengeProbe>(), artifacts.Object, store.Object, EmptyManagedStoreMock().Object);
+
+        await service.IssueAsync(new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com"));
+
+        order.Verify(value => value.ValidateAsync(It.IsAny<AcmeHttpChallenge>(), It.IsAny<CancellationToken>()), Times.Never);
+        order.Verify(value => value.FinalizeAsync("example.com", It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+        handler.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task IssueAsync_ASecondCertificateWithHttpValidation_ServesTheChallengeFromTheSitesFolder()
     {
         var challenge = new AcmeHttpChallenge("b.example.com", "token", "key-authorization");

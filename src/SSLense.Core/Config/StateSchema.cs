@@ -77,9 +77,16 @@ internal static class StateSchema
         try
         {
             using var document = System.Text.Json.JsonDocument.Parse(json);
+            // A number, or a number in quotes, which the settings file's reader also accepts. Any other value is the reader's to report.
             if (document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object &&
                 document.RootElement.TryGetProperty("schemaVersion", out var value) &&
-                value.TryGetInt32(out var version))
+                value.ValueKind switch
+                {
+                    System.Text.Json.JsonValueKind.Number => value.TryGetInt32(out var number) ? number : (int?)null,
+                    System.Text.Json.JsonValueKind.String => int.TryParse(value.GetString(), System.Globalization.NumberStyles.None,
+                        System.Globalization.CultureInfo.InvariantCulture, out var quoted) ? quoted : null,
+                    _ => null
+                } is { } version)
             {
                 EnsureSupported(version, supportedVersion, path);
             }

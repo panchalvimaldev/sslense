@@ -656,7 +656,8 @@ internal sealed partial class AcmeService : IAcmeService
         IProgress<ProgressEvent>? progress,
         CancellationToken cancellationToken)
     {
-        if (order.Challenges.Count != hosts.Count)
+        // Hosts whose authorization the CA reused have no challenge; the rest have one each.
+        if (order.Challenges.Count > hosts.Count)
         {
             throw new SslenseException(ErrorCodes.AcmeUnexpectedChallenges, "The ACME server did not return one HTTP-01 challenge per host.");
         }
