@@ -28,11 +28,11 @@ Everything to check by hand before the next release (0.24.0), in one pass. Run i
 
 | # | Steps | Expected | Result |
 |---|---|---|---|
-| 1 | On A, install 0.23.0, issue two staging certificates (one HTTP, one DNS), add a deployment step | Working 0.23.0 setup | |
-| 2 | Check the 0.24.0 MSI's SHA-256 against the published `.sha256`; install it over 0.23.0 | Upgraded; the service runs; both certificates and the step are still there; `.v<n>.bak` copies exist | |
-| 3 | `SSLense.Cli health` | No failures | |
-| 4 | Reinstall 0.23.0 over 0.24.0 | 0.23.0 refuses the newer data (SSL6023) and changes nothing | |
-| 5 | Install 0.24.0 again; uninstall; install | `C:\ProgramData\SSLense` kept and used again | |
+| 1 | On A, install 0.23.0, issue two staging certificates (one HTTP, one DNS), add a deployment step | Working 0.23.0 setup | ✅ (0.23.0) |
+| 2 | Check the 0.24.0 MSI's SHA-256 against the published `.sha256`; install it over 0.23.0; then renew one certificate with `--force` | Upgraded; the service runs; both certificates and the step are still there, unchanged; the renewal succeeds and, as the first save in the new format, leaves `.v<n>.bak` copies | ✅ (5ffea16) |
+| 3 | `SSLense.Cli health` | No failures | ✅ 28 passed, 1 warning (no notifications set up) |
+| 4 | Reinstall 0.23.0 over 0.24.0 | 0.23.0 refuses the newer data (SSL6023) and changes nothing. 0.23.0 itself reports it as invalid JSON (SSL6022) when it meets a value it does not know; fixed from 0.24.0 ([#83](https://github.com/panchalvimaldev/sslense/pull/83)) | ✅ |
+| 5 | Install 0.24.0 again; uninstall; install | `C:\ProgramData\SSLense` kept and used again | ✅ |
 | 6 | On a clean VM, download the MSI in Edge and run it | SmartScreen may warn ("Windows protected your PC"); the README's steps (check the SHA-256, then More info › Run anyway or Unblock) install it |
 | 7 | On a clean VM, run the README's PowerShell download-and-verify commands | The SHA-256 check passes and the installer runs; note whether SmartScreen prompts |
 
