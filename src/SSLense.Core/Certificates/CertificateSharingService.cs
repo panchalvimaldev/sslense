@@ -96,20 +96,27 @@ internal sealed class CertificateSharingService(
         await journal.CompleteAsync(transaction.Id, CancellationToken.None).ConfigureAwait(false);
 
         // Only a certificate SSLense obtained is removed; one from another provider may have cost money or be used elsewhere.
+        // The one its record kept for rollback goes too, because nothing refers to it once the record is gone.
         if (existing is { Source: CertificateSource.Acme })
         {
-            try
+            string?[] obtained = [existing.Thumbprint, existing.PreviousThumbprint];
+            foreach (var thumbprint in obtained.OfType<string>()
+                         .Where(value => !string.Equals(value, owner.Thumbprint, StringComparison.OrdinalIgnoreCase))
+                         .Distinct(StringComparer.OrdinalIgnoreCase))
             {
-                if (await ReplacedCertificateCleanup
-                        .RemoveIfUnusedAsync(iisService, certificateStore, existing.Thumbprint, owner.Thumbprint, CancellationToken.None)
-                        .ConfigureAwait(false) is { } message)
+                try
                 {
-                    progress?.Report(new ProgressEvent("cleanup", $"The site is shared, but {message}"));
+                    if (await ReplacedCertificateCleanup
+                            .RemoveIfUnusedAsync(iisService, certificateStore, thumbprint, owner.Thumbprint, CancellationToken.None)
+                            .ConfigureAwait(false) is { } message)
+                    {
+                        progress?.Report(new ProgressEvent("cleanup", $"The site is shared, but {message}"));
+                    }
                 }
-            }
-            catch (Exception exception)
-            {
-                progress?.Report(new ProgressEvent("cleanup", $"The site is shared, but its old certificate could not be checked for removal: {exception.Message}"));
+                catch (Exception exception)
+                {
+                    progress?.Report(new ProgressEvent("cleanup", $"The site is shared, but its old certificate could not be checked for removal: {exception.Message}"));
+                }
             }
         }
 

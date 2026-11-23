@@ -39,6 +39,7 @@ internal static partial class PartB
     private static readonly string CompleteFlag = Path.Combine(Backup, "backup-complete.flag");
     private static readonly TimeSpan OrderSpacing = TimeSpan.FromSeconds(30);
     private static string _email = "";
+    private static string? _keptForRollback;
 
     public static void Configure(string? zone, string? cli, string? installed)
     {
@@ -249,12 +250,17 @@ internal static partial class PartB
                 var renewed = Get(A).Thumbprint;
                 Report.Check("Renewed", !Same(first, renewed), $"{Iis.Short(first)} -> {Iis.Short(renewed)}");
                 await RequireServing(renewed, HostA);
-                Report.Check("Old certificate removed from the store", !Iis.InStore(first));
+                // The replaced certificate is kept for rollback, and the next renewal removes it (docs/design/history-and-rollback.md).
+                Report.Check("Replaced certificate kept for rollback", Iis.InStore(first));
+                await Renew(A, force: true, expectNew: true);
+                var latest = Get(A).Thumbprint;
+                await RequireServing(latest, HostA);
+                Report.Check("The next renewal removes the one kept before", !Iis.InStore(first) && Iis.InStore(renewed));
 
                 Iis.EnsureSite(B, HostB);
                 await ExpectRefused("sharing a certificate that uses HTTP validation", "share", "add", "--from", A, "--to", B, "--hosts", HostB);
                 var removed = await Run(Cli, "remove", "--site", A, "--yes");
-                Report.Check("Removed", removed.ExitCode == 0 && !Iis.InStore(renewed), $"exit {removed.ExitCode}");
+                Report.Check("Removed, with the certificate kept for rollback", removed.ExitCode == 0 && !Iis.InStore(latest) && !Iis.InStore(renewed), $"exit {removed.ExitCode}");
             });
         }
         finally
@@ -441,13 +447,19 @@ internal static partial class PartB
             var now = Get(A).Thumbprint;
             Report.Check("New certificate", !Same(old, now), $"{Iis.Short(old)} -> {Iis.Short(now)}");
             await RequireServing(now, HostA, HostB, HostC);
-            Report.Check("Old certificate removed from the store", !Iis.InStore(old));
+            Report.Check("Replaced certificate kept for rollback", Iis.InStore(old));
+            _keptForRollback = old;
         });
 
         await Report.Scenario("B7 A stopped site is included, with no live check", async () =>
         {
             Iis.StopSite(C);
             await Renew(A, force: true, expectNew: true);
+            if (_keptForRollback is { } kept)
+            {
+                Report.Check("The certificate kept before is removed", !Iis.InStore(kept));
+            }
+
             var record = Get(A);
             Report.Check("Not left out", !record.AnyPending);
             Report.Check("Stopped site's binding moved", Same(Iis.BoundThumbprint(C, HostC) ?? "", record.Thumbprint));

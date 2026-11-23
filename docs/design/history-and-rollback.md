@@ -15,6 +15,7 @@ Before this feature, a renewal removed the replaced certificate from `LocalMachi
 - A renewal keeps the certificate it replaces while that certificate is still valid, and records its thumbprint on the managed certificate (`PreviousThumbprint`, managed-certificate schema 14).
 - The next renewal removes the certificate kept before (if nothing uses it), so each certificate keeps at most one previous certificate in the store.
 - A replaced certificate that has already expired is removed as before.
+- Removing the certificate (`remove`, or `share add --replace-existing` replacing a site's own record) removes the one kept for it too, unless an IIS binding or FTP site still uses it, because nothing refers to it once the record is gone.
 - **Revoke and replace** never keeps the revoked certificate: a compromised key is not one to go back to.
 - The clean-up of unused certificates never suggests the kept certificate, and the deployment steps' clean-up does not remove it.
 

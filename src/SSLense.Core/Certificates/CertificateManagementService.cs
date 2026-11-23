@@ -95,6 +95,15 @@ internal sealed class CertificateManagementService(
             await certificateStore.RemoveAsync(record.Thumbprint, cancellationToken).ConfigureAwait(false);
         }
 
+        // The one kept for rollback (docs/design/history-and-rollback.md) goes too, since nothing refers to it once the
+        // record is gone, unless a binding or an FTP site still uses it.
+        if (record.Source == CertificateSource.Acme && record.PreviousThumbprint is { } kept)
+        {
+            await ReplacedCertificateCleanup
+                .RemoveIfUnusedAsync(iisService, certificateStore, kept, record.Thumbprint, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         await managedStore.RemoveAsync(record.SiteName, cancellationToken).ConfigureAwait(false);
     }
 
