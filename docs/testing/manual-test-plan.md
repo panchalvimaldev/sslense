@@ -24,6 +24,8 @@ Everything to check by hand before the next release (0.24.0), in one pass. Run i
 
 **Let's Encrypt staging only**, except where a step names another test CA. Never production.
 
+A step-by-step setup on Amazon EC2 with a Cloudflare domain and a Route 53 subdomain is in [test-server-aws.md](test-server-aws.md).
+
 ## 2. Install and upgrade (blocks release)
 
 | # | Steps | Expected | Result |
