@@ -33,6 +33,8 @@ Everything to check by hand before the next release (0.24.0), in one pass. Run i
 | 3 | `SSLense.Cli health` | No failures | |
 | 4 | Reinstall 0.23.0 over 0.24.0 | 0.23.0 refuses the newer data (SSL6023) and changes nothing | |
 | 5 | Install 0.24.0 again; uninstall; install | `C:\ProgramData\SSLense` kept and used again | |
+| 6 | On a clean VM, download the MSI in Edge and run it | SmartScreen may warn ("Windows protected your PC"); the README's steps (check the SHA-256, then More info › Run anyway or Unblock) install it |
+| 7 | On a clean VM, run the README's PowerShell download-and-verify commands | The SHA-256 check passes and the installer runs; note whether SmartScreen prompts |
 
 ## 3. Acceptance checks on real IIS (blocks release)
 
@@ -145,3 +147,5 @@ After a release decision:
 1. Tag the release.
 2. Publish the release notes from [release-notes.md](../release-notes.md).
 3. Submit the winget manifests ([winget.md](../design/winget.md)).
+4. Submit the release's MSI to Microsoft Security Intelligence (https://www.microsoft.com/wdsi/filesubmission) as a software developer, so SmartScreen has an analysis of it.
+5. Never rebuild or replace a published MSI: its SmartScreen reputation belongs to that exact file. A fix is a new version.
