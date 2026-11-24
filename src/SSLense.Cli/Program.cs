@@ -12,6 +12,7 @@ using SSLense.Core.Notifications;
 using SSLense.Core.Certificates;
 using SSLense.Core.Validation;
 using SSLense.Core.Diagnostics;
+using SSLense.Core.Errors;
 using SSLense.Cli;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -510,7 +511,7 @@ static async Task<int> RemoveAsync(ICertificateManagementService service, string
 {
     if (!confirmed)
     {
-        Console.Error.WriteLine("Error: --yes is required because removal deletes matching HTTPS bindings.");
+        Console.Error.WriteLine($"Error: {ErrorCodes.ConfirmationRequired.Format("--yes is required because removal deletes matching HTTPS bindings.")}");
         try
         {
             var detail = await service.GetDetailsAsync(site, token).ConfigureAwait(false);
@@ -740,7 +741,7 @@ static async Task<int> ShowPendingAsync(
             var request = await service.GetRequestAsync(site, token).ConfigureAwait(false);
             if (request is null)
             {
-                Console.Error.WriteLine($"Error: IIS site '{site}' has no pending certificate request.");
+                Console.Error.WriteLine($"Error: {ErrorCodes.NoPendingRequest.Format($"IIS site '{site}' has no pending certificate request.")}");
                 return 1;
             }
 
@@ -1045,13 +1046,13 @@ static async Task<int> AddDeploymentStepAsync(
     var given = new[] { keyAccess, restartService, script, exportPfx, exportPem, centralStore, ftpSite, keyVault, appService, httpSys, remoteDesktop, sqlServer, webServer }.Count(value => value is not null);
     if (given != 1)
     {
-        Console.Error.WriteLine("Error: give exactly one of --grant-key-access, --restart-service, --script, --export-pfx, --export-pem, --central-store, --ftp-site, --key-vault, --http-sys, --remote-desktop, --sql-server, --web-server, or --app-service.");
+        Console.Error.WriteLine($"Error: {ErrorCodes.CommandOptionsInvalid.Format("give exactly one of --grant-key-access, --restart-service, --script, --export-pfx, --export-pem, --central-store, --ftp-site, --key-vault, --http-sys, --remote-desktop, --sql-server, --web-server, or --app-service.")}");
         return 1;
     }
 
     if ((keyVault ?? appService) is not null && (string.IsNullOrWhiteSpace(tenant) || string.IsNullOrWhiteSpace(clientId)))
     {
-        Console.Error.WriteLine("Error: --key-vault and --app-service need --tenant and --client-id.");
+        Console.Error.WriteLine($"Error: {ErrorCodes.CommandOptionsInvalid.Format("--key-vault and --app-service need --tenant and --client-id.")}");
         return 1;
     }
 
@@ -2027,7 +2028,7 @@ static Command CreateConfigCommand(IServiceProvider services)
         var password = Environment.GetEnvironmentVariable(PasswordVariable);
         if (parseResult.GetValue(secretsOption) && string.IsNullOrEmpty(password))
         {
-            Console.Error.WriteLine($"Error: --include-secrets needs a password in the {PasswordVariable} environment variable.");
+            Console.Error.WriteLine($"Error: {ErrorCodes.CommandOptionsInvalid.Format($"--include-secrets needs a password in the {PasswordVariable} environment variable.")}");
             return CliExitCodes.Failed;
         }
 
@@ -2057,7 +2058,7 @@ static Command CreateConfigCommand(IServiceProvider services)
     {
         if (!parseResult.GetValue(yesOption))
         {
-            Console.Error.WriteLine("Error: --yes is required, because the settings on this server are replaced.");
+            Console.Error.WriteLine($"Error: {ErrorCodes.ConfirmationRequired.Format("--yes is required, because the settings on this server are replaced.")}");
             return CliExitCodes.Failed;
         }
 
@@ -2275,7 +2276,7 @@ static Command CreateCleanupCommand(IServiceProvider services)
     {
         if (!parseResult.GetValue(yesOption))
         {
-            Console.Error.WriteLine("Error: --yes is required, because removed certificates cannot be restored without a copy.");
+            Console.Error.WriteLine($"Error: {ErrorCodes.ConfirmationRequired.Format("--yes is required, because removed certificates cannot be restored without a copy.")}");
             return 1;
         }
 
@@ -2320,13 +2321,13 @@ static Command CreateRevokeCommand(IServiceProvider services)
         var file = parseResult.GetValue(fileOption);
         if ((site is null) == (file is null) || (file is not null && parseResult.GetValue(caOption) is null))
         {
-            Console.Error.WriteLine("Error: give --site, or --file with --ca.");
+            Console.Error.WriteLine($"Error: {ErrorCodes.CommandOptionsInvalid.Format("give --site, or --file with --ca.")}");
             return 1;
         }
 
         if (!parseResult.GetValue(yesOption))
         {
-            Console.Error.WriteLine("Error: --yes is required, because revocation cannot be undone.");
+            Console.Error.WriteLine($"Error: {ErrorCodes.ConfirmationRequired.Format("--yes is required, because revocation cannot be undone.")}");
             return 1;
         }
 
@@ -2366,7 +2367,7 @@ static Command CreateAccountCommand(IServiceProvider services)
     {
         if (!parseResult.GetValue(yesOption))
         {
-            Console.Error.WriteLine("Error: --yes is required, because the old key stops working at once.");
+            Console.Error.WriteLine($"Error: {ErrorCodes.ConfirmationRequired.Format("--yes is required, because the old key stops working at once.")}");
             return 1;
         }
 
@@ -2599,7 +2600,7 @@ static async Task<int> SetRemindersAsync(
 {
     if (startDays is null && repeatDays is null && sendAt is null && notices is null && repeatAutomatic is null && weekly is null && checks is null)
     {
-        Console.Error.WriteLine("Error: specify at least one of --start-days, --repeat-days, --send-at, --notices, --repeat-automatic, --weekly, --checks.");
+        Console.Error.WriteLine($"Error: {ErrorCodes.CommandOptionsInvalid.Format("specify at least one of --start-days, --repeat-days, --send-at, --notices, --repeat-automatic, --weekly, --checks.")}");
         return 1;
     }
 
@@ -2835,7 +2836,7 @@ static async Task<int> ConfigureNotificationOptionsAsync(
 {
     if (eventLog is null && notifySuccess is null)
     {
-        Console.Error.WriteLine("Error: specify --event-log and/or --notify-success.");
+        Console.Error.WriteLine($"Error: {ErrorCodes.CommandOptionsInvalid.Format("specify --event-log and/or --notify-success.")}");
         return 1;
     }
 
@@ -2866,7 +2867,7 @@ static Task<int> RemoveNotificationChannelAsync(
 {
     if (email == chat.HasValue)
     {
-        Console.Error.WriteLine("Error: specify exactly one of --email or --chat <number>.");
+        Console.Error.WriteLine($"Error: {ErrorCodes.CommandOptionsInvalid.Format("specify exactly one of --email or --chat <number>.")}");
         return Task.FromResult(1);
     }
 
@@ -3318,13 +3319,13 @@ static async Task<int> IssueAsync(
     {
         if ((site is null) == (noSite is null))
         {
-            Console.Error.WriteLine("Error: give either --site, for an IIS site, or --no-site with a name, for a certificate with no IIS site.");
+            Console.Error.WriteLine($"Error: {ErrorCodes.CommandOptionsInvalid.Format("give either --site, for an IIS site, or --no-site with a name, for a certificate with no IIS site.")}");
             return 1;
         }
 
         if (noSite is not null && hostsValue is not null)
         {
-            Console.Error.WriteLine("Error: a certificate with no IIS site has nothing to bind; give its names with --names instead of --hosts.");
+            Console.Error.WriteLine($"Error: {ErrorCodes.CommandOptionsInvalid.Format("a certificate with no IIS site has nothing to bind; give its names with --names instead of --hosts.")}");
             return 1;
         }
 

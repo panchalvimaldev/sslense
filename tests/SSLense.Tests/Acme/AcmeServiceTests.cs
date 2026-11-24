@@ -263,6 +263,26 @@ public sealed class AcmeServiceTests
     }
 
     [Fact]
+    public async Task IssueAsync_ASiteInIisConfigurationHistory_IsRefusedBeforeWritingAnything()
+    {
+        // Found in the combined test: New-Item -Force reused C:\inetpub\history, and the self-check got 401 and 500.
+        var history = Environment.ExpandEnvironmentVariables(@"%SystemDrive%\inetpub\history");
+        var site = new IisSite(1, "My Site", "Started", history, [new IisBinding("http", "*", 80, "example.com", null, null, false)]);
+        var protocol = new Mock<IAcmeProtocolClient>(MockBehavior.Strict);
+        var handler = new Mock<IChallengeHandler>(MockBehavior.Strict);
+        var service = new AcmeService(
+            MockIis(site).Object, protocol.Object, handler.Object, Mock.Of<IChallengeProbe>(),
+            Mock.Of<ICertificateArtifactStore>(), Mock.Of<ICertificateStore>(), EmptyManagedStore());
+
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.IssueAsync(
+            new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com")));
+
+        Assert.StartsWith("SSL1032", exception.Message, StringComparison.Ordinal);
+        protocol.VerifyNoOtherCalls();
+        handler.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task IssueAsync_AnIpAddressThatCannotBePlacedOnThisServer_IsRefusedBeforeOrdering()
     {
         // Behind NAT with several addresses of the same kind, SSLense cannot tell which one receives the traffic.

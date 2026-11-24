@@ -47,10 +47,8 @@ internal sealed class HttpChallengeProbe : IChallengeProbe, IDisposable
         {
             if (!response.IsSuccessStatusCode)
             {
-                throw new SslenseException(ErrorCodes.ChallengeSelfCheckStatus, 
-                    $"HTTP-01 self-check for '{challenge.Host}' returned {(int)response.StatusCode}. " +
-                    "Confirm public DNS or tunnel routing targets this server, preserves the HTTP Host header, " +
-                    "and reaches port 80.");
+                throw new SslenseException(ErrorCodes.ChallengeSelfCheckStatus,
+                    $"HTTP-01 self-check for '{challenge.Host}' returned {(int)response.StatusCode}. {StatusHint((int)response.StatusCode)}");
             }
 
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -62,6 +60,25 @@ internal sealed class HttpChallengeProbe : IChallengeProbe, IDisposable
             }
         }
     }
+
+    /// <summary>
+    /// What the status says about the cause. The request did reach a web server, so for these the cause is usually the
+    /// site, not the route (found in the combined test: a site pointed at a folder IIS could not read answered 401 and 500).
+    /// </summary>
+    internal static string StatusHint(int status) => status switch
+    {
+        401 or 403 =>
+            "The site refused to serve the challenge file: check that IIS can read the site's folder (IUSR and IIS_IUSRS need " +
+            "read access) and that anonymous access is allowed for /.well-known/acme-challenge.",
+        404 =>
+            "The challenge file was not found: check that this host name reaches this site, not another site or the Default " +
+            "Web Site, and that the site's physical folder is the one SSLense wrote to.",
+        >= 500 and < 600 =>
+            "The web server failed to serve the challenge file: check the web.config files of the site and its folders, and " +
+            "that the site's physical folder is its own (not IIS's configuration history folder, C:\\inetpub\\history).",
+        _ =>
+            "Confirm public DNS or tunnel routing targets this server, preserves the HTTP Host header, and reaches port 80."
+    };
 
     public void Dispose() => _httpClient.Dispose();
 }
