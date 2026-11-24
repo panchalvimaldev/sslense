@@ -60,7 +60,7 @@ Run each linked document's steps in order. The count is its number of steps.
 | [Maintenance windows](maintenance-windows.md) | 7 | ✅ 7/7 (5ffea16); steps 3 and 5 used revoked certificates, which ARI makes due at once |
 | [ARI replaces](ari-replaces.md) | 2 | ✅ 2/2 (5ffea16) |
 | [Recovery from a compromised key or account](compromise-recovery.md) | 7 | ✅ 7/7 (5ffea16) |
-| [Error codes](error-codes.md) | 7 | |
+| [Error codes](error-codes.md) | 7 | ✅ 7/7 (5ffea16) |
 
 ### Validation
 
