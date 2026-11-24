@@ -10,6 +10,7 @@ Status: **built** November 19, 2026. Feature 11 of [the delivery plan](../delive
   ```
 - **Validated over HTTP, answered by SSLense** (feature 5). A certificate authority cannot validate an IP address through DNS, and SSLense's listener answers requests to any address on port 80. Any other validation is refused with SSL6027.
 - **Bound in IIS by address:** an HTTPS binding `203.0.113.10:443` without SNI (IPv6 in brackets), checked over HTTPS and rolled back like any other. A certificate can cover IP addresses and host names together.
+- **Behind NAT, at the server's own address.** On a cloud server, or behind a router forwarding ports 80 and 443, the public address is on no network adapter: its traffic arrives at the server's own address, so a binding on the public address would never be used. When the server does not have the address, SSLense binds the certificate at the server's only address of the same kind (IPv4 or IPv6), such as `172.31.11.222:443`, and checks and removes it there; the certificate still names the public address. With several addresses of that kind and none of them the public one, it cannot tell which receives the traffic and refuses before ordering (SSL6035). Found in the combined test on an AWS server.
 - **Renewed automatically** like any other certificate; a six-day certificate renews every few days, so keep the service running.
 
 ## How it works

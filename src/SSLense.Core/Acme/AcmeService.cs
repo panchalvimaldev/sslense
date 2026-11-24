@@ -218,6 +218,14 @@ internal sealed partial class AcmeService : IAcmeService
                 "choose HTTP validation with SSLense answering the challenge itself (--validation http-self).");
         }
 
+        // Where each address is bound must be known before ordering: behind NAT, the server's own address (docs/design/ip-certificates.md).
+        if (!request.NoSite &&
+            hosts.Where(IsIpAddress).Select(host => System.Net.IPAddress.Parse(host.Trim('[', ']')))
+                .FirstOrDefault(address => LocalAddress.For(address) is null) is { } unplaced)
+        {
+            throw new SslenseException(ErrorCodes.IpAddressNotOnThisServer, IisService.LocalAddressMessage(unplaced));
+        }
+
         // An IP address needs no host binding: SSLense binds the certificate to the address.
         foreach (var host in sharedRecord is null && !request.NoSite ? hosts.Where(host => !IsIpAddress(host)) : [])
         {

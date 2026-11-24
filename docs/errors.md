@@ -1288,6 +1288,12 @@ Each folder is another server's site root, as a full UNC path this server can wr
 
 Fleet reports go to one shared folder every server can write to and read, as a full path such as \files\sslense-fleet. When the SSLense service runs as SYSTEM, give each server's computer account modify access to the share.
 
+<a id="ssl6035"></a>
+
+### SSL6035: IP address is not on this server
+
+The certificate's IP address is not on any of this server's network adapters, and the server has several addresses of that kind, so SSLense cannot tell which one receives its traffic. Behind NAT (a cloud server, or a router forwarding ports 80 and 443), a server with one address of that kind is bound automatically. Add the public address to an adapter, or leave the server one address of that kind.
+
 ## SSL7xxx: Notifications
 
 <a id="ssl7001"></a>

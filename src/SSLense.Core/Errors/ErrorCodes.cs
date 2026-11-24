@@ -642,6 +642,9 @@ public static class ErrorCodes
     public static readonly ErrorCode FleetFolderInvalid = new("SSL6034", nameof(FleetFolderInvalid), "Fleet folder not usable",
         "Fleet reports go to one shared folder every server can write to and read, as a full path such as \\files\\sslense-fleet. When the SSLense service runs as SYSTEM, give each server's computer account modify access to the share.");
 
+    public static readonly ErrorCode IpAddressNotOnThisServer = new("SSL6035", nameof(IpAddressNotOnThisServer), "IP address is not on this server",
+        "The certificate's IP address is not on any of this server's network adapters, and the server has several addresses of that kind, so SSLense cannot tell which one receives its traffic. Behind NAT (a cloud server, or a router forwarding ports 80 and 443), a server with one address of that kind is bound automatically. Add the public address to an adapter, or leave the server one address of that kind.");
+
     public static readonly ErrorCode ChatRejected = new("SSL7001", nameof(ChatRejected), "Chat message rejected",
         "The chat service refused the message. Check the webhook URL still exists, and send a test.");
 
@@ -1004,6 +1007,7 @@ public static class ErrorCodes
         ConfigImportRefused,
         FarmFolderInvalid,
         FleetFolderInvalid,
+        IpAddressNotOnThisServer,
         ChatRejected,
         SmtpUsernameMissing,
         SmtpPasswordMissing,

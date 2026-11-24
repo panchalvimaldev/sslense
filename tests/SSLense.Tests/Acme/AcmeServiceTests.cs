@@ -253,11 +253,31 @@ public sealed class AcmeServiceTests
         var service = new AcmeService(
             MockIis(site).Object, protocol.Object, Mock.Of<IChallengeHandler>(), Mock.Of<IChallengeProbe>(),
             Mock.Of<ICertificateArtifactStore>(), certificateStore.Object, EmptyManagedStore());
+        using var addresses = LocalAddress.UseAddressesForTesting(System.Net.IPAddress.Parse("203.0.113.7"));
 
         var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.IssueAsync(
             new AcmeIssueRequest("My Site", ["203.0.113.7"], "admin@example.com", SelfHostedHttp: true)));
 
         Assert.Contains("--force", exception.Message, StringComparison.Ordinal);
+        protocol.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task IssueAsync_AnIpAddressThatCannotBePlacedOnThisServer_IsRefusedBeforeOrdering()
+    {
+        // Behind NAT with several addresses of the same kind, SSLense cannot tell which one receives the traffic.
+        var site = new IisSite(1, "My Site", "Started", "C:\\inetpub\\site", [new IisBinding("http", "*", 80, "", null, null, false)]);
+        var protocol = new Mock<IAcmeProtocolClient>(MockBehavior.Strict);
+        var service = new AcmeService(
+            MockIis(site).Object, protocol.Object, Mock.Of<IChallengeHandler>(), Mock.Of<IChallengeProbe>(),
+            Mock.Of<ICertificateArtifactStore>(), Mock.Of<ICertificateStore>(), EmptyManagedStore());
+        using var addresses = LocalAddress.UseAddressesForTesting(System.Net.IPAddress.Parse("10.0.0.4"), System.Net.IPAddress.Parse("10.0.1.4"));
+
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.IssueAsync(
+            new AcmeIssueRequest("My Site", ["203.0.113.7"], "admin@example.com", SelfHostedHttp: true)));
+
+        Assert.StartsWith("SSL6035", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("10.0.0.4, 10.0.1.4", exception.Message, StringComparison.Ordinal);
         protocol.VerifyNoOtherCalls();
     }
 

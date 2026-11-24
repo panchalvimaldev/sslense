@@ -260,3 +260,4 @@ SSL4058 ServiceTargetMissing
 SSL7011 AppServiceFailed
 SSL6033 FarmFolderInvalid
 SSL6034 FleetFolderInvalid
+SSL6035 IpAddressNotOnThisServer
