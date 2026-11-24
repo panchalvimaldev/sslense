@@ -558,7 +558,11 @@ internal sealed class ImportedCertificateService(
 
     internal static CertificateRequest BuildRequest(AsymmetricAlgorithm key, IReadOnlyList<string> hosts)
     {
-        var subject = new X500DistinguishedName($"CN={hosts[0]}");
+        // Never an IP address in the common name, and none at all for IP addresses only (see CsrSubject).
+        var commonName = Acme.CsrSubject.CommonNameFor(hosts);
+        var subject = commonName is null
+            ? new X500DistinguishedName(string.Empty)
+            : new X500DistinguishedName($"CN={commonName}");
         var request = key switch
         {
             RSA rsa => new CertificateRequest(subject, rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1),

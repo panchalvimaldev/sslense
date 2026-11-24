@@ -350,6 +350,26 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown key type.")
     };
 
+    /// <summary>
+    /// The request in DER: every identifier as a subject alternative name (IP addresses as IP addresses), and SSLense's
+    /// choice of common name rather than Certes': never an IP address, and none at all for IP addresses only.
+    /// </summary>
+    internal static byte[] BuildRequest(IKey key, IReadOnlyList<string> identifiers)
+    {
+        var builder = new Certes.Pkcs.CertificationRequestBuilder(key);
+        foreach (var identifier in identifiers)
+        {
+            builder.SubjectAlternativeNames.Add(identifier);
+        }
+
+        if (CsrSubject.CommonNameFor(identifiers) is { } commonName)
+        {
+            builder.AddName("CN", commonName);
+        }
+
+        return builder.Generate();
+    }
+
     private sealed class CertesOrderSession : IAcmeOrderSession
     {
         private readonly IOrderContext _order;
@@ -453,21 +473,7 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
         {
             try
             {
-                var order = await _order.Finalize(certificateRequest).WaitAsync(cancellationToken).ConfigureAwait(false);
-                for (var attempt = 0; order.Status is Certes.Acme.Resource.OrderStatus.Ready or Certes.Acme.Resource.OrderStatus.Processing && attempt < 60; attempt++)
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
-                    order = await _order.Resource().WaitAsync(cancellationToken).ConfigureAwait(false);
-                }
-
-                if (order.Status != Certes.Acme.Resource.OrderStatus.Valid)
-                {
-                    throw new SslenseException(ErrorCodes.AcmeOrderNotIssued, 
-                        $"{_authority.Name} did not issue the certificate: the order is {order.Status?.ToString().ToLowerInvariant() ?? "in an unknown state"}.");
-                }
-
-                var chain = await _order.Download(_options.PreferredChain).WaitAsync(cancellationToken).ConfigureAwait(false);
-                return chain.ToPem();
+                return (await FinalizeAndDownloadAsync(certificateRequest, cancellationToken).ConfigureAwait(false)).ToPem();
             }
             catch (AcmeRequestException exception) when (IsRateLimited(exception))
             {
@@ -475,18 +481,36 @@ internal sealed class CertesAcmeProtocolClient : IAcmeProtocolClient
             }
         }
 
-        private async Task<CertificateBundle> FinalizeCoreAsync(
+        private async Task<CertificateChain> FinalizeAndDownloadAsync(byte[] certificateRequest, CancellationToken cancellationToken)
+        {
+            var order = await _order.Finalize(certificateRequest).WaitAsync(cancellationToken).ConfigureAwait(false);
+            for (var attempt = 0; order.Status is Certes.Acme.Resource.OrderStatus.Ready or Certes.Acme.Resource.OrderStatus.Processing && attempt < 60; attempt++)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+                order = await _order.Resource().WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
 
+            if (order.Status != Certes.Acme.Resource.OrderStatus.Valid)
+            {
+                throw new SslenseException(ErrorCodes.AcmeOrderNotIssued,
+                    $"{_authority.Name} did not issue the certificate: the order is {order.Status?.ToString().ToLowerInvariant() ?? "in an unknown state"}.");
+            }
+
+            return await _order.Download(_options.PreferredChain).WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        private async Task<CertificateBundle> FinalizeCoreAsync(
             string commonName,
             string pfxPassword,
             CancellationToken cancellationToken)
         {
             var certificateKey = NewCertificateKey(_options.KeyType);
-            var certificate = await _order.Generate(
-                    new CsrInfo { CommonName = commonName },
-                    certificateKey,
-                    _options.PreferredChain)
-                .WaitAsync(cancellationToken)
+
+            // SSLense chooses the common name, not Certes: never an IP address, and none at all for IP addresses only.
+            var identifiers = (await _order.Resource().WaitAsync(cancellationToken).ConfigureAwait(false)).Identifiers
+                .Select(identifier => identifier.Value)
+                .ToArray();
+            var certificate = await FinalizeAndDownloadAsync(BuildRequest(certificateKey, identifiers), cancellationToken)
                 .ConfigureAwait(false);
             var certificatePem = certificate.ToPem();
             var pfx = certificate.ToPfx(certificateKey)
