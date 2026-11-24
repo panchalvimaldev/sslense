@@ -67,7 +67,7 @@ Run each linked document's steps in order. The count is its number of steps.
 | Feature | Steps | Result |
 |---|---|---|
 | [HTTP validation without a port 80 binding](self-hosted-http-validation.md) — **blocks release** | 7 | ✅ 7/7 (5ffea16) |
-| [Built-in DNS providers](dns-providers.md) | 6 per provider | |
+| [Built-in DNS providers](dns-providers.md) | 6 per provider | ✅ Route 53 6/6 (5ffea16); Azure DNS, Google Cloud DNS, DigitalOcean and Hetzner untested (no accounts) |
 | [Certificates for IP addresses](ip-certificates.md) | 5 | |
 | [Web farms](web-farms.md) | 7 | |
 

@@ -228,7 +228,7 @@ Let's Encrypt only issues wildcard certificates through DNS validation. It also 
 
 | Method | Works with | Renewal |
 |---|---|---|
-| **DNS provider** | Cloudflare, Amazon Route 53, Azure DNS, Google Cloud DNS, DigitalOcean, Hetzner (the last five not yet tested on a real account) | Automatic |
+| **DNS provider** | Cloudflare, Amazon Route 53, Azure DNS, Google Cloud DNS, DigitalOcean, Hetzner (the last four not yet tested on a real account) | Automatic |
 | **acme-dns** | Any DNS host, even one without an API, with one CNAME created once | Automatic |
 | **Script** | Any DNS service with an API, through your PowerShell script | Automatic |
 | **CNAME delegation** | Any DNS service, plus a domain on Cloudflare or one your script can change | Automatic |
