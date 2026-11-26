@@ -30,7 +30,4 @@ public sealed record AppConfig
 
     /// <summary>Whether SSLense tells you about a newer release, read from GitHub (docs/design/version-notice.md).</summary>
     public bool CheckForUpdates { get; init; } = true;
-
-    /// <summary>The shared folder this server writes its fleet report to, and reads the others' from; null for none (docs/design/fleet.md).</summary>
-    public string? FleetFolder { get; init; }
 }

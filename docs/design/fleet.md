@@ -1,5 +1,7 @@
 # Design: several servers from one place
 
+**Removed before 0.24.0 was released** (November 26, 2026), to keep SSLense focused on IIS administrators: it could not be tested end to end. The code is in the git history before that date, and this design is kept so the feature can return if users ask. Open an issue if you need it.
+
 Status: **first part built** November 20, 2026 (fleet reports). The rest is a design for the owner to decide on. Feature 27 of [the delivery plan](../delivery-plan.md); ROADMAP section 6.
 
 ## The rule everything follows
@@ -50,4 +52,4 @@ For the owner to decide, because it is close to a second product:
 - Stale servers and damaged reports are named.
 - Nothing is written without a folder, and an unreachable folder is refused.
 
-Manual steps: [docs/testing/fleet.md](../testing/fleet.md).
+Manual steps: removed with the feature; they are in the git history.

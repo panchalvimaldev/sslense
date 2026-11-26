@@ -25,11 +25,9 @@ What SSLense protects, from whom, and how. This is for administrators who decide
 3. **IIS and HTTP.sys.**
    - Changes are made through Microsoft.Web.Administration and `netsh`, under a per-site lock and a transaction journal.
    - Every HTTPS binding is checked by an HTTPS request after it changes, and put back if the check fails.
-4. **Shares** (web farm folders, fleet reports, the Central Certificate Store): they are trusted to hold what SSLense writes, and nothing more.
-   - Challenge files are public by design.
-   - Fleet reports hold names and dates, never keys or secrets.
+4. **Shares** (the Central Certificate Store and other export folders): they are trusted to hold what SSLense writes, and nothing more.
    - Exported PFX files are protected by their password.
-5. **Cloud APIs** (Azure Key Vault, App Service, Microsoft Graph, DNS providers): HTTPS only, with client credentials kept by DPAPI. Error messages carry the service's error code, never the request.
+5. **Cloud APIs** (DNS providers): HTTPS only, with client credentials kept by DPAPI. Error messages carry the service's error code, never the request.
 6. **Administrators:** every command needs elevation. Anyone who is an administrator on the server can read everything above. SSLense does not try to protect secrets from them.
 
 ## Threats and what stops them
@@ -37,7 +35,7 @@ What SSLense protects, from whom, and how. This is for administrators who decide
 | Threat | Mitigation |
 |---|---|
 | A local, non-administrator user reads keys or secrets | Non-exportable keys; data folder restricted to Administrators and SYSTEM; checked at start |
-| Secrets leak through logs or messages | Secrets are never logged, shown or put in errors; URLs are shown by host only; webhook signing secrets and Graph or Azure secrets appear once at entry |
+| Secrets leak through logs or messages | Secrets are never logged, shown or put in errors; URLs are shown by host only; webhook signing secrets and Azure secrets appear once at entry |
 | A tampered script runs as SYSTEM | Only SSLense's own copy runs, and only when its SHA-256 still matches |
 | A wrong or broken certificate takes a site down | Validation before install, HTTP.sys trial binding, HTTPS check after binding, automatic put-back; previous certificate kept for one-click rollback |
 | Interrupted operation leaves IIS half-changed | Transaction journal; recovery at the next start |
@@ -52,4 +50,4 @@ What SSLense protects, from whom, and how. This is for administrators who decide
 - **A malicious administrator, or malware running as SYSTEM:** these own the server.
 - **The security of IIS, Windows, the CA, the DNS provider or Azure.**
 - **Code signing:** releases are not signed. Check the SHA-256 published with each release.
-- **The central fleet view:** it is designed, not built ([design](design/fleet.md)). Until it exists, no server accepts commands from another.
+- **Control from another server:** there is none. No server accepts commands from another.

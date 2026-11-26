@@ -1284,15 +1284,15 @@ Importing would leave a certificate without the certificate authority that renew
 
 <a id="ssl6033"></a>
 
-### SSL6033: Web farm folder not usable
+### SSL6033: Web farm folder not usable (retired)
 
-Each folder is another server's site root, as a full UNC path this server can write to, such as \web2\c$\inetpub\shop, for a certificate validated over HTTP from its IIS site. When SSLense runs as SYSTEM, give the computer account write access to the share.
+Not used by any released version: web farm folders were removed before 0.24.0. In a web farm, use DNS validation, which works whichever server the certificate authority reaches.
 
 <a id="ssl6034"></a>
 
-### SSL6034: Fleet folder not usable
+### SSL6034: Fleet folder not usable (retired)
 
-Fleet reports go to one shared folder every server can write to and read, as a full path such as \files\sslense-fleet. When the SSLense service runs as SYSTEM, give each server's computer account modify access to the share.
+Not used by any released version: fleet reports were removed before 0.24.0. Use 'SSLense.Cli status --json' on each server instead.
 
 <a id="ssl6035"></a>
 
@@ -1370,15 +1370,15 @@ Add an email or chat channel, or make sure the Windows Event Log is monitored.
 
 <a id="ssl7010"></a>
 
-### SSL7010: Azure Key Vault import failed
+### SSL7010: Azure Key Vault import failed (retired)
 
-SSLense signs in with the step's app registration and imports the certificate as a new version. Check the tenant, client ID and secret, the vault's name and firewall, and that the app has the Key Vault Certificates Officer role or the Import certificate permission.
+Not used by any released version: the Azure Key Vault step was removed before 0.24.0. A script step can import the certificate with Azure PowerShell.
 
 <a id="ssl7011"></a>
 
-### SSL7011: Azure App Service not updated
+### SSL7011: Azure App Service not updated (retired)
 
-SSLense signs in with the step's app registration, uploads the certificate and binds the app's custom domains it covers. Check the tenant, client ID and secret, the subscription, resource group and app, that the domain is added to the app, and that the app registration has the Website Contributor role.
+Not used by any released version: the Azure App Service step was removed before 0.24.0. A script step can upload the certificate with Azure PowerShell.
 
 ## SSL8xxx: Deployment steps
 

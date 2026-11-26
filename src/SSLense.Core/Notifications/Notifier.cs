@@ -101,9 +101,9 @@ internal sealed class Notifier(
 
         if (notifications.Email is { } email)
         {
-            results.Add(await RunChannelAsync(email.Authentication == SmtpAuthentication.MicrosoftGraph ? "Email via Microsoft Graph" : $"Email via {email.Host}", async () =>
+            results.Add(await RunChannelAsync($"Email via {email.Host}", async () =>
             {
-                var password = email.Authentication is SmtpAuthentication.Password or SmtpAuthentication.MicrosoftGraph && email.ProtectedPassword is not null
+                var password = email.Authentication == SmtpAuthentication.Password && email.ProtectedPassword is not null
                     ? Unprotect(email.ProtectedPassword)
                     : null;
                 await emailSender.SendAsync(

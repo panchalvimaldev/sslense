@@ -8,5 +8,5 @@
    - Fix the cause: for example `--reuse-key`, `--preferred-chain` or `--key`. Then renew by hand, or roll forward with the same command.
 3. **One site of a shared certificate was left behind:** the certificate's Sites section names it. Fix the site in IIS, then **Try moving now**.
 4. **A binding outside SSLense** (another site, or a binding added by hand): the health check names it. Bind it to the managed certificate, or let SSLense manage it with **Add certificate › already in IIS**.
-5. **Behind a load balancer, CDN or proxy:** each server has its own binding. Check every server (Central Certificate Store or fleet reports, [web-farms.md](../design/web-farms.md)), and that the CDN has the new certificate.
-6. **Other services** (Remote Desktop, SQL Server, FTP, HTTP.sys endpoints, Key Vault, App Service): `deploy list --site <name>` shows whether the steps ran for the current certificate, and `deploy run --site <name>` runs them now. After a rollback, run them so those services go back too.
+5. **Behind a load balancer, CDN or proxy:** each server has its own binding. Check every server, or the Central Certificate Store they share, and that the CDN has the new certificate.
+6. **Other services** (Remote Desktop, SQL Server, FTP, HTTP.sys endpoints, Apache, nginx, Tomcat): `deploy list --site <name>` shows whether the steps ran for the current certificate, and `deploy run --site <name>` runs them now. After a rollback, run them so those services go back too.

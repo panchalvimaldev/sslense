@@ -168,33 +168,6 @@ public sealed class CertificateExportTests : IDisposable
     }
 
     [Fact]
-    public async Task KeyVaultStep_ChecksTheVaultAndCredentials_AndImportsAPfxUnderAOneTimePassword()
-    {
-        var store = new JsonManagedCertificateStore(new InMemoryFileSystem(), StatePath, LockPath);
-        var exporter = new FakeExporter();
-        var vault = new FakeKeyVault();
-        var service = Service(store, exporter, vault);
-        await store.UpsertAsync(new ManagedCertificate("Shop", ["example.com"], "ops@example.com", "AABB", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(60), ExportableKey: true));
-
-        await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.KeyVault, "no slash", Password: "t:c:s")));
-        await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.KeyVault, "contoso-kv/shop", Password: "only-a-secret")));
-        var step = await service.AddAsync(new DeploymentStepRequest(
-            "Shop", DeploymentStepKind.KeyVault, "https://Contoso-KV.vault.azure.net/certificates/shop-cert/0123", Password: "tenant: client :s:e:c"));
-        var result = await service.RunAsync("Shop");
-
-        Assert.True(result.Succeeded, result.Message);
-        Assert.Equal("contoso-kv/shop-cert", step.Value);
-        Assert.DoesNotContain("s:e:c", step.ProtectedPassword, StringComparison.Ordinal);
-        var call = Assert.Single(vault.Calls);
-        Assert.Equal("https://contoso-kv.vault.azure.net/certificates/shop-cert/import?api-version=7.4", call.Target.ImportUri.AbsoluteUri);
-        Assert.Equal("tenant:client:s:e:c", call.Credentials);
-        Assert.Equal($"pkcs12 AABB {call.Password}", Assert.Single(exporter.Calls));
-        Assert.True(call.Password.Length >= 24);
-    }
-
-    [Fact]
     public async Task WebServerSteps_WritePemForApacheAndNginx_AndAPasswordedKeystoreForTomcat()
     {
         var store = new JsonManagedCertificateStore(new InMemoryFileSystem(), StatePath, LockPath);
@@ -220,76 +193,7 @@ public sealed class CertificateExportTests : IDisposable
         Assert.Equal([@"pem AABB D:\Certs\shop", @"pfx AABB D:\Tomcat\conf\certificate.pfx changeit"], exporter.Calls);
     }
 
-    [Fact]
-    public async Task AppServiceStep_ChecksTheApp_AndSendsTheCertificateAndItsNames()
-    {
-        var store = new JsonManagedCertificateStore(new InMemoryFileSystem(), StatePath, LockPath);
-        var exporter = new FakeExporter();
-        var appService = new FakeAppService();
-        var service = Service(store, exporter, appService: appService);
-        await store.UpsertAsync(new ManagedCertificate("Shop", ["shop.example.com"], "ops@example.com", "AABB", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(60), ExportableKey: true));
-        const string App = "00000000-0000-0000-0000-000000000001/web-rg/contoso-shop";
-
-        await Assert.ThrowsAsync<ArgumentException>(() =>
-            service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.AppService, "web-rg/contoso-shop", Password: "t:c:s")));
-        var step = await service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.AppService, App, Password: "tenant:client:secret"));
-        var result = await service.RunAsync("Shop");
-
-        Assert.True(result.Succeeded, result.Message);
-        Assert.Equal(App, step.Value);
-        var call = Assert.Single(appService.Calls);
-        Assert.Equal("contoso-shop", call.Target.App);
-        Assert.Equal("tenant:client:secret", call.Credentials);
-        Assert.Equal("AABB", call.Thumbprint);
-        Assert.Equal(["shop.example.com"], call.Names);
-    }
-
-    [Theory]
-    [InlineData("*.example.com", "shop.example.com", true)]
-    [InlineData("*.example.com", "a.b.example.com", false)]
-    [InlineData("*.example.com", "example.com", false)]
-    [InlineData("shop.example.com", "SHOP.example.com", true)]
-    public void AppService_BindsOnlyTheHostNamesTheCertificateCovers(string name, string host, bool covered)
-    {
-        Assert.Equal(covered, AppServiceClient.Covers(name, host));
-    }
-
-    [Fact]
-    public async Task TheAppServiceClient_UploadsTheCertificate_AndBindsTheCoveredCustomDomains()
-    {
-        var handler = new AzureHandler();
-        using var client = new AppServiceClient(new HttpClient(handler));
-
-        var bound = await client.DeployAsync(
-            AppServiceTarget.Parse("00000000-0000-0000-0000-000000000001/web-rg/contoso-shop"), "tenant:client:secret", "AABB",
-            ["shop.example.com"], [1, 2, 3], "upload-pw", CancellationToken.None);
-
-        Assert.Equal(["shop.example.com"], bound);
-        Assert.Contains("scope=https%3A%2F%2Fmanagement.azure.com%2F.default", handler.Requests[0].Body, StringComparison.Ordinal);
-        Assert.Equal("GET", handler.Requests[1].Method);
-        Assert.Contains("/providers/Microsoft.Web/certificates/sslense-aabb?", handler.Requests[2].Uri, StringComparison.Ordinal);
-        Assert.Contains("\"pfxBlob\":\"AQID\"", handler.Requests[2].Body, StringComparison.Ordinal);
-        Assert.Contains("\"location\":\"West Europe\"", handler.Requests[2].Body, StringComparison.Ordinal);
-        Assert.Contains("/hostNameBindings/shop.example.com?", handler.Requests[3].Uri, StringComparison.Ordinal);
-        Assert.Contains("\"sslState\":\"SniEnabled\"", handler.Requests[3].Body, StringComparison.Ordinal);
-        Assert.Equal(4, handler.Requests.Count);
-    }
-
-    [Fact]
-    public async Task TheKeyVaultClient_SignsInForKeyVault_AndPostsThePfx()
-    {
-        var handler = new VaultHandler();
-        using var client = new KeyVaultClient(new HttpClient(handler));
-
-        var id = await client.ImportAsync(KeyVaultTarget.Parse("contoso-kv/shop"), "tenant:client:secret", [1, 2, 3], "upload-pw", CancellationToken.None);
-
-        Assert.Equal("https://contoso-kv.vault.azure.net/certificates/shop/v1", id);
-        Assert.Contains("scope=https%3A%2F%2Fvault.azure.net%2F.default", handler.Bodies[0], StringComparison.Ordinal);
-        Assert.Contains("\"value\":\"AQID\"", handler.Bodies[1], StringComparison.Ordinal);
-        Assert.Contains("\"pwd\":\"upload-pw\"", handler.Bodies[1], StringComparison.Ordinal);
-    }
-
-    private static DeploymentService Service(JsonManagedCertificateStore store, FakeExporter exporter, FakeKeyVault? vault = null, IAppServiceClient? appService = null)
+    private static DeploymentService Service(JsonManagedCertificateStore store, FakeExporter exporter)
     {
         var iis = new Mock<IIisService>();
         iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>())).ReturnsAsync([]);
@@ -302,9 +206,7 @@ public sealed class CertificateExportTests : IDisposable
             iis.Object,
             Mock.Of<ICertificateStore>(),
             exporter: exporter,
-            protector: new ReversingProtector(),
-            keyVault: vault,
-            appService: appService);
+            protector: new ReversingProtector());
     }
 
     private sealed class NoKeys : IPrivateKeyAccess
@@ -355,59 +257,6 @@ public sealed class CertificateExportTests : IDisposable
         {
             Calls.Add($"pkcs12 {thumbprint} {password}");
             return Task.FromResult(new byte[] { 1, 2, 3 });
-        }
-    }
-
-    private sealed class FakeKeyVault : IKeyVaultClient
-    {
-        public List<(KeyVaultTarget Target, string Credentials, string Password)> Calls { get; } = [];
-
-        public Task<string> ImportAsync(KeyVaultTarget target, string credentials, byte[] pfx, string password, CancellationToken cancellationToken)
-        {
-            Calls.Add((target, credentials, password));
-            return Task.FromResult("id");
-        }
-    }
-
-    private sealed class FakeAppService : IAppServiceClient
-    {
-        public List<(AppServiceTarget Target, string Credentials, string Thumbprint, IReadOnlyList<string> Names)> Calls { get; } = [];
-
-        public Task<IReadOnlyList<string>> DeployAsync(
-            AppServiceTarget target, string credentials, string thumbprint, IReadOnlyList<string> names, byte[] pfx, string password, CancellationToken cancellationToken)
-        {
-            Calls.Add((target, credentials, thumbprint, names));
-            return Task.FromResult(names);
-        }
-    }
-
-    private sealed class AzureHandler : HttpMessageHandler
-    {
-        public List<(string Method, string Uri, string Body)> Requests { get; } = [];
-
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            Requests.Add((request.Method.Method, request.RequestUri!.AbsoluteUri, request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken)));
-            var body = Requests.Count switch
-            {
-                1 => "{\"access_token\":\"t\"}",
-                2 => "{\"location\":\"West Europe\",\"properties\":{\"serverFarmId\":\"/plans/p\",\"hostNames\":[\"contoso-shop.azurewebsites.net\",\"shop.example.com\",\"other.example.org\"]}}",
-                _ => "{}"
-            };
-            return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(body) };
-        }
-    }
-
-    private sealed class VaultHandler : HttpMessageHandler
-    {
-        public List<string> Bodies { get; } = [];
-
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            Bodies.Add(await request.Content!.ReadAsStringAsync(cancellationToken));
-            return Bodies.Count == 1
-                ? new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent("{\"access_token\":\"t\"}") }
-                : new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent("{\"id\":\"https://contoso-kv.vault.azure.net/certificates/shop/v1\"}") };
         }
     }
 

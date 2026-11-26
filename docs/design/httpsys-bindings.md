@@ -39,7 +39,8 @@ This is managed-certificate schema 17.
 
 - Remote Desktop, SQL Server and Exchange as first-class steps; ready-made scripts exist today.
 - Apache, nginx and Tomcat on Windows, as files and a reload.
-- Azure App Service.
+
+Update: all of these were built, except Exchange, which stays a ready-made script. Azure App Service was built and then removed before 0.24.0 ([app-service.md](app-service.md)).
 
 Each will get its own pull request.
 

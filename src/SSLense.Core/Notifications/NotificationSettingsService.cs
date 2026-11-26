@@ -49,11 +49,11 @@ internal sealed class NotificationSettingsService(
             ValidateEmail(recipient, $"The recipient address '{recipient}'");
         }
 
-        var signsIn = request.Authentication is SmtpAuthentication.Password or SmtpAuthentication.MicrosoftGraph;
+        var signsIn = request.Authentication == SmtpAuthentication.Password;
         if (signsIn)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(request.Username, nameof(request.Username));
-            if (request.Authentication == SmtpAuthentication.Password && request.Security == SmtpSecurity.None)
+            if (request.Security == SmtpSecurity.None)
             {
                 throw new ArgumentException(
                     ErrorCodes.NotificationSettingsInvalid.Format("A password would be sent unencrypted. Choose STARTTLS or TLS on connect, or a relay without sign-in."));
@@ -69,8 +69,7 @@ internal sealed class NotificationSettingsService(
                 : existing?.Authentication == request.Authentication &&
                   string.Equals(existing.Username, request.Username?.Trim(), StringComparison.OrdinalIgnoreCase)
                     ? existing.ProtectedPassword
-                    : throw new ArgumentException(ErrorCodes.NotificationSettingsInvalid.Format(request.Authentication == SmtpAuthentication.MicrosoftGraph
-                        ? "Enter the app registration's client secret." : "Enter the SMTP password."));
+                    : throw new ArgumentException(ErrorCodes.NotificationSettingsInvalid.Format("Enter the SMTP password."));
             return notifications with
             {
                 Email = new EmailNotificationConfig(
