@@ -35,8 +35,17 @@ internal sealed class BulkService(
         var results = new List<BulkResult>();
         var bindings = await imported.DiscoverAsync(cancellationToken).ConfigureAwait(false);
 
+        // A certificate only on other ports cannot be watched until it has a port 443 binding (SSL4001), so it is named
+        // and skipped rather than failed: nothing is wrong with it, and nothing here can fix it.
+        foreach (var binding in bindings.Where(value => value.Thumbprint is not null && !value.IsManaged && value.NeedsPort443)
+                     .DistinctBy(value => (value.SiteName.ToUpperInvariant(), value.Thumbprint!.ToUpperInvariant())))
+        {
+            progress?.Report(new ProgressEvent("watch",
+                $"Skipping {binding.SiteName} ({binding.Host}:{binding.Port}): served only on port {binding.Port}. Add a port 443 binding for it to watch it."));
+        }
+
         // One adoption per certificate on a site: it takes every binding of that certificate there.
-        foreach (var binding in bindings.Where(value => value.Thumbprint is not null && !value.IsManaged)
+        foreach (var binding in bindings.Where(value => value.CanAdopt)
                      .DistinctBy(value => (value.SiteName.ToUpperInvariant(), value.Thumbprint!.ToUpperInvariant())))
         {
             var item = $"{binding.SiteName} ({binding.Host}:{binding.Port})";

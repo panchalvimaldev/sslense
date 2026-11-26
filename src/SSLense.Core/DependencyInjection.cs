@@ -66,15 +66,11 @@ public static class DependencyInjection
         services.AddSingleton<ICertificateHistoryStore, JsonCertificateHistoryStore>();
         services.AddTransient<ICertificateHistoryService, CertificateHistoryService>();
         services.AddTransient<IConfigTransferService, ConfigTransferService>();
-        services.AddTransient<SSLense.Core.Diagnostics.IFleetService, SSLense.Core.Diagnostics.FleetService>();
-        services.AddTransient<SSLense.Core.Validation.IWebFarmService, SSLense.Core.Validation.WebFarmService>();
         services.AddTransient<IBulkService, BulkService>();
         services.AddSingleton<SSLense.Core.Diagnostics.IUpdateCheckService, SSLense.Core.Diagnostics.UpdateCheckService>();
         services.AddSingleton<IRemoteCertificateReader, RemoteCertificateReader>();
         services.AddTransient<IRemoteCertificateService, RemoteCertificateService>();
         services.AddTransient<SSLense.Core.Iis.IHttpsRedirectService, SSLense.Core.Iis.HttpsRedirectService>();
-        services.AddSingleton<IKeyVaultClient, KeyVaultClient>();
-        services.AddSingleton<IAppServiceClient, AppServiceClient>();
         services.AddTransient<DeploymentService>(provider => new DeploymentService(
             provider.GetRequiredService<IManagedCertificateStore>(),
             new PrivateKeyAccess(provider.GetRequiredService<ICertificateStore>()),
@@ -87,9 +83,7 @@ public static class DependencyInjection
             provider.GetRequiredService<ICertificateOperationLock>(),
             new CertificateExporter(provider.GetRequiredService<ICertificateStore>()),
             provider.GetRequiredService<ISecretProtector>(),
-            provider.GetRequiredService<IKeyVaultClient>(),
-            new RegistryServiceCertificateSettings(),
-            provider.GetRequiredService<IAppServiceClient>()));
+            new RegistryServiceCertificateSettings()));
         services.AddTransient<IDeploymentService>(provider => provider.GetRequiredService<DeploymentService>());
         services.AddTransient<IDeploymentRunner>(provider => provider.GetRequiredService<DeploymentService>());
         services.AddTransient<IRenewalService, RenewalService>();
@@ -101,9 +95,7 @@ public static class DependencyInjection
         services.AddSingleton<HttpClient>();
         services.AddSingleton<IRenewalInfoProvider, AcmeRenewalInfoProvider>();
         services.AddTransient<IWindowsServiceManager, WindowsServiceManager>();
-        services.AddSingleton<MailKitEmailSender>();
-        services.AddSingleton<GraphEmailSender>();
-        services.AddSingleton<IEmailSender, RoutingEmailSender>();
+        services.AddSingleton<IEmailSender, MailKitEmailSender>();
         services.AddSingleton<IEventLogWriter, WindowsEventLogWriter>();
         services.AddSingleton<IChatSender, ChatSender>();
         services.AddTransient<INotifier, Notifier>();

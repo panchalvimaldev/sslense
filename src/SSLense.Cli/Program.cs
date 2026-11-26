@@ -12,6 +12,7 @@ using SSLense.Core.Notifications;
 using SSLense.Core.Certificates;
 using SSLense.Core.Validation;
 using SSLense.Core.Diagnostics;
+using SSLense.Core.Errors;
 using SSLense.Cli;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -230,8 +231,6 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     issueCommand.Options.Add(caOption);
     issueCommand.Options.Add(outputOption);
     issueCommand.Options.Add(forceOption);
-    var farmFoldersOption = new Option<string?>("--farm-folders") { Description = "In a web farm with HTTP validation: semicolon-separated UNC paths to the other servers' site folders, which get each challenge too. Kept for renewals; see 'farm'." };
-    issueCommand.Options.Add(farmFoldersOption);
     issueCommand.SetAction((parseResult, cancellationToken) => IssueAsync(
         services.GetRequiredService<IAcmeService>(),
         parseResult.GetValue(siteOption),
@@ -251,7 +250,6 @@ static RootCommand CreateRootCommand(IServiceProvider services)
         parseResult.GetValue(preferredChainOption),
         parseResult.GetValue(profileOption),
         parseResult.GetValue(reuseKeyOption),
-        parseResult.GetValue(farmFoldersOption),
         cancellationToken));
     rootCommand.Subcommands.Add(issueCommand);
     rootCommand.Subcommands.Add(CreateCaCommand(services));
@@ -436,8 +434,6 @@ static RootCommand CreateRootCommand(IServiceProvider services)
     rootCommand.Subcommands.Add(CreateHistoryCommand(services));
     rootCommand.Subcommands.Add(CreateRollbackCommand(services));
     rootCommand.Subcommands.Add(CreateConfigCommand(services));
-    rootCommand.Subcommands.Add(CreateFarmCommand(services));
-    rootCommand.Subcommands.Add(CreateFleetCommand(services));
     rootCommand.Subcommands.Add(CreateBulkCommand(services));
     rootCommand.Subcommands.Add(CreateVersionCommand(services));
     rootCommand.Subcommands.Add(CreateWatchCommand(services));
@@ -510,7 +506,7 @@ static async Task<int> RemoveAsync(ICertificateManagementService service, string
 {
     if (!confirmed)
     {
-        Console.Error.WriteLine("Error: --yes is required because removal deletes matching HTTPS bindings.");
+        Console.Error.WriteLine($"Error: {ErrorCodes.ConfirmationRequired.Format("--yes is required because removal deletes matching HTTPS bindings.")}");
         try
         {
             var detail = await service.GetDetailsAsync(site, token).ConfigureAwait(false);
@@ -740,7 +736,7 @@ static async Task<int> ShowPendingAsync(
             var request = await service.GetRequestAsync(site, token).ConfigureAwait(false);
             if (request is null)
             {
-                Console.Error.WriteLine($"Error: IIS site '{site}' has no pending certificate request.");
+                Console.Error.WriteLine($"Error: {ErrorCodes.NoPendingRequest.Format($"IIS site '{site}' has no pending certificate request.")}");
                 return 1;
             }
 
@@ -945,8 +941,6 @@ static Command CreateDeployCommand(IServiceProvider services)
     var exportPemOption = new Option<string?>("--export-pem") { Description = "Write cert.pem, chain.pem, fullchain.pem, and key.pem to this folder; key.pem only for Administrators and SYSTEM. Needs an exportable key." };
     var centralStoreOption = new Option<string?>("--central-store") { Description = "Write one PFX per name to this IIS Central Certificate Store folder. The store's password is asked for. Needs an exportable key." };
     var ftpSiteOption = new Option<string?>("--ftp-site") { Description = "Use the certificate for FTP over TLS on this IIS FTP site, set again after every renewal." };
-    var keyVaultOption = new Option<string?>("--key-vault") { Description = "Import the certificate into Azure Key Vault after every renewal, as <vault>/<certificate>. Needs an exportable key, --tenant and --client-id; the client secret is asked for." };
-    var appServiceOption = new Option<string?>("--app-service") { Description = "Upload the certificate to Azure App Service after every renewal and bind the app's custom domains it covers, as <subscription ID>/<resource group>/<app>. Needs an exportable key, --tenant and --client-id; the client secret is asked for." };
     var httpSysOption = new Option<string?>("--http-sys") { Description = "Bind the certificate in HTTP.sys to this endpoint outside IIS after every renewal, such as 0.0.0.0:5986 for WinRM or api.example.com:8443." };
     var remoteDesktopOption = new Option<bool>("--remote-desktop") { Description = "Make Remote Desktop on this server use the certificate after every renewal; NETWORK SERVICE is given its key." };
     var sqlServerOption = new Option<string?>("--sql-server") { Description = "Make this SQL Server instance (MSSQLSERVER for the default) encrypt with the certificate after every renewal; its account is given the key, and it is restarted." };
@@ -954,8 +948,6 @@ static Command CreateDeployCommand(IServiceProvider services)
     webServerOption.AcceptOnlyFromAmong("apache", "nginx", "tomcat");
     var folderOption = new Option<string?>("--folder") { Description = "With --web-server: the folder its configuration reads the certificate from." };
     var serviceOption = new Option<string?>("--service") { Description = "With --web-server: the Windows service that runs it, such as Apache2.4, nginx or Tomcat10." };
-    var tenantOption = new Option<string?>("--tenant") { Description = "With --key-vault: the Microsoft Entra tenant ID or domain of the app registration." };
-    var clientIdOption = new Option<string?>("--client-id") { Description = "With --key-vault: the app registration's application (client) ID." };
     var addCommand = new Command("add", "Add a step at the end. It runs after the next renewal, or now with 'deploy run'.");
     addCommand.Options.Add(siteOption);
     addCommand.Options.Add(keyAccessOption);
@@ -966,16 +958,12 @@ static Command CreateDeployCommand(IServiceProvider services)
     addCommand.Options.Add(exportPemOption);
     addCommand.Options.Add(centralStoreOption);
     addCommand.Options.Add(ftpSiteOption);
-    addCommand.Options.Add(keyVaultOption);
-    addCommand.Options.Add(appServiceOption);
     addCommand.Options.Add(httpSysOption);
     addCommand.Options.Add(remoteDesktopOption);
     addCommand.Options.Add(sqlServerOption);
     addCommand.Options.Add(webServerOption);
     addCommand.Options.Add(folderOption);
     addCommand.Options.Add(serviceOption);
-    addCommand.Options.Add(tenantOption);
-    addCommand.Options.Add(clientIdOption);
     addCommand.SetAction((parseResult, token) => AddDeploymentStepAsync(
         Deployment(),
         parseResult.GetRequiredValue(siteOption),
@@ -987,10 +975,6 @@ static Command CreateDeployCommand(IServiceProvider services)
         parseResult.GetValue(exportPemOption),
         parseResult.GetValue(centralStoreOption),
         parseResult.GetValue(ftpSiteOption),
-        parseResult.GetValue(keyVaultOption),
-        parseResult.GetValue(appServiceOption),
-        parseResult.GetValue(tenantOption),
-        parseResult.GetValue(clientIdOption),
         parseResult.GetValue(httpSysOption),
         parseResult.GetValue(remoteDesktopOption) ? "RDP-Tcp" : null,
         parseResult.GetValue(sqlServerOption),
@@ -1032,26 +1016,16 @@ static async Task<int> AddDeploymentStepAsync(
     string? exportPem,
     string? centralStore,
     string? ftpSite,
-    string? keyVault,
-    string? appService,
-    string? tenant,
-    string? clientId,
     string? httpSys,
     string? remoteDesktop,
     string? sqlServer,
     string? webServer,
     CancellationToken token)
 {
-    var given = new[] { keyAccess, restartService, script, exportPfx, exportPem, centralStore, ftpSite, keyVault, appService, httpSys, remoteDesktop, sqlServer, webServer }.Count(value => value is not null);
+    var given = new[] { keyAccess, restartService, script, exportPfx, exportPem, centralStore, ftpSite, httpSys, remoteDesktop, sqlServer, webServer }.Count(value => value is not null);
     if (given != 1)
     {
-        Console.Error.WriteLine("Error: give exactly one of --grant-key-access, --restart-service, --script, --export-pfx, --export-pem, --central-store, --ftp-site, --key-vault, --http-sys, --remote-desktop, --sql-server, --web-server, or --app-service.");
-        return 1;
-    }
-
-    if ((keyVault ?? appService) is not null && (string.IsNullOrWhiteSpace(tenant) || string.IsNullOrWhiteSpace(clientId)))
-    {
-        Console.Error.WriteLine("Error: --key-vault and --app-service need --tenant and --client-id.");
+        Console.Error.WriteLine($"Error: {ErrorCodes.CommandOptionsInvalid.Format("give exactly one of --grant-key-access, --restart-service, --script, --export-pfx, --export-pem, --central-store, --ftp-site, --http-sys, --remote-desktop, --sql-server, or --web-server.")}");
         return 1;
     }
 
@@ -1085,12 +1059,6 @@ static async Task<int> AddDeploymentStepAsync(
                                 ? new DeploymentStepRequest(site, DeploymentStepKind.SqlServer, sqlServer, timeout)
                             : httpSys is not null
                                 ? new DeploymentStepRequest(site, DeploymentStepKind.HttpSysBinding, httpSys, timeout)
-                            : appService is not null
-                                ? new DeploymentStepRequest(site, DeploymentStepKind.AppService, appService, timeout,
-                                    $"{tenant!.Trim()}:{clientId!.Trim()}:{ReadHiddenValue("Client secret of the app registration: ")}")
-                            : keyVault is not null
-                                ? new DeploymentStepRequest(site, DeploymentStepKind.KeyVault, keyVault, timeout,
-                                    $"{tenant!.Trim()}:{clientId!.Trim()}:{ReadHiddenValue("Client secret of the app registration: ")}")
                             : new DeploymentStepRequest(site, DeploymentStepKind.CentralStore, centralStore!, timeout,
                                 ReadPassword("The Central Certificate Store's private key password, as set in IIS: "));
         var step = await deployment.AddAsync(request, token).ConfigureAwait(false);
@@ -1744,8 +1712,8 @@ static Command CreateNotificationsCommand(IServiceProvider services)
     var portOption = new Option<int?>("--port") { Description = "SMTP port (25, 587, or 465)." };
     var securityOption = new Option<string?>("--security") { Description = "auto (default), starttls, ssl (TLS on connect, port 465), or none." };
     securityOption.AcceptOnlyFromAmong("auto", "starttls", "ssl", "none");
-    var authOption = new Option<string?>("--auth") { Description = "none (relay by IP address), password, or graph (Microsoft Graph with an app registration: --host is the tenant, --user the client ID). The password or client secret is prompted." };
-    authOption.AcceptOnlyFromAmong("none", "password", "graph");
+    var authOption = new Option<string?>("--auth") { Description = "none (relay by IP address) or password. The password is prompted." };
+    authOption.AcceptOnlyFromAmong("none", "password");
     var userOption = new Option<string?>("--user") { Description = "SMTP username, with --auth password." };
     var fromOption = new Option<string>("--from") { Required = true, Description = "Sender address." };
     var toOption = new Option<string>("--to") { Required = true, Description = "Recipient addresses, comma-separated." };
@@ -2027,7 +1995,7 @@ static Command CreateConfigCommand(IServiceProvider services)
         var password = Environment.GetEnvironmentVariable(PasswordVariable);
         if (parseResult.GetValue(secretsOption) && string.IsNullOrEmpty(password))
         {
-            Console.Error.WriteLine($"Error: --include-secrets needs a password in the {PasswordVariable} environment variable.");
+            Console.Error.WriteLine($"Error: {ErrorCodes.CommandOptionsInvalid.Format($"--include-secrets needs a password in the {PasswordVariable} environment variable.")}");
             return CliExitCodes.Failed;
         }
 
@@ -2057,7 +2025,7 @@ static Command CreateConfigCommand(IServiceProvider services)
     {
         if (!parseResult.GetValue(yesOption))
         {
-            Console.Error.WriteLine("Error: --yes is required, because the settings on this server are replaced.");
+            Console.Error.WriteLine($"Error: {ErrorCodes.ConfirmationRequired.Format("--yes is required, because the settings on this server are replaced.")}");
             return CliExitCodes.Failed;
         }
 
@@ -2076,163 +2044,6 @@ static Command CreateConfigCommand(IServiceProvider services)
         }
     });
     command.Subcommands.Add(importCommand);
-    return command;
-}
-
-// HTTP validation in a web farm (docs/design/web-farms.md).
-static Command CreateFarmCommand(IServiceProvider services)
-{
-    var command = new Command("farm", "In a web farm with HTTP validation: the other servers' site folders that get each challenge too.");
-    var siteOption = new Option<string>("--site") { Required = true, Description = "The certificate SSLense manages, by its name." };
-    var foldersOption = new Option<string>("--folders") { Required = true, Description = "Semicolon-separated UNC paths to the other servers' site roots, such as \\\\web2\\c$\\inetpub\\shop." };
-
-    var showCommand = new Command("show", "List the folders a certificate's challenges are copied to.");
-    showCommand.Options.Add(siteOption);
-    showCommand.SetAction(async (parseResult, token) =>
-    {
-        try
-        {
-            var folders = await services.GetRequiredService<SSLense.Core.Validation.IWebFarmService>().GetFoldersAsync(parseResult.GetRequiredValue(siteOption), token).ConfigureAwait(false);
-            CliJson.Data = folders;
-            Console.WriteLine(folders.Count == 0 ? "No web farm folders: challenges are written to this server's site only." : string.Join(Environment.NewLine, folders));
-            return CliExitCodes.Success;
-        }
-        catch (Exception exception)
-        {
-            WriteError(exception);
-            return CliExitCodes.Failed;
-        }
-    });
-    command.Subcommands.Add(showCommand);
-
-    var setCommand = new Command("set", "Copy each challenge to these folders too, from the next issue or renewal. Each must be reachable now.");
-    setCommand.Options.Add(siteOption);
-    setCommand.Options.Add(foldersOption);
-    setCommand.SetAction((parseResult, token) => ChangeAsync(
-        parseResult.GetRequiredValue(siteOption),
-        parseResult.GetRequiredValue(foldersOption).Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
-        token));
-    command.Subcommands.Add(setCommand);
-
-    var clearCommand = new Command("clear", "Stop copying challenges to other servers.");
-    clearCommand.Options.Add(siteOption);
-    clearCommand.SetAction((parseResult, token) => ChangeAsync(parseResult.GetRequiredValue(siteOption), [], token));
-    command.Subcommands.Add(clearCommand);
-    return command;
-
-    async Task<int> ChangeAsync(string site, IReadOnlyList<string> folders, CancellationToken token)
-    {
-        try
-        {
-            var saved = await services.GetRequiredService<SSLense.Core.Validation.IWebFarmService>().SetFoldersAsync(site, folders, token).ConfigureAwait(false);
-            Console.WriteLine(saved.Count == 0
-                ? "Challenges are written to this server's site only."
-                : $"Each challenge is also written to {saved.Count} folder(s). Keep the certificate in step on every server with a Central Certificate Store step.");
-            return CliExitCodes.Success;
-        }
-        catch (Exception exception)
-        {
-            WriteError(exception);
-            return CliExitCodes.Failed;
-        }
-    }
-}
-
-// Several servers from one place, first part (docs/design/fleet.md).
-static Command CreateFleetCommand(IServiceProvider services)
-{
-    var command = new Command("fleet", "Reports from several SSLense servers in one shared folder: each server writes its own, and any can show them all.");
-    SSLense.Core.Diagnostics.IFleetService Fleet() => services.GetRequiredService<SSLense.Core.Diagnostics.IFleetService>();
-
-    var pathOption = new Option<string?>("--path") { Description = "The shared folder, such as \\\\files\\sslense-fleet. Every server must be able to write to it." };
-    var offOption = new Option<bool>("--off") { Description = "Stop writing this server's report." };
-    var folderCommand = new Command("folder", "Set the shared folder this server reports to, or turn reports off. Without options, show it.");
-    folderCommand.Options.Add(pathOption);
-    folderCommand.Options.Add(offOption);
-    folderCommand.SetAction(async (parseResult, token) =>
-    {
-        try
-        {
-            var path = parseResult.GetValue(pathOption);
-            if (path is not null || parseResult.GetValue(offOption))
-            {
-                await Fleet().SetFolderAsync(parseResult.GetValue(offOption) ? null : path, token).ConfigureAwait(false);
-            }
-
-            var folder = await Fleet().GetFolderAsync(token).ConfigureAwait(false);
-            CliJson.Data = new { Folder = folder };
-            Console.WriteLine(folder is null
-                ? "Fleet reports are off."
-                : $"This server reports to '{folder}' after every hourly check. Run 'SSLense.Cli fleet report' to write it now.");
-            return CliExitCodes.Success;
-        }
-        catch (Exception exception)
-        {
-            WriteError(exception);
-            return CliExitCodes.Failed;
-        }
-    });
-    command.Subcommands.Add(folderCommand);
-
-    var reportCommand = new Command("report", "Write this server's report now.");
-    reportCommand.SetAction(async (_, token) =>
-    {
-        try
-        {
-            var path = await Fleet().WriteReportAsync(cancellationToken: token).ConfigureAwait(false);
-            Console.WriteLine(path is null ? "Fleet reports are off. Set a folder with 'fleet folder --path <share>'." : $"Report written to '{path}'.");
-            return path is null ? CliExitCodes.Failed : CliExitCodes.Success;
-        }
-        catch (Exception exception)
-        {
-            WriteError(exception);
-            return CliExitCodes.Failed;
-        }
-    });
-    command.Subcommands.Add(reportCommand);
-
-    var statusCommand = new Command("status", "Show every server's report: its certificates, which need attention, and servers that stopped reporting.");
-    statusCommand.SetAction(async (_, token) =>
-    {
-        try
-        {
-            var servers = await Fleet().ReadAsync(token).ConfigureAwait(false);
-            CliJson.Data = servers;
-            var attention = 0;
-            foreach (var server in servers)
-            {
-                if (server.Report is not { } report)
-                {
-                    attention++;
-                    Console.WriteLine($"{server.Server}: {server.Problem}");
-                    continue;
-                }
-
-                var state = server.Stale
-                    ? $"NOT REPORTING since {report.WrittenAt.ToLocalTime():yyyy-MM-dd HH:mm}"
-                    : report.LastCycleSucceeded == false ? $"PROBLEM: {report.LastCycleMessage}" : $"OK at {report.WrittenAt.ToLocalTime():yyyy-MM-dd HH:mm}";
-                attention += server.Stale || report.LastCycleSucceeded == false ? 1 : 0;
-                Console.WriteLine($"{report.Server} (SSLense {report.Version}): {state}");
-                foreach (var certificate in report.Certificates.OrderBy(value => value.NotAfter))
-                {
-                    var failed = certificate.LastRenewalSucceeded == false;
-                    attention += failed ? 1 : 0;
-                    Console.WriteLine($"    {certificate.NotAfter:yyyy-MM-dd}  {certificate.Name} ({string.Join(", ", certificate.Hosts)}){(failed ? $"  RENEWAL FAILED x{certificate.ConsecutiveFailures}: {certificate.LastRenewalMessage}" : string.Empty)}");
-                }
-            }
-
-            Console.WriteLine(servers.Count == 0
-                ? "No reports yet. Each server writes one after its hourly check, or with 'fleet report'."
-                : $"{servers.Count} server(s); {attention} item(s) need attention.");
-            return attention == 0 ? CliExitCodes.Success : CliExitCodes.Failed;
-        }
-        catch (Exception exception)
-        {
-            WriteError(exception);
-            return CliExitCodes.Failed;
-        }
-    });
-    command.Subcommands.Add(statusCommand);
     return command;
 }
 
@@ -2275,7 +2086,7 @@ static Command CreateCleanupCommand(IServiceProvider services)
     {
         if (!parseResult.GetValue(yesOption))
         {
-            Console.Error.WriteLine("Error: --yes is required, because removed certificates cannot be restored without a copy.");
+            Console.Error.WriteLine($"Error: {ErrorCodes.ConfirmationRequired.Format("--yes is required, because removed certificates cannot be restored without a copy.")}");
             return 1;
         }
 
@@ -2320,13 +2131,13 @@ static Command CreateRevokeCommand(IServiceProvider services)
         var file = parseResult.GetValue(fileOption);
         if ((site is null) == (file is null) || (file is not null && parseResult.GetValue(caOption) is null))
         {
-            Console.Error.WriteLine("Error: give --site, or --file with --ca.");
+            Console.Error.WriteLine($"Error: {ErrorCodes.CommandOptionsInvalid.Format("give --site, or --file with --ca.")}");
             return 1;
         }
 
         if (!parseResult.GetValue(yesOption))
         {
-            Console.Error.WriteLine("Error: --yes is required, because revocation cannot be undone.");
+            Console.Error.WriteLine($"Error: {ErrorCodes.ConfirmationRequired.Format("--yes is required, because revocation cannot be undone.")}");
             return 1;
         }
 
@@ -2366,7 +2177,7 @@ static Command CreateAccountCommand(IServiceProvider services)
     {
         if (!parseResult.GetValue(yesOption))
         {
-            Console.Error.WriteLine("Error: --yes is required, because the old key stops working at once.");
+            Console.Error.WriteLine($"Error: {ErrorCodes.ConfirmationRequired.Format("--yes is required, because the old key stops working at once.")}");
             return 1;
         }
 
@@ -2599,7 +2410,7 @@ static async Task<int> SetRemindersAsync(
 {
     if (startDays is null && repeatDays is null && sendAt is null && notices is null && repeatAutomatic is null && weekly is null && checks is null)
     {
-        Console.Error.WriteLine("Error: specify at least one of --start-days, --repeat-days, --send-at, --notices, --repeat-automatic, --weekly, --checks.");
+        Console.Error.WriteLine($"Error: {ErrorCodes.CommandOptionsInvalid.Format("specify at least one of --start-days, --repeat-days, --send-at, --notices, --repeat-automatic, --weekly, --checks.")}");
         return 1;
     }
 
@@ -2706,7 +2517,6 @@ static async Task<int> ShowNotificationsAsync(INotificationSettingsService setti
             var signIn = email.Authentication switch
             {
                 SmtpAuthentication.None => "no sign-in",
-                SmtpAuthentication.MicrosoftGraph => $"Microsoft Graph, tenant {email.Host}, app {email.Username}",
                 _ => $"sign-in as {email.Username}"
             };
             Console.WriteLine($"Email: {email.Host}:{email.Port}, {email.Security}, {signIn}, from {email.From} to {string.Join(", ", email.To)}");
@@ -2764,13 +2574,11 @@ static async Task<int> ConfigureEmailAsync(
     {
         "none" => SmtpAuthentication.None,
         "password" => SmtpAuthentication.Password,
-        "graph" => SmtpAuthentication.MicrosoftGraph,
         _ => preset?.Authentication ?? (user is null ? SmtpAuthentication.None : SmtpAuthentication.Password)
     };
     var password = resolvedAuthentication switch
     {
         SmtpAuthentication.Password => ReadHiddenValue("SMTP password (leave empty to keep the saved one): "),
-        SmtpAuthentication.MicrosoftGraph => ReadHiddenValue("Client secret of the app registration (leave empty to keep the saved one): "),
         _ => null
     };
     return await RunNotificationChangeAsync(
@@ -2835,7 +2643,7 @@ static async Task<int> ConfigureNotificationOptionsAsync(
 {
     if (eventLog is null && notifySuccess is null)
     {
-        Console.Error.WriteLine("Error: specify --event-log and/or --notify-success.");
+        Console.Error.WriteLine($"Error: {ErrorCodes.CommandOptionsInvalid.Format("specify --event-log and/or --notify-success.")}");
         return 1;
     }
 
@@ -2866,7 +2674,7 @@ static Task<int> RemoveNotificationChannelAsync(
 {
     if (email == chat.HasValue)
     {
-        Console.Error.WriteLine("Error: specify exactly one of --email or --chat <number>.");
+        Console.Error.WriteLine($"Error: {ErrorCodes.CommandOptionsInvalid.Format("specify exactly one of --email or --chat <number>.")}");
         return Task.FromResult(1);
     }
 
@@ -3311,20 +3119,19 @@ static async Task<int> IssueAsync(
     string? preferredChain,
     string? profile,
     bool reuseKey,
-    string? farmFolders,
     CancellationToken cancellationToken)
 {
     try
     {
         if ((site is null) == (noSite is null))
         {
-            Console.Error.WriteLine("Error: give either --site, for an IIS site, or --no-site with a name, for a certificate with no IIS site.");
+            Console.Error.WriteLine($"Error: {ErrorCodes.CommandOptionsInvalid.Format("give either --site, for an IIS site, or --no-site with a name, for a certificate with no IIS site.")}");
             return 1;
         }
 
         if (noSite is not null && hostsValue is not null)
         {
-            Console.Error.WriteLine("Error: a certificate with no IIS site has nothing to bind; give its names with --names instead of --hosts.");
+            Console.Error.WriteLine($"Error: {ErrorCodes.CommandOptionsInvalid.Format("a certificate with no IIS site has nothing to bind; give its names with --names instead of --hosts.")}");
             return 1;
         }
 
@@ -3369,8 +3176,7 @@ static async Task<int> IssueAsync(
                     PreferredChain: preferredChain,
                     Profile: profile,
                     ReuseKey: reuseKey,
-                    SelfHostedHttp: validation == "http-self",
-                    FarmFolders: farmFolders?.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)),
+                    SelfHostedHttp: validation == "http-self"),
                 new ConsoleProgress(),
                 cancellationToken)
             .ConfigureAwait(false);
@@ -3394,9 +3200,13 @@ static async Task<int> IssueAsync(
         Console.WriteLine($"Valid from: {result.NotBefore:yyyy-MM-dd HH:mm:ss} UTC");
         Console.WriteLine($"Valid until: {result.NotAfter:yyyy-MM-dd HH:mm:ss} UTC");
         Console.WriteLine($"PEM: {result.CertificatePemPath}");
-        Console.WriteLine(result.PfxPath is null
-            ? "PFX: not persisted (private key is installed as non-exportable)"
-            : $"PFX: {result.PfxPath}");
+        Console.WriteLine(result.PfxPath is not null
+            ? $"PFX: {result.PfxPath}"
+            : reuseKey
+                ? "PFX: not persisted (the private key stays in the Windows key store)"
+                : exportableKey
+                    ? "PFX: not persisted (the private key is installed as exportable, so deployment steps can export it)"
+                    : "PFX: not persisted (private key is installed as non-exportable)");
         foreach (var leftOut in result.LeftOutSites ?? [])
         {
             Console.WriteLine($"Left on its previous certificate: '{leftOut.SiteName}': {leftOut.Reason}");

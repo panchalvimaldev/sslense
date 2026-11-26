@@ -39,7 +39,7 @@ internal static class SharedBindingTransaction
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                progress?.Report(new ProgressEvent("binding", $"Moving IIS site '{target.SiteName}' to the new certificate."));
+                progress?.Report(new ProgressEvent("binding", $"Moving IIS site '{ManagedCertificateNames.IisSiteOf(target.SiteName)}' to the new certificate."));
                 changed.Add(await iisService
                     .SwitchHttpsBindingsAsync(target.SiteName, target.Hosts, thumbprint, "My", cancellationToken)
                     .ConfigureAwait(false));

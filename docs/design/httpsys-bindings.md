@@ -23,7 +23,9 @@ The endpoint is one of:
 
 ## How the step works
 
-- **When it is added:** the endpoint is checked. An endpoint that an IIS site's HTTPS binding uses is refused, because SSLense already changes it with that site's certificate.
+- **When it is added:** the endpoint is checked, and one that IIS serves is refused:
+  - a host name and port that an IIS site's HTTPS binding uses, because SSLense already changes it with that site's certificate;
+  - an IP address and port where an IIS site serves HTTPS, even if all its bindings there have host names. The certificate on such an endpoint answers every visitor whose browser sends no host name, and it would become the certificate of a host-less binding added later. The combined test found this case.
 - **When it runs:**
   1. `netsh http show sslcert` looks for the binding.
   2. An existing binding is changed with `update sslcert` and keeps its application ID, so the service that owns it still owns it. A missing binding is added under SSLense's own application ID.
@@ -37,7 +39,8 @@ This is managed-certificate schema 17.
 
 - Remote Desktop, SQL Server and Exchange as first-class steps; ready-made scripts exist today.
 - Apache, nginx and Tomcat on Windows, as files and a reload.
-- Azure App Service.
+
+Update: all of these were built, except Exchange, which stays a ready-made script. Azure App Service was built and then removed before 0.24.0 ([app-service.md](app-service.md)).
 
 Each will get its own pull request.
 

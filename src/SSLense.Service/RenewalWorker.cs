@@ -16,7 +16,6 @@ internal sealed class RenewalWorker(
     ICertificateRecoveryService recoveryService,
     IServiceHeartbeatStore heartbeatStore,
     INotifier notifier,
-    IFleetService fleet,
     ILogger<RenewalWorker> logger) : BackgroundService
 {
     // Hourly checks are cheap: certificates that are not due and retries still backing off
@@ -72,29 +71,11 @@ internal sealed class RenewalWorker(
                 cancellationToken)
             .ConfigureAwait(false);
 
-        await WriteFleetReportAsync(problem is null, problem, cancellationToken).ConfigureAwait(false);
-
         // Ping only when healthy: pings then stop both when the service dies and while renewals keep failing,
         // so an external monitor alerts in either case even with no other channel configured.
         if (problem is null)
         {
             await PingHeartbeatAsync(cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    /// <summary>Never stops a cycle: the report only describes it (docs/design/fleet.md).</summary>
-    private async Task WriteFleetReportAsync(bool succeeded, string? problem, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await fleet.WriteReportAsync(succeeded, problem, cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (Exception exception)
-        {
-            logger.LogWarning("The fleet report could not be written: {Message}", exception.Message);
         }
     }
 
@@ -215,6 +196,14 @@ internal sealed class RenewalWorker(
                         result.SiteName,
                         result.Message);
                 }
+                else if (result.Waiting)
+                {
+                    // Held after a rollback or waiting for the maintenance window: the administrator's choice, not a problem.
+                    logger.LogInformation(
+                        "Scheduled renewal for {SiteName} is waiting: {Message}",
+                        result.SiteName,
+                        result.Message);
+                }
                 else
                 {
                     logger.LogWarning(
@@ -224,7 +213,7 @@ internal sealed class RenewalWorker(
                 }
             }
 
-            var failed = results.Where(result => !result.Succeeded).Select(result => result.SiteName).ToArray();
+            var failed = results.Where(result => !result.Succeeded && !result.Waiting).Select(result => result.SiteName).ToArray();
             return failed.Length == 0 ? null : $"Renewal is failing for: {string.Join(", ", failed)}.";
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

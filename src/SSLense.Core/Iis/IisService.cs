@@ -222,9 +222,10 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
 
                     if (binding is null)
                     {
-                        // An IP address is bound by address, without SNI (docs/design/ip-certificates.md).
+                        // An IP address is bound by address, without SNI: the address where its traffic arrives, which
+                        // behind NAT is the server's own (docs/design/ip-certificates.md).
                         binding = site.Bindings.Add(
-                            IsIpAddress(host) ? $"{BindingAddress(host)}:443:" : $"*:443:{host}",
+                            IsIpAddress(host) ? $"{BindingAddress(LocalBindingAddress(host))}:443:" : $"*:443:{host}",
                             certificateHash,
                             certificateStoreName,
                             IsIpAddress(host) ? SslFlags.None : SslFlags.Sni);
@@ -917,6 +918,20 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
     /// <summary>An address as IIS writes it in a binding: IPv6 in brackets.</summary>
     private static string BindingAddress(string ip) => Uri.CheckHostName(ip) == UriHostNameType.IPv6 ? $"[{ip}]" : ip;
 
+    /// <summary>Where the IP address's traffic arrives on this server; checked before ordering, so it is known here.</summary>
+    private static string LocalBindingAddress(string ip)
+    {
+        var address = System.Net.IPAddress.Parse(ip);
+        return (LocalAddress.For(address)
+                ?? throw new SslenseException(ErrorCodes.IpAddressNotOnThisServer, LocalAddressMessage(address)))
+            .ToString();
+    }
+
+    internal static string LocalAddressMessage(System.Net.IPAddress address) =>
+        $"{address} is not an address of this server, and SSLense cannot tell which of its addresses " +
+        $"({string.Join(", ", LocalAddress.ServerAddresses().Where(local => local.AddressFamily == address.AddressFamily))}) receives its traffic. " +
+        "Behind NAT, a server with one address of that kind is chosen automatically; give the server one, or add the public address to an adapter.";
+
     private static Binding? FindHttpsBinding(Site site, string host) =>
         site.Bindings.FirstOrDefault(binding =>
         {
@@ -927,7 +942,7 @@ internal sealed class IisService(ITlsBindingProbe tlsProbe, IFileSystem fileSyst
 
             var (address, port, bindingHost) = ParseBindingInformation(binding.BindingInformation);
             return port == 443 && (IsIpAddress(host)
-                ? bindingHost.Length == 0 && System.Net.IPAddress.TryParse(address.Trim('[', ']'), out var bound) && bound.ToString() == host
+                ? bindingHost.Length == 0 && LocalAddress.Receives(address, System.Net.IPAddress.Parse(host))
                 : string.Equals(bindingHost, host, StringComparison.OrdinalIgnoreCase));
         });
 

@@ -39,29 +39,29 @@ dotnet test SSLense.sln --filter "FullyQualifiedName~PebbleTests"
 
 ## What the unit suite covers
 
-| Area | Tests | What is checked |
+| Area | Test cases | What is checked |
 |---|---|---|
-| ACME (`Acme`) | 107 | Ordering, HTTP and DNS validation, installing and binding, renewal replacing (ARI), keeping the previous certificate, web farm challenge copies, CA registry and locks, key and order options, and Pebble end to end: issue, renew, revoke, account key change, External Account Binding |
-| Certificates (`Certificates`) | 158 | Inspection and validation of bought certificates, PFX import, CSRs, sharing between sites, transactions and recovery, clean-up, history and rollback, bulk operations, remote certificates, revocation |
-| Settings and state (`Config`) | 53 | State file formats and every migration, backups before migration, data folder permissions, maintenance windows, settings export and import with encrypted secrets |
-| Deployment steps (`Deployment`) | 32 | Key access, service restarts, scripts checked by hash, PFX, PEM and Central Certificate Store exports, FTP, HTTP.sys, Remote Desktop, SQL Server, web servers, Key Vault and App Service, retries and notifications |
-| Diagnostics (`Diagnostics`) | 36 | Health check, diagnostic bundle and its redaction, service heartbeat, version notice, fleet reports |
-| DNS validation (`DnsValidation`) | 135 | Every built-in DNS provider's requests, scripts, acme-dns, propagation checks at the authoritative servers, CAA, the challenge journal and cleanup |
+| ACME (`Acme`) | 162 | Ordering, HTTP and DNS validation, installing and binding, renewal replacing (ARI), keeping the previous certificate, the request's common name, CA registry and locks, key and order options, and Pebble end to end: issue, renew, revoke, account key change, External Account Binding |
+| Certificates (`Certificates`) | 176 | Inspection and validation of bought certificates, PFX import, CSRs, sharing between sites, transactions and recovery, clean-up, history and rollback, bulk operations, remote certificates, revocation |
+| Settings and state (`Config`) | 82 | State file formats and every migration, backups before migration, data folder permissions, maintenance windows, settings export and import with encrypted secrets |
+| Deployment steps (`Deployment`) | 40 | Key access, service restarts, scripts checked by hash, PFX, PEM and Central Certificate Store exports, FTP, HTTP.sys, Remote Desktop, SQL Server, web servers, retries and notifications |
+| Diagnostics (`Diagnostics`) | 52 | Health check, diagnostic bundle and its redaction, service heartbeat, version notice |
+| DNS validation (`DnsValidation`) | 175 | Every built-in DNS provider's requests, scripts, acme-dns, propagation checks at the authoritative servers, CAA, the challenge journal and cleanup |
 | Error codes (`Errors`) | 5 | Every code is unique and documented in errors.md, the issued list only grows, and Core throws coded errors only |
-| Desktop app (`Gui`) | 33 | The main screens render with sample certificates (19 screenshots), with every control reachable with Tab and named for screen readers; high contrast covers every theme brush; view models for installing renewals, sharing, reminders and stopping management |
-| IIS (`Iis`) | 5 | HTTPS redirect rule, the TLS binding probe |
+| Desktop app (`Gui`) | 37 | The main screens render with sample certificates (19 screenshots), with every control reachable with Tab and named for screen readers; high contrast covers every theme brush; view models for installing renewals, sharing, reminders and stopping management |
+| IIS (`Iis`) | 34 | HTTPS redirect rule, the TLS binding probe, which bindings serve a host, the server's own addresses behind NAT |
 | Logs (`Logs`) | 8 | Reading, filtering and redaction |
-| Notifications (`Notifications`) | 30 | Email (SMTP and Microsoft Graph), every chat format, signed webhooks, Event Log, settings, test sends |
-| Reminders (`Reminders`) | 76 | Digest contents, snoozing, outside-renewal detection, served-certificate checks, renewal readiness |
-| Renewal (`Renewal`) | 25 | Scheduling, backoff, rate limits, maintenance windows, the hold after a rollback, notifications |
-| Validation (`Validation`) | 19 | HTTP-01 files and web.config, HTTP answered by SSLense, DNS pre-checks, web farm folders |
+| Notifications (`Notifications`) | 38 | Email over SMTP, every chat format, signed webhooks, Event Log, settings, test sends |
+| Reminders (`Reminders`) | 99 | Digest contents, snoozing, outside-renewal detection, served-certificate checks, renewal readiness |
+| Renewal (`Renewal`) | 38 | Scheduling, backoff, rate limits, maintenance windows, the hold after a rollback, notifications |
+| Validation (`Validation`) | 20 | HTTP-01 files and web.config, HTTP answered by SSLense, DNS pre-checks |
 
 ## What automated tests cannot show
 
 These are in the manual test plan:
 - real IIS and HTTP.sys (the acceptance checks);
 - real certificate authorities other than Let's Encrypt staging;
-- real DNS provider accounts, Microsoft 365 and Azure;
+- real DNS provider accounts;
 - the installer and upgrades;
 - Windows Server versions;
 - what Narrator says and how a contrast theme looks;

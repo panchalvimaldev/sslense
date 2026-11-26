@@ -32,29 +32,22 @@ The numbers are the schema versions of `managed-certificates.json` and `config.j
   - HTTP validation answered by SSLense;
   - certificates on other machines;
   - the previous certificate kept for rollback;
-  - FTP, Key Vault, HTTP.sys, Remote Desktop, SQL Server, web server and App Service deployment steps;
-  - web farm folders.
+  - FTP, HTTP.sys, Remote Desktop, SQL Server and web server deployment steps.
 - **Settings:**
   - the maintenance window and the new DNS providers;
-  - Microsoft Graph email and signed webhooks;
-  - the fleet folder.
+  - signed webhooks.
 - **New files:** `history.json`.
+- **Skipped numbers:** some versions in the table were used during development by features removed before release (Key Vault, App Service, web farms, Microsoft Graph email, fleet reports). Nothing they stored is read any more.
 
 **A server that skips versions** is upgraded in one step. Every migration runs in order.
 
 ## Known issues
 
 - **Not yet tested against real accounts.** These are tested only against test doubles until the combined test ([testing documents](testing/)):
-  - the built-in Amazon Route 53, Azure DNS, Google Cloud DNS, DigitalOcean and Hetzner DNS providers;
-  - email through Microsoft Graph;
-  - the Azure Key Vault and App Service steps.
+  - the built-in Azure DNS, Google Cloud DNS, DigitalOcean and Hetzner DNS providers. Amazon Route 53 passed the combined test.
 - **The renewal service needs elevation for real port 80 registration:** HTTP validation answered by SSLense registers `http://+:80/.well-known/acme-challenge/` with HTTP.sys. It is covered by the manual tests only.
-- **Settings only in the CLI:**
-  - web farm folders (`farm`);
-  - fleet reports (`fleet`).
-- **Fleet:** the central fleet view is designed but not built ([design](design/fleet.md)).
 - **High contrast:** turning it on or off while the app runs takes effect at the next start.
 - **TLS-ALPN-01 validation is not available:** IIS owns port 443 through HTTP.sys ([plan](delivery-plan.md), item 12).
 - **Exchange:** it is updated through the ready-made `Exchange.ps1` script, not a built-in step. Its settings are reachable only through the Exchange Management Shell.
 - **Unsigned releases:** Windows SmartScreen may warn about a downloaded MSI. Check its SHA-256, or install with winget or the PowerShell commands in the README, which check it for you ([about the warning](../README.md#about-the-smartscreen-warning)).
-- **SFTP for web farms is not built:** it would need a package that the project spec does not list.
+- **Web farms:** HTTP challenges are not copied to other servers. In a farm, use DNS validation, and the Central Certificate Store step to keep every server in step.

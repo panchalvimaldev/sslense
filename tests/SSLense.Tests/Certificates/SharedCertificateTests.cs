@@ -862,7 +862,10 @@ public sealed class SharedCertificateTests
 
         Assert.True(result.Succeeded);
         Assert.Contains("'Blog'", result.Message, StringComparison.Ordinal);
-        notifier.Verify(value => value.NotifyAsync(It.Is<NotificationMessage>(message => message.Kind == NotificationKind.RenewalFailure), It.IsAny<CancellationToken>()), Times.Once);
+        // The alert carries its code, like every problem SSLense explains (found in the combined test: it had none).
+        notifier.Verify(value => value.NotifyAsync(
+            It.Is<NotificationMessage>(message => message.Kind == NotificationKind.RenewalFailure && message.Body.StartsWith("SSL4042: ", StringComparison.Ordinal)),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -1009,6 +1012,31 @@ public sealed class SharedCertificateTests
         Assert.Contains("'Other'", warning, StringComparison.Ordinal);
         Assert.DoesNotContain("'Blog'", warning, StringComparison.Ordinal);
         Assert.Contains("share add", warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HandSharingWarning_ForASecondCertificateOnASite_DoesNotNameItsOwnSite()
+    {
+        // Found in the combined test: 'Main/www2.example.com', shared to Blog, was warned that IIS site 'Main' also used it.
+        var record = Shared() with { SiteName = "Main/www2.example.com", Hosts = ["www2.example.com"] };
+        var first = Shared() with { SiteName = "Main", Hosts = ["main.example.com"], Thumbprint = "FIRST", AdditionalTargets = null };
+        IisSite[] sites =
+        [
+            new(1, "Main", "Started", "C:\\inetpub\\main",
+            [
+                new IisBinding("https", "*", 443, "main.example.com", "FIRST", "My", true),
+                new IisBinding("https", "*", 443, "www2.example.com", Old, "My", true)
+            ]),
+            Site("Blog", "blog.example.com"),
+            Site("Other", "other.example.com")
+        ];
+
+        var warning = ServedCertificateCheck.DescribeSharing(record, sites, [first, record]);
+
+        Assert.NotNull(warning);
+        Assert.Contains("'Other'", warning, StringComparison.Ordinal);
+        Assert.DoesNotContain("'Main'", warning, StringComparison.Ordinal);
+        Assert.DoesNotContain("'Blog'", warning, StringComparison.Ordinal);
     }
 
     [Fact]

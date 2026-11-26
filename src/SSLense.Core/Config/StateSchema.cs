@@ -26,6 +26,8 @@ internal static class StateSchema
     /// deployment step that gives an IIS FTP site the certificate, which 0.23 would not know. Version 16 adds the
     /// Azure Key Vault deployment step, which 0.23 would not know either. Version 17 adds the HTTP.sys
     /// binding step. Version 18 adds the Remote Desktop and SQL Server steps. Version 19 adds the web server step. Version 20 adds the Azure App Service step. Version 21 adds the web farm folders for HTTP validation.
+    /// The Key Vault (16), App Service (20) and web farm (21) additions were removed before 0.24.0 was released; the
+    /// numbers stay, because test builds wrote them, and the removed values are ignored when read.
     /// </summary>
     public const int ManagedCertificates = 21;
 
@@ -39,7 +41,8 @@ internal static class StateSchema
     /// domain, which 0.16 would not recognize either. Version 9 adds the maintenance window and the built-in Amazon Route 53,
     /// Azure DNS, Google Cloud DNS, DigitalOcean and Hetzner providers, which 0.23 would not recognize. Version 10
     /// adds email through Microsoft Graph and signed webhook payloads, which 0.23 would not recognize. Version 11 adds the fleet
-    /// report folder.
+    /// report folder. Email through Microsoft Graph (10) and the fleet folder (11) were removed before 0.24.0 was
+    /// released; the numbers stay, and a saved fleet folder is ignored when read.
     /// </summary>
     public const int Config = 11;
 

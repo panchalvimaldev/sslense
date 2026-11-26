@@ -192,7 +192,9 @@ internal sealed class RenewalService : IRenewalService
                         ? $"Waiting: renewal is held until {retryAt:yyyy-MM-dd HH:mm} UTC after a rollback. Renew by hand to renew now."
                         : $"Waiting: attempt {certificate.ConsecutiveFailures + 1} is scheduled for " +
                           $"{retryAt:yyyy-MM-dd HH:mm} UTC after {certificate.ConsecutiveFailures} failure(s).",
-                    certificate.Thumbprint));
+                    certificate.Thumbprint,
+                    // A hold after a rollback was chosen; a backoff after failures is still failing.
+                    Waiting: certificate.ConsecutiveFailures == 0));
                 continue;
             }
 
@@ -218,7 +220,16 @@ internal sealed class RenewalService : IRenewalService
             {
                 if (maintenance.Wait(certificate, DateTimeOffset.UtcNow, TimeZone) is { } wait)
                 {
-                    results.Add(new RenewalResult(certificate.SiteName, false, false, wait.Reason, certificate.Thumbprint));
+                    // Waiting for the window is only a wait when nothing has failed: a renewal that failed and now waits
+                    // for the next window is still failing, so the heartbeat and monitoring must keep saying so.
+                    var failing = certificate.ConsecutiveFailures > 0;
+                    results.Add(new RenewalResult(
+                        certificate.SiteName,
+                        false,
+                        false,
+                        failing ? $"{wait.Reason} The last {certificate.ConsecutiveFailures} attempt(s) failed: {certificate.LastRenewalMessage}" : wait.Reason,
+                        certificate.Thumbprint,
+                        Waiting: !failing));
                     continue;
                 }
 
@@ -319,7 +330,7 @@ internal sealed class RenewalService : IRenewalService
                 certificate.SiteName,
                 true,
                 true,
-                string.Join(" ", new[] { cleanupMessage ?? "Renewed and rebound successfully.", leftOutMessage, issued.Deployment?.Message, keyNotice }.OfType<string>()),
+                string.Join(" ", new[] { cleanupMessage ?? (certificate.NoSite ? "Renewed successfully." : "Renewed and rebound successfully."), leftOutMessage, issued.Deployment?.Message, keyNotice }.OfType<string>()),
                 certificate.Thumbprint,
                 newThumbprint);
         }
@@ -445,9 +456,11 @@ internal sealed class RenewalService : IRenewalService
     private static string? DescribeLeftOut(IReadOnlyList<LeftOutSite> leftOut, DateTimeOffset previousExpiry) =>
         leftOut.Count == 0
             ? null
-            : $"These IIS sites stay on the previous certificate, which expires on {previousExpiry:yyyy-MM-dd}: " +
-              $"{string.Join(" ", leftOut.Select(site => $"'{site.SiteName}': {site.Reason}"))} " +
-              "SSLense keeps trying to move them. Fix the site, or stop sharing with 'SSLense.Cli share remove --site <site>'.";
+            // The alert and the result carry the code too, like every problem SSLense explains (docs/design/error-codes.md).
+            : ErrorCodes.SharingNeedsAttention.Format(
+                $"These IIS sites stay on the previous certificate, which expires on {previousExpiry:yyyy-MM-dd}: " +
+                $"{string.Join(" ", leftOut.Select(site => $"'{site.SiteName}': {site.Reason}"))} " +
+                "SSLense keeps trying to move them. Fix the site, or stop sharing with 'SSLense.Cli share remove --site <site>'.");
 
     private async Task TryNotifyAsync(
         NotificationMessage message,

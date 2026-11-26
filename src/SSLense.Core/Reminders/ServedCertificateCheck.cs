@@ -193,14 +193,13 @@ internal sealed class ServedCertificateCheck(
             return null;
         }
 
+        // Compared by IIS site: a second certificate on a site is named "site/host", and its own site is not another one.
         var expected = Normalize(certificate.Thumbprint);
         var others = sites
             .Where(site =>
-                !certificate.ManagesSite(site.Name) &&
+                !OnSite(certificate, site.Name) &&
                 site.Bindings.Any(binding => binding.CertificateThumbprint is { } thumbprint && Normalize(thumbprint) == expected) &&
-                !certificates.Any(other =>
-                    string.Equals(other.SiteName, site.Name, StringComparison.OrdinalIgnoreCase) &&
-                    Normalize(other.Thumbprint) == expected))
+                !certificates.Any(other => OnSite(other, site.Name) && Normalize(other.Thumbprint) == expected))
             .Select(site => $"'{site.Name}'")
             .ToArray();
         return others.Length == 0
@@ -211,6 +210,9 @@ internal sealed class ServedCertificateCheck(
                   ? "Give that site its own certificate."
                   : $"To renew it too, run 'SSLense.Cli share add --from \"{certificate.SiteName}\" --to <site>'.");
     }
+
+    private static bool OnSite(ManagedCertificate certificate, string iisSite) =>
+        certificate.AllSiteNames().Any(name => string.Equals(ManagedCertificateNames.IisSiteOf(name), iisSite, StringComparison.OrdinalIgnoreCase));
 
     private async Task<string?> CheckBindingAsync(
         ManagedCertificate certificate,

@@ -417,10 +417,29 @@ public sealed class RenewalServiceTests
             result =>
             {
                 Assert.False(result.Attempted);
+                // Backing off after failures is still failing, so the heartbeat reports it.
+                Assert.False(result.Waiting);
                 Assert.Contains("attempt 3", result.Message, StringComparison.Ordinal);
             },
             result => Assert.True(result.Succeeded));
         acme.VerifyAll();
+    }
+
+    [Fact]
+    public async Task RenewAsync_ScheduledRunHeldAfterARollback_IsWaiting_NotFailing()
+    {
+        // Found in the combined test: a hold the administrator chose showed as "Renewal is failing" in the health check.
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(5)) with { NextRetryAt = DateTimeOffset.UtcNow.AddDays(6) }]);
+        var service = CreateService(managed, MockConfig(), new Mock<IAcmeService>(MockBehavior.Strict));
+
+        var result = Assert.Single(await service.RenewAsync(new RenewalRequest(All: true, Scheduled: true)));
+
+        Assert.False(result.Attempted);
+        Assert.False(result.Succeeded);
+        Assert.True(result.Waiting);
+        Assert.Contains("after a rollback", result.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -592,11 +611,39 @@ public sealed class RenewalServiceTests
             waiting =>
             {
                 Assert.False(waiting.Attempted);
+                Assert.True(waiting.Waiting);
                 Assert.StartsWith("Waiting for the maintenance window", waiting.Message, StringComparison.Ordinal);
             },
             urgent => Assert.True(urgent.Succeeded));
         Assert.Contains(progress, line => line.Contains("outside the maintenance window", StringComparison.Ordinal));
         acme.VerifyAll();
+    }
+
+    [Fact]
+    public async Task RenewAsync_AFailedRenewalWaitingForTheWindow_IsStillFailing()
+    {
+        // Codex on #89: a renewal that failed near the end of a window, with its backoff over, waited for the next one
+        // as "waiting", so the heartbeat looked healthy while it was still failing.
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(20)) with
+            {
+                ConsecutiveFailures = 2,
+                NextRetryAt = DateTimeOffset.UtcNow.AddMinutes(-5),
+                LastRenewalMessage = "SSL1003: the challenge was not reachable."
+            }]);
+        var service = new RenewalService(managed.Object, ConfigWithClosedWindow().Object, new Mock<IAcmeService>(MockBehavior.Strict).Object,
+            new Mock<IIisService>(MockBehavior.Strict).Object, new Mock<ICertificateStore>(MockBehavior.Strict).Object, new Mock<INotifier>().Object)
+        {
+            TimeZone = TimeZoneInfo.Utc
+        };
+
+        var result = Assert.Single(await service.RenewAsync(new RenewalRequest(All: true, Scheduled: true)));
+
+        Assert.False(result.Attempted);
+        Assert.False(result.Waiting);
+        Assert.StartsWith("Waiting for the maintenance window", result.Message, StringComparison.Ordinal);
+        Assert.Contains("The last 2 attempt(s) failed: SSL1003", result.Message, StringComparison.Ordinal);
     }
 
     [Fact]
