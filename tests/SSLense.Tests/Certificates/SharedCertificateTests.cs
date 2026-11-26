@@ -1012,6 +1012,31 @@ public sealed class SharedCertificateTests
     }
 
     [Fact]
+    public void HandSharingWarning_ForASecondCertificateOnASite_DoesNotNameItsOwnSite()
+    {
+        // Found in the combined test: 'Main/www2.example.com', shared to Blog, was warned that IIS site 'Main' also used it.
+        var record = Shared() with { SiteName = "Main/www2.example.com", Hosts = ["www2.example.com"] };
+        var first = Shared() with { SiteName = "Main", Hosts = ["main.example.com"], Thumbprint = "FIRST", AdditionalTargets = null };
+        IisSite[] sites =
+        [
+            new(1, "Main", "Started", "C:\\inetpub\\main",
+            [
+                new IisBinding("https", "*", 443, "main.example.com", "FIRST", "My", true),
+                new IisBinding("https", "*", 443, "www2.example.com", Old, "My", true)
+            ]),
+            Site("Blog", "blog.example.com"),
+            Site("Other", "other.example.com")
+        ];
+
+        var warning = ServedCertificateCheck.DescribeSharing(record, sites, [first, record]);
+
+        Assert.NotNull(warning);
+        Assert.Contains("'Other'", warning, StringComparison.Ordinal);
+        Assert.DoesNotContain("'Main'", warning, StringComparison.Ordinal);
+        Assert.DoesNotContain("'Blog'", warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ServedCheck_ChecksEverySite_AndNamesTheOneWithAProblem()
     {
         var record = Shared();
