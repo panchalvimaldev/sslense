@@ -76,7 +76,7 @@ Run each linked document's steps in order. The count is its number of steps.
 | Feature | Steps | Result |
 |---|---|---|
 | [IIS FTP sites](ftp-sites.md) | 8 | ✅ 8/8 (6ab101b); steps 4-5 checked the served certificate with PowerShell instead of FileZilla |
-| [HTTP.sys bindings outside IIS](httpsys-bindings.md) | 6 | ✅ 2-6 (6ab101b); step 1 failed: 0.0.0.0:443 was accepted where every port 443 binding had a host name, fixed in [#87](https://github.com/panchalvimaldev/sslense/pull/87), retest pending; step 3 used `New-Item WSMan:\localhost\Listener` with a self-signed certificate, and `-SkipRevocationCheck` for the staging certificate |
+| [HTTP.sys bindings outside IIS](httpsys-bindings.md) | 6 | ✅ 2-6 (6ab101b); step 1 failed: 0.0.0.0:443 was accepted where every port 443 binding had a host name, fixed in [#87](https://github.com/panchalvimaldev/sslense/pull/87) and passed on 1f313ee (refused, naming site 'Blog'); step 3 used `New-Item WSMan:\localhost\Listener` with a self-signed certificate, and `-SkipRevocationCheck` for the staging certificate |
 | [Remote Desktop and SQL Server](service-targets.md) | 6 | ✅ 1-2 (6ab101b; mstsc's only warning was the untrusted staging root, and the session stayed connected through the renewal); 3, 4 and 6 n/a: SQL Server not installed, the test server has no disk space for it; 5 n/a: turning Remote Desktop off would lock us out of the cloud server, and SSL4058 is covered by the automated tests |
 | [Apache, nginx and Tomcat](web-servers.md) | 6 | ✅ 6/6 (6ab101b; Apache Lounge 2.4.71, nginx 1.30.8 under WinSW 2.14.0, Tomcat 10.1.62 on Temurin 21, all on C: on ports 9444-9446; step 6 was SSL8025 for Tomcat10 before its service existed). The step's "Nginx" is written "nginx" from [#87](https://github.com/panchalvimaldev/sslense/pull/87) |
 | [Sharing from a site with several certificates](sharing-from-multi-certificate-site.md) | 4 | ✅ 4/4 (6ab101b). The renewal's progress named the certificate `Main/www2…` as an IIS site; it names the site from [#87](https://github.com/panchalvimaldev/sslense/pull/87) |
@@ -86,9 +86,9 @@ Run each linked document's steps in order. The count is its number of steps.
 
 | Feature | Steps | Result |
 |---|---|---|
-| [Certificates on other machines](remote-certificates.md) | 8 | ✅ 8/8 (6ab101b), with Apache on the server's private address and port 9444 as the other machine. Step 1 used `watch --port`: in the app, the "On another machine" card was below a long binding list on a screen that did not scroll, fixed in [#87](https://github.com/panchalvimaldev/sslense/pull/87). Step 4's digest also wrongly said that IIS sites 'Main' and 'selfhosted' used their own second certificates, fixed in #87 |
+| [Certificates on other machines](remote-certificates.md) | 8 | ✅ 8/8 (6ab101b), with Apache on the server's private address and port 9444 as the other machine. Step 1 used `watch --port`: in the app, the "On another machine" card was below a long binding list on a screen that did not scroll, fixed in [#87](https://github.com/panchalvimaldev/sslense/pull/87). Step 4's digest also wrongly said that IIS sites 'Main' and 'selfhosted' used their own second certificates, fixed in #87. Both fixes passed on 1f313ee |
 | [HTTP-to-HTTPS redirect](https-redirect.md) | 7 | ✅ 7/7 (6ab101b). Step 3's renewal reused a valid authorization, so the challenge path was checked directly: `/.well-known/acme-challenge/` answered 404, not 301. Step 6 uninstalled URL Rewrite 2.1 and reinstalled it after |
-| [Bulk operations](bulk-operations.md) | 5 | |
+| [Bulk operations](bulk-operations.md) | 5 | ✅ 5/5 (1f313ee). On 6ab101b, Tick all and `bulk watch` tried two certificates bound only on port 8443 and failed them with SSL4001; [#87](https://github.com/panchalvimaldev/sslense/pull/87) greys them out and skips them, and on 1f313ee `bulk watch` said "Nothing to do." Step 5's production row failed with SSL2001 and no production account key was created |
 | [New version notice](version-notice.md) | 5 | |
 | [Clean-up of unused certificates](certificate-cleanup.md) | 4 | |
 | [Signed webhooks](more-notifications.md) | 5 | |
