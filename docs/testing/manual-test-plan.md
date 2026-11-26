@@ -88,7 +88,7 @@ Run each linked document's steps in order. The count is its number of steps.
 
 | Feature | Steps | Result |
 |---|---|---|
-| [Certificates on other machines](remote-certificates.md) | 8 | |
+| [Certificates on other machines](remote-certificates.md) | 8 | ✅ 8/8 (6ab101b), with Apache on the server's private address and port 9444 as the other machine. Step 1 used `watch --port`: in the app, the "On another machine" card was below a long binding list on a screen that did not scroll, fixed in [#87](https://github.com/panchalvimaldev/sslense/pull/87). Step 4's digest also wrongly said that IIS sites 'Main' and 'selfhosted' used their own second certificates, fixed in #87 |
 | [HTTP-to-HTTPS redirect](https-redirect.md) | 7 | |
 | [Bulk operations](bulk-operations.md) | 5 | |
 | [New version notice](version-notice.md) | 5 | |
