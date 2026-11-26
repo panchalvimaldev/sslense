@@ -56,17 +56,17 @@ Already done and only to be marked on the roadmap: private-key permissions for I
 | 19 | Clean-up of unused certificates **(done)** | M | Expired, duplicate, self-signed and staging certificates in `LocalMachine\My` that nothing uses, with a confirmation before each removal |
 | 20 | Certificate history and one-click rollback **(done)** | L | A timeline per certificate, and going back to the previous certificate while it is still valid |
 | 21 | Automation **(done: the PowerShell module is a script module over the CLI)** | L | JSON output for every CLI command, documented exit codes, configuration export and import. A PowerShell module would need the PowerShell SDK package: needs approval, or it becomes a script module over the CLI |
-| 22 | More notifications **(done)** | M | Signed webhook payloads; email through Microsoft Graph for Microsoft 365 tenants without SMTP |
+| 22 | More notifications **(done: signed webhooks; Graph email removed before 0.24.0)** | M | Signed webhook payloads; email through Microsoft Graph for Microsoft 365 tenants without SMTP |
 
 ### Wave 4: more places to put certificates (Later, After 1.0)
 
 | # | Feature | Size | Notes |
 |---|---|---|---|
 | 23 | IIS FTP sites **(done)** | M | The FTP site's SSL certificate, renewed like a web site's |
-| 24 | Export to Azure Key Vault **(done)** | M | Over its REST API with an app registration, so no SDK package |
-| 25 | Other deployment targets **(done: HTTP.sys, Remote Desktop, SQL Server, Apache, nginx, Tomcat and Azure App Service; Exchange stays a ready-made script)** | L, several PRs | HTTP.sys, Kestrel, Remote Desktop Services, SQL Server and Exchange as first-class targets (scripts exist today); Apache, nginx and Tomcat on Windows (files and a reload); Azure App Service (REST). Each with install, verify, rollback and remove |
-| 26 | Web farms **(done: challenge copies to UNC and WebDAV folders; SFTP not built, it needs a package)** | L, design first | HTTP validation across servers through a shared folder or WebDAV, and the certificate kept in step on every server. SFTP would need a package: needs approval |
-| 27 | Several servers from one place **(first part done: fleet reports through a shared folder; the central view is a design for the owner)** | XL, design first | Close to a second product: a central view with roles, built so every server keeps renewing when the central part is down. Last, so everything before it is stable |
+| 24 | Export to Azure Key Vault **(removed before 0.24.0; design kept)** | M | Over its REST API with an app registration, so no SDK package |
+| 25 | Other deployment targets **(done: HTTP.sys, Remote Desktop, SQL Server, Apache, nginx and Tomcat; Exchange stays a ready-made script; Azure App Service removed before 0.24.0)** | L, several PRs | HTTP.sys, Kestrel, Remote Desktop Services, SQL Server and Exchange as first-class targets (scripts exist today); Apache, nginx and Tomcat on Windows (files and a reload); Azure App Service (REST). Each with install, verify, rollback and remove |
+| 26 | Web farms **(challenge copies removed before 0.24.0; design kept. DNS validation and the Central Certificate Store cover farms today)** | L, design first | HTTP validation across servers through a shared folder or WebDAV, and the certificate kept in step on every server. SFTP would need a package: needs approval |
+| 27 | Several servers from one place **(fleet reports removed before 0.24.0; design kept)** | XL, design first | Close to a second product: a central view with roles, built so every server keeps renewing when the central part is down. Last, so everything before it is stable |
 
 ### Wave 5: distribution and project health (ROADMAP 5.3–5.5)
 

@@ -241,8 +241,6 @@ public partial class CertificateDetailsViewModel : ObservableObject
         new("Export PEM files", DeploymentStepKind.ExportPem, "Folder", "cert.pem, chain.pem, fullchain.pem, and key.pem, which only administrators can read. Needs an exportable private key."),
         new("Export to the IIS Central Certificate Store", DeploymentStepKind.CentralStore, "Store folder", "One PFX per name, protected by the store's password as set in IIS. Needs an exportable private key."),
         new("Use it for an IIS FTP site", DeploymentStepKind.FtpSite, "FTP site", "The IIS site with the FTP binding, as IIS Manager names it. Set again after every renewal; new FTP connections use the new certificate."),
-        new("Import into Azure Key Vault", DeploymentStepKind.KeyVault, "Vault/certificate", "Such as contoso-kv/shop. In the password box, the app registration as tenant:client ID:client secret. Needs an exportable private key."),
-        new("Use it for Azure App Service", DeploymentStepKind.AppService, "Subscription/group/app", "Such as <subscription ID>/web-rg/contoso-shop. In the password box, the app registration as tenant:client ID:client secret. The app's custom domains the certificate covers are bound. Needs an exportable private key."),
         new("Bind it in HTTP.sys outside IIS", DeploymentStepKind.HttpSysBinding, "Endpoint", "An IP address and port, such as 0.0.0.0:5986 for WinRM over HTTPS, or a host name and port for SNI, such as api.example.com:8443. Not one an IIS site binds."),
         new("Use it for Remote Desktop", DeploymentStepKind.RemoteDesktop, "Listener", "Type RDP-Tcp. NETWORK SERVICE is given the key, and new connections use the certificate at once."),
         new("Use it for SQL Server", DeploymentStepKind.SqlServer, "Instance", "MSSQLSERVER for the default instance, or its name, such as SQLEXPRESS. Its account is given the key, and it is restarted at every renewal."),
@@ -863,7 +861,7 @@ public sealed record DeploymentKindChoice(string Label, DeploymentStepKind Kind,
 {
     public bool IsScript => Kind == DeploymentStepKind.Script;
 
-    public bool NeedsPassword => Kind is DeploymentStepKind.ExportPfx or DeploymentStepKind.CentralStore or DeploymentStepKind.KeyVault or DeploymentStepKind.WebServer or DeploymentStepKind.AppService;
+    public bool NeedsPassword => Kind is DeploymentStepKind.ExportPfx or DeploymentStepKind.CentralStore or DeploymentStepKind.WebServer;
 
     public override string ToString() => Label;
 }

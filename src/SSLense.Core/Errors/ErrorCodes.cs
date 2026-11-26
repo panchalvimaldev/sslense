@@ -636,11 +636,12 @@ public static class ErrorCodes
     public static readonly ErrorCode ConfigImportRefused = new("SSL6032", nameof(ConfigImportRefused), "Settings not imported",
         "Importing would leave a certificate without the certificate authority that renews it. Add that authority to the source server and export again, or stop managing the certificate first.");
 
-    public static readonly ErrorCode FarmFolderInvalid = new("SSL6033", nameof(FarmFolderInvalid), "Web farm folder not usable",
-        "Each folder is another server's site root, as a full UNC path this server can write to, such as \\web2\\c$\\inetpub\\shop, for a certificate validated over HTTP from its IIS site. When SSLense runs as SYSTEM, give the computer account write access to the share.");
+    // Retired: web farm folders and fleet reports were removed before 0.24.0 was released. Codes are never reused.
+    public static readonly ErrorCode FarmFolderInvalid = new("SSL6033", nameof(FarmFolderInvalid), "Web farm folder not usable (retired)",
+        "Not used by any released version: web farm folders were removed before 0.24.0. In a web farm, use DNS validation, which works whichever server the certificate authority reaches.");
 
-    public static readonly ErrorCode FleetFolderInvalid = new("SSL6034", nameof(FleetFolderInvalid), "Fleet folder not usable",
-        "Fleet reports go to one shared folder every server can write to and read, as a full path such as \\files\\sslense-fleet. When the SSLense service runs as SYSTEM, give each server's computer account modify access to the share.");
+    public static readonly ErrorCode FleetFolderInvalid = new("SSL6034", nameof(FleetFolderInvalid), "Fleet folder not usable (retired)",
+        "Not used by any released version: fleet reports were removed before 0.24.0. Use 'SSLense.Cli status --json' on each server instead.");
 
     public static readonly ErrorCode ChatRejected = new("SSL7001", nameof(ChatRejected), "Chat message rejected",
         "The chat service refused the message. Check the webhook URL still exists, and send a test.");
@@ -669,11 +670,12 @@ public static class ErrorCodes
     public static readonly ErrorCode OnlyEventLog = new("SSL7009", nameof(OnlyEventLog), "Only the Event Log is notified",
         "Add an email or chat channel, or make sure the Windows Event Log is monitored.");
 
-    public static readonly ErrorCode KeyVaultFailed = new("SSL7010", nameof(KeyVaultFailed), "Azure Key Vault import failed",
-        "SSLense signs in with the step's app registration and imports the certificate as a new version. Check the tenant, client ID and secret, the vault's name and firewall, and that the app has the Key Vault Certificates Officer role or the Import certificate permission.");
+    // Retired: the Azure Key Vault and App Service steps were removed before 0.24.0 was released. Codes are never reused.
+    public static readonly ErrorCode KeyVaultFailed = new("SSL7010", nameof(KeyVaultFailed), "Azure Key Vault import failed (retired)",
+        "Not used by any released version: the Azure Key Vault step was removed before 0.24.0. A script step can import the certificate with Azure PowerShell.");
 
-    public static readonly ErrorCode AppServiceFailed = new("SSL7011", nameof(AppServiceFailed), "Azure App Service not updated",
-        "SSLense signs in with the step's app registration, uploads the certificate and binds the app's custom domains it covers. Check the tenant, client ID and secret, the subscription, resource group and app, that the domain is added to the app, and that the app registration has the Website Contributor role.");
+    public static readonly ErrorCode AppServiceFailed = new("SSL7011", nameof(AppServiceFailed), "Azure App Service not updated (retired)",
+        "Not used by any released version: the Azure App Service step was removed before 0.24.0. A script step can upload the certificate with Azure PowerShell.");
 
     public static readonly ErrorCode ExportKeyUnsupported = new("SSL8001", nameof(ExportKeyUnsupported), "Key type cannot be exported",
         "The key is neither RSA nor ECDSA. Issue the certificate again with a supported key type.");

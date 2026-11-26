@@ -10,8 +10,8 @@ using Xunit;
 
 namespace SSLense.Tests.Notifications;
 
-/// <summary>Signed webhook payloads and email through Microsoft Graph (docs/design/signed-webhooks.md, docs/design/graph-email.md).</summary>
-public sealed class SignedWebhookAndGraphTests
+/// <summary>Signed webhook payloads (docs/design/signed-webhooks.md).</summary>
+public sealed class SignedWebhookTests
 {
     private static readonly NotificationMessage Message = new(NotificationKind.RenewalFailure, "Renewal failed: Shop", "It failed.");
 
@@ -79,56 +79,6 @@ public sealed class SignedWebhookAndGraphTests
         chat.VerifyAll();
     }
 
-    [Fact]
-    public async Task GraphEmail_NeedsTheClientIdAndSecret_ButNoSmtpEncryption()
-    {
-        var (service, saved) = Settings();
-
-        await Assert.ThrowsAnyAsync<ArgumentException>(() => service.SetEmailAsync(new EmailSettingsRequest(
-            "contoso.onmicrosoft.com", 443, SmtpSecurity.None, SmtpAuthentication.MicrosoftGraph, "client-id", null, "alerts@contoso.com", ["ops@contoso.com"])));
-        await service.SetEmailAsync(new EmailSettingsRequest(
-            "contoso.onmicrosoft.com", 443, SmtpSecurity.None, SmtpAuthentication.MicrosoftGraph, "client-id", "client-secret", "alerts@contoso.com", ["ops@contoso.com"]));
-
-        var email = saved().Notifications.Email!;
-        Assert.Equal(SmtpAuthentication.MicrosoftGraph, email.Authentication);
-        Assert.Equal("client-id", email.Username);
-        Assert.NotNull(email.ProtectedPassword);
-    }
-
-    [Fact]
-    public async Task GraphEmail_SignsInWithTheApp_AndSendsAsTheFromMailbox()
-    {
-        var handler = new GraphHandler(HttpStatusCode.Accepted);
-        using var sender = new GraphEmailSender(new HttpClient(handler));
-
-        await sender.SendAsync(Delivery(), Message, CancellationToken.None);
-
-        Assert.Equal("https://login.microsoftonline.com/contoso.onmicrosoft.com/oauth2/v2.0/token", handler.Requests[0].Uri);
-        Assert.Contains("client_credentials", handler.Requests[0].Body, StringComparison.Ordinal);
-        Assert.Contains("scope=https%3A%2F%2Fgraph.microsoft.com%2F.default", handler.Requests[0].Body, StringComparison.Ordinal);
-        Assert.Equal("https://graph.microsoft.com/v1.0/users/alerts%40contoso.com/sendMail", handler.Requests[1].Uri);
-        Assert.Equal("Bearer token-123", handler.Requests[1].Authorization);
-        var mail = JsonDocument.Parse(handler.Requests[1].Body).RootElement.GetProperty("message");
-        Assert.Equal("ops@contoso.com", mail.GetProperty("toRecipients")[0].GetProperty("emailAddress").GetProperty("address").GetString());
-        Assert.Equal("high", mail.GetProperty("importance").GetString());
-    }
-
-    [Fact]
-    public async Task GraphEmail_Refused_SaysWhy_WithoutTheSecret()
-    {
-        using var sender = new GraphEmailSender(new HttpClient(new GraphHandler(HttpStatusCode.Forbidden, "{\"error\":{\"code\":\"ErrorAccessDenied\"}}")));
-
-        var exception = await Assert.ThrowsAsync<SslenseException>(() => sender.SendAsync(Delivery(), Message, CancellationToken.None));
-
-        Assert.Equal(ErrorCodes.EmailFailed, exception.ErrorCode);
-        Assert.Contains("ErrorAccessDenied", exception.Message, StringComparison.Ordinal);
-        Assert.Contains("Mail.Send", exception.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("client-secret", exception.Message, StringComparison.Ordinal);
-    }
-
-    private static EmailDelivery Delivery() => new(
-        "contoso.onmicrosoft.com", 443, SmtpSecurity.Auto, SmtpAuthentication.MicrosoftGraph, "client-id", "client-secret", "alerts@contoso.com", ["ops@contoso.com"]);
-
     private static string Plain(string value) => Convert.ToBase64String(Encoding.UTF8.GetBytes(value));
 
     private static Notifier Notifier(NotificationConfig notifications, IChatSender chat)
@@ -152,19 +102,5 @@ public sealed class SignedWebhookAndGraphTests
         protector.Setup(value => value.Protect(It.IsAny<byte[]>()))
             .Returns<byte[]>(plaintext => Encoding.UTF8.GetBytes($"protected:{Encoding.UTF8.GetString(plaintext)}"));
         return (new NotificationSettingsService(configStore.Object, protector.Object), () => current);
-    }
-
-    private sealed class GraphHandler(HttpStatusCode sendStatus, string sendBody = "") : HttpMessageHandler
-    {
-        public List<(string Uri, string Body, string? Authorization)> Requests { get; } = [];
-
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            Requests.Add((request.RequestUri!.AbsoluteUri, request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken),
-                request.Headers.Authorization?.ToString()));
-            return Requests.Count == 1
-                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"access_token\":\"token-123\",\"token_type\":\"Bearer\"}") }
-                : new HttpResponseMessage(sendStatus) { Content = new StringContent(sendBody) };
-        }
     }
 }

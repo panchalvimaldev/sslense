@@ -1,5 +1,7 @@
 # Design: export to Azure Key Vault
 
+**Removed before 0.24.0 was released** (November 26, 2026), to keep SSLense focused on IIS administrators: it could not be tested end to end. The code is in the git history before that date, and this design is kept so the feature can return if users ask. Open an issue if you need it.
+
 Status: **built** November 20, 2026. Feature 24 of [the delivery plan](../delivery-plan.md). It calls the REST API directly, so it needs no Azure SDK package.
 
 ## What the administrator gets
@@ -39,4 +41,4 @@ This is managed-certificate schema 16, because 0.23 would not know the step.
 - It imports a PFX made with a one-time password.
 - The client signs in with the Key Vault scope and posts the PFX and password.
 
-Manual steps: [docs/testing/key-vault.md](../testing/key-vault.md).
+Manual steps: removed with the feature; they are in the git history.

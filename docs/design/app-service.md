@@ -1,5 +1,7 @@
 # Design: Azure App Service
 
+**Removed before 0.24.0 was released** (November 26, 2026), to keep SSLense focused on IIS administrators: it could not be tested end to end. The code is in the git history before that date, and this design is kept so the feature can return if users ask. Open an issue if you need it.
+
 Status: **built** November 20, 2026. The last part of feature 25 of [the delivery plan](../delivery-plan.md), "Other deployment targets". It uses the Azure Resource Manager REST API, so it needs no SDK package.
 
 ## What the administrator gets
@@ -39,4 +41,4 @@ This is managed-certificate schema 20.
 - Only host names the certificate covers are bound.
 - The client reads the app, uploads the certificate with the app's region, and binds the covered domain with SNI.
 
-Manual steps: [docs/testing/app-service.md](../testing/app-service.md).
+Manual steps: removed with the feature; they are in the git history.

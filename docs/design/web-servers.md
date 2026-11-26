@@ -27,7 +27,7 @@ This is managed-certificate schema 19.
 
 ## Still to come in feature 25
 
-Azure App Service.
+Nothing. Azure App Service was built and then removed before 0.24.0 ([app-service.md](app-service.md)).
 
 ## Tests
 

@@ -17,11 +17,10 @@ What a server running SSLense must be able to reach, and what must be able to re
 | The CA's ACME directory, such as `acme-v02.api.letsencrypt.org` and `acme-staging-v02.api.letsencrypt.org` | TCP 443 | Ordering, renewal information (ARI), revocation |
 | Each zone's authoritative name servers | UDP and TCP 53 | Checking that a validation TXT record has propagated, and the pre-check's CAA lookup |
 | Your DNS provider's API, such as `api.cloudflare.com`, `route53.amazonaws.com`, `management.azure.com`, `dns.googleapis.com`, `api.digitalocean.com`, the Hetzner DNS API or your acme-dns server | TCP 443 | DNS validation |
-| `login.microsoftonline.com` with `graph.microsoft.com`, `vault.azure.net` or `management.azure.com` | TCP 443 | Email through Microsoft Graph, Key Vault and App Service steps |
 | Your SMTP server | TCP 25, 465 or 587 | Email notifications |
 | Your chat and push services (Teams, Slack, Discord, `api.telegram.org`, `ntfy.sh`), your webhook and heartbeat URLs | TCP 443, or 80 for internal ones | Notifications |
 | `api.github.com` | TCP 443 | The new-version notice; turn it off in Settings › General |
-| Shares for farm folders, fleet reports or the Central Certificate Store | TCP 445 | Writing challenges, reports and exported certificates |
+| Shares for the Central Certificate Store or other export folders | TCP 445 | Writing exported certificates |
 
 ## DNS
 

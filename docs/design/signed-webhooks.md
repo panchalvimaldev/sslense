@@ -1,6 +1,6 @@
 # Design: signed webhook payloads
 
-Status: **built** November 20, 2026. Part of feature 22 of [the delivery plan](../delivery-plan.md); ROADMAP section 6, "More notification channels". Email through Microsoft Graph is in [graph-email.md](graph-email.md).
+Status: **built** November 20, 2026. Part of feature 22 of [the delivery plan](../delivery-plan.md); ROADMAP section 6, "More notification channels". Email through Microsoft Graph was designed with it and removed before 0.24.0 ([graph-email.md](graph-email.md)).
 
 ## What the administrator gets
 

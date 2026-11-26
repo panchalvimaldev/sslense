@@ -113,9 +113,6 @@ internal sealed partial class AcmeService : IAcmeService
         var existingRecord = allRecords
             .FirstOrDefault(record => string.Equals(record.SiteName, request.SiteName.Trim(), StringComparison.OrdinalIgnoreCase));
         ThrowIfSlashInNoSiteName(request, existingRecord);
-        var farmFolders = request.FarmFolders is { } givenFolders
-            ? WebFarmService.Check(givenFolders, new PhysicalFileSystem())
-            : existingRecord?.FarmFolders ?? [];
         if (request.NoSite)
         {
             // One name never means both a site and a certificate without one.
@@ -288,7 +285,7 @@ internal sealed partial class AcmeService : IAcmeService
         }
         else
         {
-            await CompleteHttpChallengesAsync(order, site.Name, site.PhysicalPath ?? string.Empty, hosts, selfHosted, farmFolders, environmentName, progress, cancellationToken)
+            await CompleteHttpChallengesAsync(order, site.Name, site.PhysicalPath ?? string.Empty, hosts, selfHosted, environmentName, progress, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -354,7 +351,6 @@ internal sealed partial class AcmeService : IAcmeService
             }
 
             preparedRecord = preparedRecord with { ReuseKey = request.ReuseKey, SelfHostedHttp = selfHosted };
-            preparedRecord = preparedRecord with { FarmFolders = selfHosted || farmFolders.Count == 0 ? null : farmFolders };
             preparedRecord = preparedRecord with
             {
                 KeyType = orderOptions.KeyType,
@@ -651,7 +647,6 @@ internal sealed partial class AcmeService : IAcmeService
         string sitePhysicalPath,
         IReadOnlyList<string> hosts,
         bool selfHosted,
-        IReadOnlyList<string> farmFolders,
         string environmentName,
         IProgress<ProgressEvent>? progress,
         CancellationToken cancellationToken)
@@ -675,15 +670,6 @@ internal sealed partial class AcmeService : IAcmeService
                     ? _selfHosted.ServeAsync(challenge, cancellationToken)
                     : _challengeHandler.PrepareAsync(siteName, sitePhysicalPath, challenge, cancellationToken))
                 .ConfigureAwait(false);
-
-            // The CA may reach any server behind the load balancer, so each gets the challenge (docs/design/web-farms.md).
-            var copies = new List<IAsyncDisposable>();
-            await using var farm = new FarmChallengeCopies(copies);
-            foreach (var folder in selfHosted ? Array.Empty<string>() : farmFolders)
-            {
-                progress?.Report(new ProgressEvent("challenge", $"Copying the HTTP-01 challenge for {challenge.Host} to {folder}."));
-                copies.Add(await _challengeHandler.PrepareAsync(siteName, folder, challenge, cancellationToken).ConfigureAwait(false));
-            }
 
             progress?.Report(new ProgressEvent("self-check", $"Checking HTTP access for {challenge.Host}."));
             await _challengeProbe.VerifyAsync(challenge, cancellationToken).ConfigureAwait(false);

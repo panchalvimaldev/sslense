@@ -1,5 +1,7 @@
 # Design: web farms
 
+**Removed before 0.24.0 was released** (November 26, 2026), to keep SSLense focused on IIS administrators: it could not be tested end to end. The code is in the git history before that date, and this design is kept so the feature can return if users ask. Open an issue if you need it.
+
 Status: **built** November 20, 2026 (folders, through the CLI). Feature 26 of [the delivery plan](../delivery-plan.md); ROADMAP section 6, "Web farms and load-balanced sites".
 
 ## The two problems
@@ -40,4 +42,4 @@ A site served by several IIS servers behind a load balancer needs two things:
 - Relative and unreachable folders are refused, and so are certificates not validated over HTTP.
 - An issue in a farm copies the challenge to each folder, removes the copy, and keeps the folders on the record.
 
-Manual steps: [docs/testing/web-farms.md](../testing/web-farms.md).
+Manual steps: removed with the feature; they are in the git history.

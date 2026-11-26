@@ -1000,51 +1000,6 @@ public sealed class AcmeServiceTests
         managed.Verify(value => value.UpsertAsync(It.Is<ManagedCertificate>(record => record.SiteName == "My Site/b.example.com"), CancellationToken.None));
     }
 
-    [Fact]
-    public async Task IssueAsync_InAWebFarm_CopiesEachChallengeToTheOtherServers_AndKeepsTheFolders()
-    {
-        var farm = Directory.CreateTempSubdirectory("sslense-farm-").FullName;
-        try
-        {
-            var challenge = new AcmeHttpChallenge("b.example.com", "token", "key-authorization");
-            var iis = MockIis(new IisSite(1, "My Site", "Started", "C:\\inetpub\\site", [FirstHostHttps, SecondHostHttp]));
-            iis.Setup(value => value.ConfigureHttpsBindingsAsync(
-                    It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-                .Returns(Task.CompletedTask);
-            var order = new Mock<IAcmeOrderSession>();
-            order.SetupGet(value => value.Challenges).Returns([challenge]);
-            order.Setup(value => value.FinalizeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(CreateBundle());
-            var protocol = new Mock<IAcmeProtocolClient>();
-            protocol.Setup(value => value.CreateOrderAsync(
-                    It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateAuthority>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(order.Object);
-            var handler = new Mock<IChallengeHandler>();
-            var copied = new TrackingCleanup();
-            handler.Setup(value => value.PrepareAsync("My Site", "C:\\inetpub\\site", challenge, It.IsAny<CancellationToken>())).ReturnsAsync(new TrackingCleanup());
-            handler.Setup(value => value.PrepareAsync("My Site", farm, challenge, It.IsAny<CancellationToken>())).ReturnsAsync(copied);
-            var store = new Mock<ICertificateStore>();
-            store.Setup(value => value.ImportPfxAsync(It.IsAny<byte[]>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(new InstalledCertificate("AABBCC", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(60), true));
-            var artifacts = new Mock<ICertificateArtifactStore>();
-            artifacts.Setup(value => value.SaveAsync(
-                    It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<CertificateBundle>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(new AcmeIssueResult("certificate.pem", null, ["b.example.com"]));
-            var managed = EmptyManagedStoreMock();
-            managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>())).ReturnsAsync([OnMySite("My Site", "a.example.com", "AAAA")]);
-            var service = new AcmeService(iis.Object, protocol.Object, handler.Object, Mock.Of<IChallengeProbe>(), artifacts.Object, store.Object, managed.Object);
-
-            await service.IssueAsync(new AcmeIssueRequest("My Site", ["b.example.com"], "admin@example.com", FarmFolders: [farm + "\\"]));
-
-            handler.Verify(value => value.PrepareAsync("My Site", farm, challenge, It.IsAny<CancellationToken>()), Times.Once);
-            Assert.True(copied.WasDisposed);
-            managed.Verify(value => value.UpsertAsync(It.Is<ManagedCertificate>(record => record.FarmFolders!.Single() == farm), CancellationToken.None));
-        }
-        finally
-        {
-            Directory.Delete(farm);
-        }
-    }
-
     [Theory]
     [InlineData(CertificateSource.Acme, CertificateAuthorities.LetsEncryptStagingId, true)]
     [InlineData(CertificateSource.Acme, CertificateAuthorities.LetsEncryptId, false)]
