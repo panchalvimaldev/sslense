@@ -454,6 +454,26 @@ public sealed class ImportedCertificateServiceTests : IDisposable
         Assert.Equal("Shop/b.example.com", bindings.Single(binding => binding.Host == "b.example.com").ManagedAs);
     }
 
+    [Fact]
+    public async Task Discover_MarksACertificateOnlyOnAnotherPort_AsNeedingAPort443Binding()
+    {
+        _store.Installed["ONLY8443"] = new InstalledCertificate("ONLY8443", DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(300), true);
+        _store.Installed["BOTH"] = new InstalledCertificate("BOTH", DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(300), true);
+        _iis.Setup(value => value.GetSitesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => [new IisSite(1, Site, "Started", @"C:\inetpub\shop", [
+                new IisBinding("https", "*", 8443, "admin.example.com", "only8443", "My", true),
+                new IisBinding("https", "*", 443, "shop.example.com", "BOTH", "My", true),
+                new IisBinding("https", "*", 8443, "shop.example.com", "BOTH", "My", true)
+            ])]);
+
+        var bindings = await CreateService().DiscoverAsync();
+
+        var only = bindings.Single(binding => binding.Host == "admin.example.com");
+        Assert.True(only.NeedsPort443);
+        Assert.False(only.CanAdopt);
+        Assert.All(bindings.Where(binding => binding.Thumbprint == "BOTH"), binding => Assert.True(binding.CanAdopt));
+    }
+
     [Theory]
     [InlineData("Shop/b.example.com", "b.example.com")]
     [InlineData("Shop", "a.example.com")]

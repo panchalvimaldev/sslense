@@ -34,8 +34,11 @@ public sealed partial class DiscoveredBindingRowViewModel(DiscoveredBinding bind
     public string Managed => !Binding.IsManaged ? string.Empty
         : Binding.ManagedAs is { } name && !string.Equals(name, Binding.SiteName, StringComparison.OrdinalIgnoreCase) ? $"Managed as {name}"
         : "Managed";
-    public bool CanAdopt => Binding.Thumbprint is not null && !Binding.IsManaged;
+    public bool CanAdopt => Binding.CanAdopt;
 
     /// <summary>Why the row cannot be ticked, or empty.</summary>
-    public string Note => Binding.IsManaged ? "Already watched" : Binding.Thumbprint is null ? "No certificate bound" : string.Empty;
+    public string Note => Binding.IsManaged ? "Already watched"
+        : Binding.Thumbprint is null ? "No certificate bound"
+        : Binding.NeedsPort443 ? "Only on this port: add a port 443 binding for it to watch it"
+        : string.Empty;
 }

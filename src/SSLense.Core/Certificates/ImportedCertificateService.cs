@@ -9,6 +9,10 @@ namespace SSLense.Core.Certificates;
 
 /// <summary>An HTTPS binding in IIS and the certificate it uses, for choosing what to adopt.</summary>
 /// <param name="ManagedAs">The name SSLense manages the binding's certificate under, when it does.</param>
+/// <param name="NeedsPort443">
+/// The site serves this certificate only on ports other than 443, so it cannot be adopted until it has a port 443 binding
+/// (SSL4001, docs/design/other-bindings.md).
+/// </param>
 public sealed record DiscoveredBinding(
     string SiteName,
     string Host,
@@ -17,7 +21,12 @@ public sealed record DiscoveredBinding(
     string? IssuerName,
     DateTimeOffset? NotAfter,
     bool IsManaged,
-    string? ManagedAs = null);
+    string? ManagedAs = null,
+    bool NeedsPort443 = false)
+{
+    /// <summary>Whether watching it can work now: a certificate is bound, SSLense does not manage it, and it is on port 443.</summary>
+    public bool CanAdopt => Thumbprint is not null && !IsManaged && !NeedsPort443;
+}
 
 /// <param name="Notes">Things the administrator should know, such as a previous certificate left in the store.</param>
 public sealed record ImportResult(ManagedCertificate Certificate, IReadOnlyList<string> Notes);
@@ -112,7 +121,13 @@ internal sealed class ImportedCertificateService(
                     certificate?.IssuerName,
                     certificate?.NotAfter,
                     owner is not null,
-                    owner?.SiteName));
+                    owner?.SiteName,
+                    // As AdoptAsync checks: a site's bindings of this certificate, none of them on port 443.
+                    binding.CertificateThumbprint is { } bound && !site.Bindings.Any(other =>
+                        string.Equals(other.Protocol, "https", StringComparison.OrdinalIgnoreCase) &&
+                        other.Port == 443 &&
+                        other.CertificateThumbprint is not null &&
+                        string.Equals(Normalize(other.CertificateThumbprint), Normalize(bound), StringComparison.Ordinal))));
             }
         }
 
