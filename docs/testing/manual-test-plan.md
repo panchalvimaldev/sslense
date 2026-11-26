@@ -9,14 +9,13 @@ Everything to check by hand before the next release (0.24.0), in one pass. Run i
 | What | Used by | Notes |
 |---|---|---|
 | **Test server A**: Windows Server 2022 with IIS, Management Tools, FTP Server and URL Rewrite (`tests/SSLense.Acceptance/setup-server.ps1`) | Everything | Snapshot it before starting |
-| **Test server B**: same, joined to the same network | Web farms, fleet | |
+| **Test server B**: same, joined to the same network | Moving SSLense to another server | |
 | A public test domain with a **Cloudflare** zone, a token limited to it, and `*.accept.<zone>` pointing at A | HTTP and DNS validation, acceptance checks | Delete the token afterwards |
 | Port 80 and 443 on A open to the internet | HTTP validation | |
-| A share both servers can write (computer accounts) | Web farms, fleet, Central Certificate Store | |
+| A share both servers can write (computer accounts) | Central Certificate Store | |
 | SQL Server Express on A; Remote Desktop on | Service steps | |
 | Apache, nginx (as a service) and Tomcat on A | Web server step | Any one is enough for a pass; all three for full coverage |
-| An Azure test subscription: a key vault, a web app on Basic with a custom domain, an app registration | Key Vault, App Service, Azure DNS | |
-| A Microsoft 365 test tenant with an app registration (Mail.Send) | Graph email | |
+| An Azure test subscription with an app registration | Azure DNS | |
 | Test accounts at Route 53, Google Cloud DNS, DigitalOcean and Hetzner | DNS providers | Each optional; untested ones stay listed as untested |
 | webhook.site (or any request bin) and the ntfy app | Notifications | |
 | A Windows 11 desktop | The app, accessibility | |
@@ -50,6 +49,8 @@ Run each command from [tests/SSLense.Acceptance](../../tests/SSLense.Acceptance/
 
 ## 4. Features
 
+Five features were removed before release and are no longer tested here: the Azure Key Vault and App Service steps, web farm challenge copies, fleet reports and email through Microsoft Graph ([#88](https://github.com/panchalvimaldev/sslense/pull/88)).
+
 Run each linked document's steps in order. The count is its number of steps.
 
 ### Renewing safely (blocks release)
@@ -69,7 +70,6 @@ Run each linked document's steps in order. The count is its number of steps.
 | [HTTP validation without a port 80 binding](self-hosted-http-validation.md) — **blocks release** | 7 | ✅ 7/7 (5ffea16) |
 | [Built-in DNS providers](dns-providers.md) | 6 per provider | ✅ Route 53 6/6 (5ffea16); Azure DNS, Google Cloud DNS, DigitalOcean and Hetzner untested (no accounts) |
 | [Certificates for IP addresses](ip-certificates.md) | 5 | ✅ 1-3, 5 (6ab101b, after fixes [#85](https://github.com/panchalvimaldev/sslense/pull/85): IP in the common name, binding behind NAT); 4 (renews on its own) pending |
-| [Web farms](web-farms.md) | 7 | n/a: needs a second server |
 
 ### Where certificates go
 
@@ -79,8 +79,6 @@ Run each linked document's steps in order. The count is its number of steps.
 | [HTTP.sys bindings outside IIS](httpsys-bindings.md) | 6 | ✅ 2-6 (6ab101b); step 1 failed: 0.0.0.0:443 was accepted where every port 443 binding had a host name, fixed in [#87](https://github.com/panchalvimaldev/sslense/pull/87), retest pending; step 3 used `New-Item WSMan:\localhost\Listener` with a self-signed certificate, and `-SkipRevocationCheck` for the staging certificate |
 | [Remote Desktop and SQL Server](service-targets.md) | 6 | ✅ 1-2 (6ab101b; mstsc's only warning was the untrusted staging root, and the session stayed connected through the renewal); 3, 4 and 6 n/a: SQL Server not installed, the test server has no disk space for it; 5 n/a: turning Remote Desktop off would lock us out of the cloud server, and SSL4058 is covered by the automated tests |
 | [Apache, nginx and Tomcat](web-servers.md) | 6 | ✅ 6/6 (6ab101b; Apache Lounge 2.4.71, nginx 1.30.8 under WinSW 2.14.0, Tomcat 10.1.62 on Temurin 21, all on C: on ports 9444-9446; step 6 was SSL8025 for Tomcat10 before its service existed). The step's "Nginx" is written "nginx" from [#87](https://github.com/panchalvimaldev/sslense/pull/87) |
-| [Azure Key Vault](key-vault.md) | 8 | n/a: no Azure account |
-| [Azure App Service](app-service.md) | 6 | n/a: no Azure account |
 | [Sharing from a site with several certificates](sharing-from-multi-certificate-site.md) | 4 | ✅ 4/4 (6ab101b). The renewal's progress named the certificate `Main/www2…` as an IIS site; it names the site from [#87](https://github.com/panchalvimaldev/sslense/pull/87) |
 | [Bindings without a host name, and on other ports](other-bindings.md) — **blocks release** | 10 | ✅ 10/10 (6ab101b; step 1 is `parta`, 83/83) |
 
@@ -93,8 +91,7 @@ Run each linked document's steps in order. The count is its number of steps.
 | [Bulk operations](bulk-operations.md) | 5 | |
 | [New version notice](version-notice.md) | 5 | |
 | [Clean-up of unused certificates](certificate-cleanup.md) | 4 | |
-| [Signed webhooks and Microsoft Graph email](more-notifications.md) | 8 | |
-| [Fleet reports](fleet.md) | 8 | |
+| [Signed webhooks](more-notifications.md) | 5 | |
 | [Automation: JSON, exit codes, settings export, PowerShell](automation.md) | 10 | |
 
 ### For everyone
