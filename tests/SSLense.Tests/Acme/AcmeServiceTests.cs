@@ -253,11 +253,51 @@ public sealed class AcmeServiceTests
         var service = new AcmeService(
             MockIis(site).Object, protocol.Object, Mock.Of<IChallengeHandler>(), Mock.Of<IChallengeProbe>(),
             Mock.Of<ICertificateArtifactStore>(), certificateStore.Object, EmptyManagedStore());
+        using var addresses = LocalAddress.UseAddressesForTesting(System.Net.IPAddress.Parse("203.0.113.7"));
 
         var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.IssueAsync(
             new AcmeIssueRequest("My Site", ["203.0.113.7"], "admin@example.com", SelfHostedHttp: true)));
 
         Assert.Contains("--force", exception.Message, StringComparison.Ordinal);
+        protocol.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task IssueAsync_ASiteInIisConfigurationHistory_IsRefusedBeforeWritingAnything()
+    {
+        // Found in the combined test: New-Item -Force reused C:\inetpub\history, and the self-check got 401 and 500.
+        var history = Environment.ExpandEnvironmentVariables(@"%SystemDrive%\inetpub\history");
+        var site = new IisSite(1, "My Site", "Started", history, [new IisBinding("http", "*", 80, "example.com", null, null, false)]);
+        var protocol = new Mock<IAcmeProtocolClient>(MockBehavior.Strict);
+        var handler = new Mock<IChallengeHandler>(MockBehavior.Strict);
+        var service = new AcmeService(
+            MockIis(site).Object, protocol.Object, handler.Object, Mock.Of<IChallengeProbe>(),
+            Mock.Of<ICertificateArtifactStore>(), Mock.Of<ICertificateStore>(), EmptyManagedStore());
+
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.IssueAsync(
+            new AcmeIssueRequest("My Site", ["example.com"], "admin@example.com")));
+
+        Assert.StartsWith("SSL1032", exception.Message, StringComparison.Ordinal);
+        protocol.VerifyNoOtherCalls();
+        handler.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task IssueAsync_AnIpAddressThatCannotBePlacedOnThisServer_IsRefusedBeforeOrdering()
+    {
+        // Behind NAT with several addresses of the same kind, SSLense cannot tell which one receives the traffic.
+        var site = new IisSite(1, "My Site", "Started", "C:\\inetpub\\site", [new IisBinding("http", "*", 80, "", null, null, false)]);
+        var protocol = new Mock<IAcmeProtocolClient>(MockBehavior.Strict);
+        var service = new AcmeService(
+            MockIis(site).Object, protocol.Object, Mock.Of<IChallengeHandler>(), Mock.Of<IChallengeProbe>(),
+            Mock.Of<ICertificateArtifactStore>(), Mock.Of<ICertificateStore>(), EmptyManagedStore());
+        using var addresses = LocalAddress.UseAddressesForTesting(System.Net.IPAddress.Parse("10.0.0.4"), System.Net.IPAddress.Parse("10.0.1.4"));
+
+        var exception = await Assert.ThrowsAnyAsync<InvalidOperationException>(() => service.IssueAsync(
+            new AcmeIssueRequest("My Site", ["203.0.113.7"], "admin@example.com", SelfHostedHttp: true)));
+
+        Assert.StartsWith("SSL6035", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("10.0.0.4, 10.0.1.4", exception.Message, StringComparison.Ordinal);
         protocol.VerifyNoOtherCalls();
     }
 
@@ -1176,6 +1216,8 @@ public sealed class AcmeServiceTests
             .ReturnsAsync(new AcmeIssueResult("certificate.pem", null, []));
         var service = new AcmeService(iis.Object, protocol.Object, Mock.Of<IChallengeHandler>(), Mock.Of<IChallengeProbe>(),
             artifacts.Object, store.Object, EmptyManagedStore(), selfHosted: selfHosted.Object);
+        // The server has the address, as SSLense now checks before ordering; never this machine's own adapters (CI has no IPv6).
+        using var addresses = LocalAddress.UseAddressesForTesting(System.Net.IPAddress.Parse("2001:db8::10"));
 
         await service.IssueAsync(new AcmeIssueRequest("My Site", ["[2001:DB8:0::10]"], "admin@example.com", SelfHostedHttp: true));
 

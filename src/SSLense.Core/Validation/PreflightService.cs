@@ -95,6 +95,11 @@ internal sealed class PreflightService(
         {
             results.Add(new PreflightCheck("Challenge folder", false, ErrorCodes.IisSiteNoPhysicalPath.Format("The IIS site has no physical root path.")));
         }
+        else if (IisFolders.IsConfigHistory(site.PhysicalPath))
+        {
+            results.Add(new PreflightCheck("Challenge folder", false, ErrorCodes.SiteFolderIsIisHistory.Format(
+                $"The site's physical path '{site.PhysicalPath}' is IIS's configuration history folder. Give the site its own folder.")));
+        }
         else
         {
             var folder = Path.Combine(site.PhysicalPath, ".well-known", "acme-challenge");

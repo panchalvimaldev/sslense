@@ -862,7 +862,10 @@ public sealed class SharedCertificateTests
 
         Assert.True(result.Succeeded);
         Assert.Contains("'Blog'", result.Message, StringComparison.Ordinal);
-        notifier.Verify(value => value.NotifyAsync(It.Is<NotificationMessage>(message => message.Kind == NotificationKind.RenewalFailure), It.IsAny<CancellationToken>()), Times.Once);
+        // The alert carries its code, like every problem SSLense explains (found in the combined test: it had none).
+        notifier.Verify(value => value.NotifyAsync(
+            It.Is<NotificationMessage>(message => message.Kind == NotificationKind.RenewalFailure && message.Body.StartsWith("SSL4042: ", StringComparison.Ordinal)),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

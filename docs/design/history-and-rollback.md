@@ -38,6 +38,9 @@ Under the same per-site lock and transaction journal as a renewal, so it cannot 
 2. The record swaps the two thumbprints and takes the previous certificate's dates.
 3. **Automatic renewal is held** for up to a week, so the service does not replace the certificate again before the problem is fixed, but never closer to expiry than a tenth of the lifetime or two days. A renewal started by hand is not held. When the previous certificate is already that close to expiry, the message says the service will renew it at its next check.
 4. Deployment steps are **not** run again; the message says to run them (`deploy run`) if other services use the certificate.
+5. The timeline records **Rolled back**, or **Rolled forward** when the certificate bound again is the newer one (rolling back a rollback).
+
+While renewal is held, the service logs it as information ("is waiting"), not as a warning, and its heartbeat does not count it as failing: the hold was chosen. The same holds for a renewal waiting for the maintenance window. Found in the combined test, where the health check reported "Renewal is failing" for a certificate that was only held.
 
 ## History storage
 

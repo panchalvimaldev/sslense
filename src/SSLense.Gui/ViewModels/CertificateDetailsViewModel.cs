@@ -729,6 +729,7 @@ public partial class CertificateDetailsViewModel : ObservableObject
         CertificateHistoryKind.Renewed => "Renewed",
         CertificateHistoryKind.RenewalFailed => "Renewal failed",
         CertificateHistoryKind.RolledBack => "Rolled back",
+        CertificateHistoryKind.RolledForward => "Rolled forward",
         CertificateHistoryKind.Revoked => "Revoked",
         _ => kind.ToString()
     };
