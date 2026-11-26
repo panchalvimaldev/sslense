@@ -25,7 +25,8 @@ public sealed record WebServerTarget(WebServerKind Server, string Folder, string
     public string Describe() => Server switch
     {
         WebServerKind.Tomcat => $"Write a keystore for Tomcat to '{KeystorePath}' and restart '{Service}'",
-        _ => $"Write PEM files for {Server} to '{Folder}' and restart '{Service}'"
+        // nginx is written in lower case, as its makers write it.
+        _ => $"Write PEM files for {(Server == WebServerKind.Nginx ? "nginx" : Server.ToString())} to '{Folder}' and restart '{Service}'"
     };
 
     public override string ToString() => $"{Server.ToString().ToLowerInvariant()}|{Folder}|{Service}";
