@@ -68,8 +68,8 @@ Run each linked document's steps in order. The count is its number of steps.
 |---|---|---|
 | [HTTP validation without a port 80 binding](self-hosted-http-validation.md) — **blocks release** | 7 | ✅ 7/7 (5ffea16) |
 | [Built-in DNS providers](dns-providers.md) | 6 per provider | ✅ Route 53 6/6 (5ffea16); Azure DNS, Google Cloud DNS, DigitalOcean and Hetzner untested (no accounts) |
-| [Certificates for IP addresses](ip-certificates.md) | 5 | |
-| [Web farms](web-farms.md) | 7 | |
+| [Certificates for IP addresses](ip-certificates.md) | 5 | ✅ 1-3, 5 (6ab101b, after fixes [#85](https://github.com/panchalvimaldev/sslense/pull/85): IP in the common name, binding behind NAT); 4 (renews on its own) pending |
+| [Web farms](web-farms.md) | 7 | n/a: needs a second server |
 
 ### Where certificates go
 
