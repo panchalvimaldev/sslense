@@ -220,7 +220,16 @@ internal sealed class RenewalService : IRenewalService
             {
                 if (maintenance.Wait(certificate, DateTimeOffset.UtcNow, TimeZone) is { } wait)
                 {
-                    results.Add(new RenewalResult(certificate.SiteName, false, false, wait.Reason, certificate.Thumbprint, Waiting: true));
+                    // Waiting for the window is only a wait when nothing has failed: a renewal that failed and now waits
+                    // for the next window is still failing, so the heartbeat and monitoring must keep saying so.
+                    var failing = certificate.ConsecutiveFailures > 0;
+                    results.Add(new RenewalResult(
+                        certificate.SiteName,
+                        false,
+                        false,
+                        failing ? $"{wait.Reason} The last {certificate.ConsecutiveFailures} attempt(s) failed: {certificate.LastRenewalMessage}" : wait.Reason,
+                        certificate.Thumbprint,
+                        Waiting: !failing));
                     continue;
                 }
 
