@@ -644,7 +644,11 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
         await _services.RestartAsync(service, ServiceTimeout, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>An endpoint an IIS site binds is the site's to change, so the step is refused for it (docs/design/httpsys-bindings.md).</summary>
+    /// <summary>
+    /// An endpoint IIS serves is the site's to change, so the step is refused for it (docs/design/httpsys-bindings.md). An
+    /// address and port is IIS's whenever a site serves HTTPS on that port at an address it covers, even with host names
+    /// only: the certificate there answers every client that sends no host name, and a host-less binding added later.
+    /// </summary>
     private async Task<HttpSysEndpoint> CheckHttpSysEndpointAsync(string value, CancellationToken cancellationToken)
     {
         var endpoint = HttpSysEndpoint.Parse(value);
@@ -654,15 +658,22 @@ internal sealed class DeploymentService : IDeploymentService, IDeploymentRunner
                 binding.Port == endpoint.Port &&
                 (endpoint.IsHostName
                     ? binding.UsesSni && string.Equals(binding.HostName, endpoint.Address, StringComparison.OrdinalIgnoreCase)
-                    : !binding.UsesSni && (binding.IpAddress is "*" or "" ? endpoint.Address is "0.0.0.0" or "::" : string.Equals(binding.IpAddress, endpoint.Address, StringComparison.OrdinalIgnoreCase)))));
+                    : AddressesOverlap(binding.IpAddress, endpoint.Address))));
         if (site is not null)
         {
-            throw new ArgumentException(ErrorCodes.DeploymentStepInvalid.Format(
-                $"IIS site '{site.Name}' binds {endpoint}, and SSLense changes it with the site's certificate. Choose an endpoint outside IIS."));
+            throw new ArgumentException(ErrorCodes.DeploymentStepInvalid.Format(endpoint.IsHostName
+                ? $"IIS site '{site.Name}' binds {endpoint}, and SSLense changes it with the site's certificate. Choose an endpoint outside IIS."
+                : $"IIS site '{site.Name}' serves HTTPS on port {endpoint.Port}, so a certificate on {endpoint} would answer its visitors whose browsers send no host name. Choose a port that IIS doesn't use."));
         }
 
         return endpoint;
     }
+
+    /// <summary>Whether an IIS binding's address (<c>*</c> for all) and an HTTP.sys address (<c>0.0.0.0</c> or <c>::</c> for all) can meet.</summary>
+    private static bool AddressesOverlap(string? bindingAddress, string endpointAddress) =>
+        bindingAddress is null or "*" or "" ||
+        endpointAddress is "0.0.0.0" or "::" ||
+        string.Equals(bindingAddress.Trim('[', ']'), endpointAddress, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The vault and certificate are checked now; the app registration is kept with DPAPI (docs/design/key-vault.md).</summary>
     private DeploymentStep CreateKeyVaultStep(ManagedCertificate record, Guid id, DeploymentStepRequest request) =>

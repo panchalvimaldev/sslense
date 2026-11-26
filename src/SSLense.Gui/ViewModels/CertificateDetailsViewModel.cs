@@ -410,7 +410,9 @@ public partial class CertificateDetailsViewModel : ObservableObject
         var sites = await _iisService.GetSitesAsync(cancellationToken).ConfigureAwait(true);
         cancellationToken.ThrowIfCancellationRequested();
         SitesToAdd.Clear();
-        foreach (var site in sites.Where(site => SharedSites.All(row => !string.Equals(row.SiteName, site.Name, StringComparison.OrdinalIgnoreCase))))
+        // By IIS site: a second certificate on a site is named "site/host", and its own site is not one to add.
+        foreach (var site in sites.Where(site => SharedSites.All(row =>
+                     !string.Equals(ManagedCertificateNames.IisSiteOf(row.SiteName), site.Name, StringComparison.OrdinalIgnoreCase))))
         {
             SitesToAdd.Add(site.Name);
         }

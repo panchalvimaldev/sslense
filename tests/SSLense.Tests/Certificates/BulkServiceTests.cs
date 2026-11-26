@@ -98,6 +98,29 @@ public sealed class BulkServiceTests : IDisposable
         _imported.Verify(value => value.AdoptAsync("Admin", "CC", It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Fact]
+    public async Task WatchingAll_SkipsACertificateOnlyOnAnotherPort_InsteadOfFailingIt()
+    {
+        // Found in the combined test: Tick all and 'bulk watch' tried such bindings and reported SSL4001 failures.
+        var expires = DateTimeOffset.UtcNow.AddDays(200);
+        _imported.Setup(value => value.DiscoverAsync(It.IsAny<CancellationToken>())).ReturnsAsync(
+        [
+            new DiscoveredBinding("Port8443", "p8443.example.com", 8443, "DD", "Sectigo", expires, false, NeedsPort443: true)
+        ]);
+        var progress = new List<string>();
+
+        var results = await Service().WatchAllAsync(new SynchronousProgress(value => progress.Add(value.Message)));
+
+        Assert.Empty(results);
+        Assert.Contains(progress, line => line.Contains("Skipping Port8443", StringComparison.Ordinal) && line.Contains("port 443", StringComparison.Ordinal));
+        _imported.Verify(value => value.AdoptAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private sealed class SynchronousProgress(Action<ProgressEvent> report) : IProgress<ProgressEvent>
+    {
+        public void Report(ProgressEvent value) => report(value);
+    }
+
     public void Dispose() => File.Delete(_file);
 
     private BulkService Service() => new(_imported.Object, _acme.Object, _preflight.Object,

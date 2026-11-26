@@ -392,7 +392,7 @@ internal sealed partial class AcmeService : IAcmeService
 
             progress?.Report(new ProgressEvent(
                 "install",
-                $"Importing the {environmentName} certificate into LocalMachine\\My with a non-exportable key."));
+                $"Importing the {environmentName} certificate into LocalMachine\\My {(reusedKey is not null ? "with the reused key" : request.ExportableKey ? "with an exportable key" : "with a non-exportable key")}."));
             var friendlyName = $"SSLense: {names[0]} ({DateTimeOffset.UtcNow:yyyy-MM-dd})";
             var installedCertificate = await (reusedKey is not null
                     ? InstallWithReusedKeyAsync(bundle.CertificatePem, reusedKey, friendlyName, cancellationToken)

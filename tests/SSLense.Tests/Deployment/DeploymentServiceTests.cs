@@ -145,6 +145,35 @@ public sealed class DeploymentServiceTests : IDisposable
             It.Is<HttpSysEndpoint>(endpoint => endpoint.NetshParameter == "ipport=0.0.0.0:5986"), OldThumbprint, It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Theory]
+    [InlineData("0.0.0.0:443", true)]
+    [InlineData("[::]:443", true)]
+    [InlineData("10.0.0.5:443", true)]
+    [InlineData("10.0.0.6:8443", false)]
+    [InlineData("10.0.0.5:8443", true)]
+    [InlineData("0.0.0.0:9443", false)]
+    public async Task HttpSysStep_RefusesAnAddressOnAPortIisServes_EvenWhenItsBindingsAllHaveHostNames(string value, bool refused)
+    {
+        // Found in the combined test: every port 443 binding had a host name, and 0.0.0.0:443 was accepted.
+        await SaveRecordAsync();
+        _iis.Setup(iis => iis.GetSitesAsync(It.IsAny<CancellationToken>())).ReturnsAsync([
+            new IisSite(1, "Shop", "Started", null, [new IisBinding("https", "*", 443, "shop.example.com", OldThumbprint, "My", true),
+                new IisBinding("https", "10.0.0.5", 8443, "admin.example.com", OldThumbprint, "My", true)])
+        ]);
+
+        var add = () => _service.AddAsync(new DeploymentStepRequest("Shop", DeploymentStepKind.HttpSysBinding, value));
+
+        if (refused)
+        {
+            var error = await Assert.ThrowsAsync<ArgumentException>(add);
+            Assert.Contains("Shop", error.Message);
+        }
+        else
+        {
+            await add();
+        }
+    }
+
     [Fact]
     public async Task RemoteDesktopAndSqlServerSteps_GiveTheKey_SetTheCertificate_AndRestartSqlServer()
     {
