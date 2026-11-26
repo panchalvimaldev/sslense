@@ -319,7 +319,7 @@ internal sealed class RenewalService : IRenewalService
                 certificate.SiteName,
                 true,
                 true,
-                string.Join(" ", new[] { cleanupMessage ?? "Renewed and rebound successfully.", leftOutMessage, issued.Deployment?.Message, keyNotice }.OfType<string>()),
+                string.Join(" ", new[] { cleanupMessage ?? (certificate.NoSite ? "Renewed successfully." : "Renewed and rebound successfully."), leftOutMessage, issued.Deployment?.Message, keyNotice }.OfType<string>()),
                 certificate.Thumbprint,
                 newThumbprint);
         }

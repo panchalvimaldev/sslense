@@ -3394,9 +3394,13 @@ static async Task<int> IssueAsync(
         Console.WriteLine($"Valid from: {result.NotBefore:yyyy-MM-dd HH:mm:ss} UTC");
         Console.WriteLine($"Valid until: {result.NotAfter:yyyy-MM-dd HH:mm:ss} UTC");
         Console.WriteLine($"PEM: {result.CertificatePemPath}");
-        Console.WriteLine(result.PfxPath is null
-            ? "PFX: not persisted (private key is installed as non-exportable)"
-            : $"PFX: {result.PfxPath}");
+        Console.WriteLine(result.PfxPath is not null
+            ? $"PFX: {result.PfxPath}"
+            : reuseKey
+                ? "PFX: not persisted (the private key stays in the Windows key store)"
+                : exportableKey
+                    ? "PFX: not persisted (the private key is installed as exportable, so deployment steps can export it)"
+                    : "PFX: not persisted (private key is installed as non-exportable)");
         foreach (var leftOut in result.LeftOutSites ?? [])
         {
             Console.WriteLine($"Left on its previous certificate: '{leftOut.SiteName}': {leftOut.Reason}");
