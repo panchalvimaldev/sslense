@@ -620,6 +620,33 @@ public sealed class RenewalServiceTests
     }
 
     [Fact]
+    public async Task RenewAsync_AFailedRenewalWaitingForTheWindow_IsStillFailing()
+    {
+        // Codex on #89: a renewal that failed near the end of a window, with its backoff over, waited for the next one
+        // as "waiting", so the heartbeat looked healthy while it was still failing.
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(20)) with
+            {
+                ConsecutiveFailures = 2,
+                NextRetryAt = DateTimeOffset.UtcNow.AddMinutes(-5),
+                LastRenewalMessage = "SSL1003: the challenge was not reachable."
+            }]);
+        var service = new RenewalService(managed.Object, ConfigWithClosedWindow().Object, new Mock<IAcmeService>(MockBehavior.Strict).Object,
+            new Mock<IIisService>(MockBehavior.Strict).Object, new Mock<ICertificateStore>(MockBehavior.Strict).Object, new Mock<INotifier>().Object)
+        {
+            TimeZone = TimeZoneInfo.Utc
+        };
+
+        var result = Assert.Single(await service.RenewAsync(new RenewalRequest(All: true, Scheduled: true)));
+
+        Assert.False(result.Attempted);
+        Assert.False(result.Waiting);
+        Assert.StartsWith("Waiting for the maintenance window", result.Message, StringComparison.Ordinal);
+        Assert.Contains("The last 2 attempt(s) failed: SSL1003", result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RenewAsync_ByAnAdministrator_IgnoresTheMaintenanceWindow()
     {
         var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
