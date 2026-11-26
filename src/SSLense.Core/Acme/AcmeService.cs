@@ -101,9 +101,11 @@ internal sealed partial class AcmeService : IAcmeService
         // SSLense answers HTTP-01 on port 80 itself, so the site needs any binding for the host, and no folder.
         var selfHosted = !usesDns && request.SelfHostedHttp;
 
-        progress?.Report(new ProgressEvent("preflight", usesDns
-            ? "Checking the IIS site and its bindings."
-            : "Checking the IIS site and HTTP bindings."));
+        progress?.Report(new ProgressEvent("preflight", request.NoSite
+            ? "Checking the certificate names; nothing is bound in IIS."
+            : usesDns
+                ? "Checking the IIS site and its bindings."
+                : "Checking the IIS site and HTTP bindings."));
         var sites = await _iisService.GetSitesAsync(cancellationToken).ConfigureAwait(false);
         // A second certificate on a site is named "site/host"; the IIS site is the part before the '/'.
         var iisSiteName = request.NoSite ? request.SiteName.Trim() : ManagedCertificateNames.IisSiteOf(request.SiteName);
@@ -152,6 +154,13 @@ internal sealed partial class AcmeService : IAcmeService
         if (!usesDns && !selfHosted && string.IsNullOrWhiteSpace(site.PhysicalPath))
         {
             throw new SslenseException(ErrorCodes.IisSiteNoPhysicalPath, $"IIS site '{site.Name}' has no physical root path.");
+        }
+
+        // Never write challenge files into IIS's own configuration backups.
+        if (!usesDns && !selfHosted && IisFolders.IsConfigHistory(site.PhysicalPath!))
+        {
+            throw new SslenseException(ErrorCodes.SiteFolderIsIisHistory,
+                $"IIS site '{site.Name}' uses IIS's configuration history folder '{site.PhysicalPath}' as its physical path. Give the site its own folder.");
         }
 
         // DNS validation never reaches the site, so port 80 is needed only for HTTP-01.
@@ -213,6 +222,14 @@ internal sealed partial class AcmeService : IAcmeService
             throw new SslenseException(ErrorCodes.IpCertificateNeedsHttpSelf,
                 $"{string.Join(", ", hosts.Where(IsIpAddress))} {(hosts.Count(IsIpAddress) == 1 ? "is an IP address" : "are IP addresses")}, which a certificate authority validates over HTTP: " +
                 "choose HTTP validation with SSLense answering the challenge itself (--validation http-self).");
+        }
+
+        // Where each address is bound must be known before ordering: behind NAT, the server's own address (docs/design/ip-certificates.md).
+        if (!request.NoSite &&
+            hosts.Where(IsIpAddress).Select(host => System.Net.IPAddress.Parse(host.Trim('[', ']')))
+                .FirstOrDefault(address => LocalAddress.For(address) is null) is { } unplaced)
+        {
+            throw new SslenseException(ErrorCodes.IpAddressNotOnThisServer, IisService.LocalAddressMessage(unplaced));
         }
 
         // An IP address needs no host binding: SSLense binds the certificate to the address.
@@ -394,9 +411,13 @@ internal sealed partial class AcmeService : IAcmeService
             IReadOnlyList<LeftOutSite> leftOut = sharedPlan?.LeftOut ?? [];
             try
             {
-                progress?.Report(new ProgressEvent(
-                    "binding",
-                    "Creating or updating IIS HTTPS bindings with SNI, then confirming over HTTPS that the new certificate is served."));
+                if (!request.NoSite)
+                {
+                    progress?.Report(new ProgressEvent(
+                        "binding",
+                        "Creating or updating IIS HTTPS bindings with SNI, then confirming over HTTPS that the new certificate is served."));
+                }
+
                 if (request.NoSite)
                 {
                     // Nothing to bind: deployment steps hand the certificate to the services that use it.

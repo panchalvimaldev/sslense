@@ -91,10 +91,77 @@ internal abstract class HttpDnsProvider(HttpClient httpClient, ISecretProtector 
     protected static string Unquote(string value) =>
         value.Length >= 2 && value[0] == '"' && value[^1] == '"' ? value[1..^1].Replace("\" \"", string.Empty, StringComparison.Ordinal) : value;
 
-    /// <summary>The start of a service's answer, without line breaks, for a message.</summary>
-    private static string Excerpt(string body)
+    /// <summary>
+    /// The service's own explanation for a message: the Message of an XML error (Route 53) or the message of a JSON one, so
+    /// the administrator reads a sentence, not the raw document. Otherwise the start of the answer, without line breaks.
+    /// </summary>
+    internal static string Excerpt(string body)
     {
-        var text = string.Join(' ', body.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
+        var text = ReadableMessage(body) ?? string.Join(' ', body.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
+        if (text.Length > 0 && !text.EndsWith('.'))
+        {
+            text += ".";
+        }
+
         return text.Length <= 300 ? text : text[..300] + "…";
+    }
+
+    private static string? ReadableMessage(string body)
+    {
+        var trimmed = body.TrimStart();
+        try
+        {
+            if (trimmed.StartsWith('<'))
+            {
+                var message = System.Xml.Linq.XDocument.Parse(trimmed).Descendants().FirstOrDefault(element => element.Name.LocalName == "Message")?.Value;
+                return string.IsNullOrWhiteSpace(message) ? null : message.Trim();
+            }
+
+            if (trimmed.StartsWith('{'))
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(trimmed);
+                return FindMessage(document.RootElement);
+            }
+        }
+        catch (Exception exception) when (exception is System.Xml.XmlException or System.Text.Json.JsonException)
+        {
+            // Not a document after all: the raw text is shown instead.
+        }
+
+        return null;
+    }
+
+    private static string? FindMessage(System.Text.Json.JsonElement element)
+    {
+        if (element.ValueKind != System.Text.Json.JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        foreach (var property in element.EnumerateObject())
+        {
+            if (property.Value.ValueKind == System.Text.Json.JsonValueKind.String &&
+                property.Name is "message" or "Message" or "error_description" && !string.IsNullOrWhiteSpace(property.Value.GetString()))
+            {
+                return property.Value.GetString()!.Trim();
+            }
+        }
+
+        // Nested, as in {"error": {"message": "..."}} (Azure, Google) or {"errors": [{"message": "..."}]}.
+        foreach (var property in element.EnumerateObject())
+        {
+            var nested = property.Value.ValueKind switch
+            {
+                System.Text.Json.JsonValueKind.Object => FindMessage(property.Value),
+                System.Text.Json.JsonValueKind.Array => property.Value.EnumerateArray().Select(FindMessage).FirstOrDefault(value => value is not null),
+                _ => null
+            };
+            if (nested is not null)
+            {
+                return nested;
+            }
+        }
+
+        return null;
     }
 }

@@ -196,6 +196,14 @@ internal sealed class RenewalWorker(
                         result.SiteName,
                         result.Message);
                 }
+                else if (result.Waiting)
+                {
+                    // Held after a rollback or waiting for the maintenance window: the administrator's choice, not a problem.
+                    logger.LogInformation(
+                        "Scheduled renewal for {SiteName} is waiting: {Message}",
+                        result.SiteName,
+                        result.Message);
+                }
                 else
                 {
                     logger.LogWarning(
@@ -205,7 +213,7 @@ internal sealed class RenewalWorker(
                 }
             }
 
-            var failed = results.Where(result => !result.Succeeded).Select(result => result.SiteName).ToArray();
+            var failed = results.Where(result => !result.Succeeded && !result.Waiting).Select(result => result.SiteName).ToArray();
             return failed.Length == 0 ? null : $"Renewal is failing for: {string.Join(", ", failed)}.";
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

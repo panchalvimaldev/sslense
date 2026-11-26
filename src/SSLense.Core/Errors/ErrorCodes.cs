@@ -99,6 +99,9 @@ public static class ErrorCodes
     public static readonly ErrorCode RedirectBlocksValidation = new("SSL1031", nameof(RedirectBlocksValidation), "Redirect would block validation",
         "After the rule was added, a validation path on the site was still redirected, so SSLense removed the rule. Check for another redirect rule or module on the site, or in its parent configuration.");
 
+    public static readonly ErrorCode SiteFolderIsIisHistory = new("SSL1032", nameof(SiteFolderIsIisHistory), "Site folder is IIS's configuration history",
+        "The site's physical path is IIS's configuration history folder (C:\\inetpub\\history), where IIS keeps backups of its configuration and which only Administrators can read. Give the site its own folder in IIS Manager › Basic Settings.");
+
     public static readonly ErrorCode ProductionNotConfirmed = new("SSL2001", nameof(ProductionNotConfirmed), "Production certificate authority not confirmed",
         "Try the site with Let's Encrypt staging first, then confirm production in the app or with --accept-production-risk.");
 
@@ -643,6 +646,15 @@ public static class ErrorCodes
     public static readonly ErrorCode FleetFolderInvalid = new("SSL6034", nameof(FleetFolderInvalid), "Fleet folder not usable (retired)",
         "Not used by any released version: fleet reports were removed before 0.24.0. Use 'SSLense.Cli status --json' on each server instead.");
 
+    public static readonly ErrorCode IpAddressNotOnThisServer = new("SSL6035", nameof(IpAddressNotOnThisServer), "IP address is not on this server",
+        "The certificate's IP address is not on any of this server's network adapters, and the server has several addresses of that kind, so SSLense cannot tell which one receives its traffic. Behind NAT (a cloud server, or a router forwarding ports 80 and 443), a server with one address of that kind is bound automatically. Add the public address to an adapter, or leave the server one address of that kind.");
+
+    public static readonly ErrorCode CommandOptionsInvalid = new("SSL6036", nameof(CommandOptionsInvalid), "Command options not valid together",
+        "The options given cannot be used together, or one that is needed is missing. The message says which to give or leave out; add --help to the command to list its options.");
+
+    public static readonly ErrorCode ConfirmationRequired = new("SSL6037", nameof(ConfirmationRequired), "Confirmation required",
+        "The command changes something that cannot be undone, so it runs only with --yes. Read what the message says it will change, then run it again with --yes.");
+
     public static readonly ErrorCode ChatRejected = new("SSL7001", nameof(ChatRejected), "Chat message rejected",
         "The chat service refused the message. Check the webhook URL still exists, and send a test.");
 
@@ -825,6 +837,7 @@ public static class ErrorCodes
         UrlRewriteMissing,
         RedirectNeedsHttps,
         RedirectBlocksValidation,
+        SiteFolderIsIisHistory,
         ProductionNotConfirmed,
         CertificateAuthorityUnreachable,
         AcmeUnexpectedChallenges,
@@ -1006,6 +1019,9 @@ public static class ErrorCodes
         ConfigImportRefused,
         FarmFolderInvalid,
         FleetFolderInvalid,
+        IpAddressNotOnThisServer,
+        CommandOptionsInvalid,
+        ConfirmationRequired,
         ChatRejected,
         SmtpUsernameMissing,
         SmtpPasswordMissing,
