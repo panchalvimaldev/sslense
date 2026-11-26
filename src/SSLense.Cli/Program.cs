@@ -1907,11 +1907,14 @@ static Command CreateVersionCommand(IServiceProvider services)
     {
         var updates = services.GetRequiredService<SSLense.Core.Diagnostics.IUpdateCheckService>();
         Console.WriteLine($"SSLense {updates.CurrentVersion}");
-        var available = await updates.CheckAsync(token).ConfigureAwait(false);
-        CliJson.Data = new { Version = updates.CurrentVersion, Available = available };
-        Console.WriteLine(available is { } update
-            ? $"SSLense {update.LatestVersion}{(update.IsPrerelease ? " (preview)" : string.Empty)} is available: {update.ReleaseUrl}"
-            : "No newer release was found, or the check is off (Settings › General).");
+        var on = await updates.IsOnAsync(token).ConfigureAwait(false);
+        var available = on ? await updates.CheckAsync(token).ConfigureAwait(false) : null;
+        CliJson.Data = new { Version = updates.CurrentVersion, CheckOn = on, Available = available };
+        Console.WriteLine(!on
+            ? "The check for newer releases is off (Settings › General)."
+            : available is { } update
+                ? $"SSLense {update.LatestVersion}{(update.IsPrerelease ? " (preview)" : string.Empty)} is available: {update.ReleaseUrl}"
+                : "No newer release was found.");
         return 0;
     });
     return command;
