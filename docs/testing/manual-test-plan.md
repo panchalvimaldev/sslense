@@ -75,7 +75,7 @@ Run each linked document's steps in order. The count is its number of steps.
 
 | Feature | Steps | Result |
 |---|---|---|
-| [IIS FTP sites](ftp-sites.md) | 8 | |
+| [IIS FTP sites](ftp-sites.md) | 8 | ✅ 8/8 (6ab101b); steps 4-5 checked the served certificate with PowerShell instead of FileZilla |
 | [HTTP.sys bindings outside IIS](httpsys-bindings.md) | 6 | |
 | [Remote Desktop and SQL Server](service-targets.md) | 6 | |
 | [Apache, nginx and Tomcat](web-servers.md) | 6 | |
