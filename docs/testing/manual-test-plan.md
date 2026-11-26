@@ -81,7 +81,7 @@ Run each linked document's steps in order. The count is its number of steps.
 | [Apache, nginx and Tomcat](web-servers.md) | 6 | ✅ 6/6 (6ab101b; Apache Lounge 2.4.71, nginx 1.30.8 under WinSW 2.14.0, Tomcat 10.1.62 on Temurin 21, all on C: on ports 9444-9446; step 6 was SSL8025 for Tomcat10 before its service existed). The step's "Nginx" is written "nginx" from [#87](https://github.com/panchalvimaldev/sslense/pull/87) |
 | [Azure Key Vault](key-vault.md) | 8 | n/a: no Azure account |
 | [Azure App Service](app-service.md) | 6 | n/a: no Azure account |
-| [Sharing from a site with several certificates](sharing-from-multi-certificate-site.md) | 4 | |
+| [Sharing from a site with several certificates](sharing-from-multi-certificate-site.md) | 4 | ✅ 4/4 (6ab101b). The renewal's progress named the certificate `Main/www2…` as an IIS site; it names the site from [#87](https://github.com/panchalvimaldev/sslense/pull/87) |
 | [Bindings without a host name, and on other ports](other-bindings.md) — **blocks release** | 10 | ✅ 10/10 (6ab101b; step 1 is `parta`, 83/83) |
 
 ### Day-to-day
