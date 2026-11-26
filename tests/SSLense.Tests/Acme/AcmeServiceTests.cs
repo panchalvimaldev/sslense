@@ -1216,6 +1216,8 @@ public sealed class AcmeServiceTests
             .ReturnsAsync(new AcmeIssueResult("certificate.pem", null, []));
         var service = new AcmeService(iis.Object, protocol.Object, Mock.Of<IChallengeHandler>(), Mock.Of<IChallengeProbe>(),
             artifacts.Object, store.Object, EmptyManagedStore(), selfHosted: selfHosted.Object);
+        // The server has the address, as SSLense now checks before ordering; never this machine's own adapters (CI has no IPv6).
+        using var addresses = LocalAddress.UseAddressesForTesting(System.Net.IPAddress.Parse("2001:db8::10"));
 
         await service.IssueAsync(new AcmeIssueRequest("My Site", ["[2001:DB8:0::10]"], "admin@example.com", SelfHostedHttp: true));
 
