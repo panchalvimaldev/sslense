@@ -47,6 +47,15 @@ public sealed class UpdateCheckServiceTests
         Assert.Equal(0, handler.Calls);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task WhetherTheCheckIsOn_IsReported_SoOffIsNotMistakenForUpToDate(bool enabled)
+    {
+        // Found in the combined test: 'version' said "No newer release was found, or the check is off" either way.
+        Assert.Equal(enabled, await Service(new Answer(HttpStatusCode.OK, Releases), "0.1.0", enabled).IsOnAsync());
+    }
+
     [Fact]
     public async Task AnUnreachableOrOddAnswer_IsNeverAnError()
     {

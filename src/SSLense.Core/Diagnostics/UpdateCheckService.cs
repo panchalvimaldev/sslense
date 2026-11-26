@@ -17,6 +17,9 @@ public interface IUpdateCheckService
     /// <summary>The newer release, or null when this one is current, the check is off, or GitHub cannot be reached.</summary>
     Task<UpdateInfo?> CheckAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Whether the check is on (Settings › General), so "nothing newer" can be told apart from "not checked".</summary>
+    Task<bool> IsOnAsync(CancellationToken cancellationToken = default);
+
     /// <summary>The version running, such as 0.24.0.</summary>
     string CurrentVersion { get; }
 }
@@ -45,9 +48,12 @@ internal sealed class UpdateCheckService : IUpdateCheckService, IDisposable
         (typeof(UpdateCheckService).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0")
             .Split('+')[0];
 
+    public async Task<bool> IsOnAsync(CancellationToken cancellationToken = default) =>
+        (await _configStore.LoadAsync(cancellationToken).ConfigureAwait(false)).CheckForUpdates;
+
     public async Task<UpdateInfo?> CheckAsync(CancellationToken cancellationToken = default)
     {
-        if (!(await _configStore.LoadAsync(cancellationToken).ConfigureAwait(false)).CheckForUpdates)
+        if (!await IsOnAsync(cancellationToken).ConfigureAwait(false))
         {
             return null;
         }
