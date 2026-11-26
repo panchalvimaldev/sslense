@@ -99,7 +99,7 @@ Run each linked document's steps in order. The count is its number of steps.
 | Feature | Steps | Result |
 |---|---|---|
 | [Accessibility](accessibility.md) — **blocks release** | 7 | |
-| [Dependency scanning and the SBOM](supply-chain.md) | 6 | |
+| [Dependency scanning and the SBOM](supply-chain.md) | 6 | ✅ 1-4, 6. Step 2: CycloneDX 1.5, SSLense 0.24.0 under Apache-2.0, 51 components, all `pkg:nuget`, none test-only. Step 3 was run locally, not on a pushed branch: Newtonsoft.Json 12.0.3 stopped the restore with NU1903 naming GHSA-5crp-9r3c-p9vr, so CI fails before "Check dependencies" is reached. Step 4: CI run 45411297604 on main. Step 6: Dependabot PRs #68-#76. Step 5 waits for the release |
 | [The winget package](winget.md) | 5 | |
 
 ## 5. Compatibility
@@ -127,7 +127,7 @@ One check per row: issue a staging certificate, renew it with `--force`, and ope
 |---|---|---|
 | 1 | Follow the [quick start](../../README.md#quick-start) on a clean server, word for word | |
 | 2 | Follow [moving SSLense to another server](../runbooks/move-or-restore-server.md) from A to B | |
-| 3 | Every link in [docs/README.md](../README.md) opens | |
+| 3 | Every link in [docs/README.md](../README.md) opens | ✅ all 21. Every relative link and section anchor in every Markdown file was checked too: the only broken ones were this plan's rows for features removed in [#88](https://github.com/panchalvimaldev/sslense/pull/88), which this PR removes |
 | 4 | [Known issues](../upgrading.md#known-issues) match what this test found | |
 
 ## 7. Sign-off
