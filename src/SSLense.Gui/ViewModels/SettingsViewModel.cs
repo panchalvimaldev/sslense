@@ -91,7 +91,7 @@ public partial class SettingsViewModel : ObservableObject
 
     public string NewDnsHint => BuiltIn.GetValueOrDefault(NewDnsService) switch
     {
-        DnsProviderType.Route53 => "Use an IAM access key whose policy allows route53:GetHostedZone, ListResourceRecordSets and ChangeResourceRecordSets on this hosted zone only. Enter it as the access key ID, a colon, and the secret access key. Not yet tested on a real account.",
+        DnsProviderType.Route53 => "Use an IAM access key whose policy allows route53:GetHostedZone, ListResourceRecordSets and ChangeResourceRecordSets on this hosted zone only. Enter it as the access key ID, a colon, and the secret access key.",
         DnsProviderType.AzureDns => "Use an app registration with the DNS Zone Contributor role on this zone only. Enter the tenant ID, client ID and a client secret, separated by colons; the zone ID is the zone's subscription ID and resource group, as <subscription ID>/<resource group>. Not yet tested on a real account.",
         DnsProviderType.GoogleCloudDns => "Use a service account with the DNS Administrator role, and paste the contents of its JSON key file. The managed zone name is shown in the Cloud DNS console, such as example-com. Not yet tested on a real account.",
         DnsProviderType.DigitalOcean => "Use a personal access token with read and write access to Domains. The zone is the domain as DigitalOcean lists it. Not yet tested on a real account.",

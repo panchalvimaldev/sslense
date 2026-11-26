@@ -10,4 +10,4 @@ Feature 5 of [the delivery plan](../delivery-plan.md); design in [docs/design/se
 | 4 | Renew now | Renews the same way |
 | 5 | Stop IIS's port 80 use entirely (no site bound to port 80) and repeat 2 and 4 | Still works: HTTP.sys listens on port 80 for SSLense only during validation |
 | 6 | Run another web server holding port 80 outside HTTP.sys (for example a test nginx), then Check | Port 80 fails with SSL1028 |
-| 7 | `SSLense.Cli issue --no-site "Test" --hosts <host> --validation http-self --email <you>` for a host that resolves to the server | Issued; nothing bound in IIS |
+| 7 | `SSLense.Cli issue --no-site "Test" --names <host> --validation http-self --email <you> --staging` for a host that resolves to the server (a certificate with no site takes `--names`, not `--hosts`) | Issued; nothing bound in IIS |

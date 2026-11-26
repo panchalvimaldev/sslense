@@ -9,14 +9,13 @@ Everything to check by hand before the next release (0.24.0), in one pass. Run i
 | What | Used by | Notes |
 |---|---|---|
 | **Test server A**: Windows Server 2022 with IIS, Management Tools, FTP Server and URL Rewrite (`tests/SSLense.Acceptance/setup-server.ps1`) | Everything | Snapshot it before starting |
-| **Test server B**: same, joined to the same network | Web farms, fleet | |
+| **Test server B**: same, joined to the same network | Moving SSLense to another server | |
 | A public test domain with a **Cloudflare** zone, a token limited to it, and `*.accept.<zone>` pointing at A | HTTP and DNS validation, acceptance checks | Delete the token afterwards |
 | Port 80 and 443 on A open to the internet | HTTP validation | |
-| A share both servers can write (computer accounts) | Web farms, fleet, Central Certificate Store | |
+| A share both servers can write (computer accounts) | Central Certificate Store | |
 | SQL Server Express on A; Remote Desktop on | Service steps | |
 | Apache, nginx (as a service) and Tomcat on A | Web server step | Any one is enough for a pass; all three for full coverage |
-| An Azure test subscription: a key vault, a web app on Basic with a custom domain, an app registration | Key Vault, App Service, Azure DNS | |
-| A Microsoft 365 test tenant with an app registration (Mail.Send) | Graph email | |
+| An Azure test subscription with an app registration | Azure DNS | |
 | Test accounts at Route 53, Google Cloud DNS, DigitalOcean and Hetzner | DNS providers | Each optional; untested ones stay listed as untested |
 | webhook.site (or any request bin) and the ntfy app | Notifications | |
 | A Windows 11 desktop | The app, accessibility | |
@@ -28,11 +27,11 @@ Everything to check by hand before the next release (0.24.0), in one pass. Run i
 
 | # | Steps | Expected | Result |
 |---|---|---|---|
-| 1 | On A, install 0.23.0, issue two staging certificates (one HTTP, one DNS), add a deployment step | Working 0.23.0 setup | |
-| 2 | Check the 0.24.0 MSI's SHA-256 against the published `.sha256`; install it over 0.23.0 | Upgraded; the service runs; both certificates and the step are still there; `.v<n>.bak` copies exist | |
-| 3 | `SSLense.Cli health` | No failures | |
-| 4 | Reinstall 0.23.0 over 0.24.0 | 0.23.0 refuses the newer data (SSL6023) and changes nothing | |
-| 5 | Install 0.24.0 again; uninstall; install | `C:\ProgramData\SSLense` kept and used again | |
+| 1 | On A, install 0.23.0, issue two staging certificates (one HTTP, one DNS), add a deployment step | Working 0.23.0 setup | ✅ (0.23.0) |
+| 2 | Check the 0.24.0 MSI's SHA-256 against the published `.sha256`; install it over 0.23.0; then renew one certificate with `--force` | Upgraded; the service runs; both certificates and the step are still there, unchanged; the renewal succeeds and, as the first save in the new format, leaves `.v<n>.bak` copies | ✅ (5ffea16) |
+| 3 | `SSLense.Cli health` | No failures | ✅ 28 passed, 1 warning (no notifications set up) |
+| 4 | Reinstall 0.23.0 over 0.24.0 | 0.23.0 refuses the newer data (SSL6023) and changes nothing. 0.23.0 itself reports it as invalid JSON (SSL6022) when it meets a value it does not know; fixed from 0.24.0 ([#83](https://github.com/panchalvimaldev/sslense/pull/83)) | ✅ |
+| 5 | Install 0.24.0 again; uninstall; install | `C:\ProgramData\SSLense` kept and used again | ✅ |
 | 6 | On a clean VM, download the MSI in Edge and run it | SmartScreen may warn ("Windows protected your PC"); the README's steps (check the SHA-256, then More info › Run anyway or Unblock) install it |
 | 7 | On a clean VM, run the README's PowerShell download-and-verify commands | The SHA-256 check passes and the installer runs; note whether SmartScreen prompts |
 
@@ -50,59 +49,57 @@ Run each command from [tests/SSLense.Acceptance](../../tests/SSLense.Acceptance/
 
 ## 4. Features
 
+Five features were removed before release and are no longer tested here: the Azure Key Vault and App Service steps, web farm challenge copies, fleet reports and email through Microsoft Graph ([#88](https://github.com/panchalvimaldev/sslense/pull/88)).
+
 Run each linked document's steps in order. The count is its number of steps.
 
 ### Renewing safely (blocks release)
 
 | Feature | Steps | Result |
 |---|---|---|
-| [Certificate history and rollback](history-and-rollback.md) | 9 | |
-| [Maintenance windows](maintenance-windows.md) | 7 | |
-| [ARI replaces](ari-replaces.md) | 2 | |
-| [Recovery from a compromised key or account](compromise-recovery.md) | 7 | |
-| [Error codes](error-codes.md) | 7 | |
+| [Certificate history and rollback](history-and-rollback.md) | 9 | ✅ 9/9 (5ffea16); step 1 checked through the CLI |
+| [Maintenance windows](maintenance-windows.md) | 7 | ✅ 7/7 (5ffea16); steps 3 and 5 used revoked certificates, which ARI makes due at once |
+| [ARI replaces](ari-replaces.md) | 2 | ✅ 2/2 (5ffea16) |
+| [Recovery from a compromised key or account](compromise-recovery.md) | 7 | ✅ 7/7 (5ffea16) |
+| [Error codes](error-codes.md) | 7 | ✅ 7/7 (5ffea16) |
 
 ### Validation
 
 | Feature | Steps | Result |
 |---|---|---|
-| [HTTP validation without a port 80 binding](self-hosted-http-validation.md) — **blocks release** | 7 | |
-| [Built-in DNS providers](dns-providers.md) | 6 per provider | |
-| [Certificates for IP addresses](ip-certificates.md) | 5 | |
-| [Web farms](web-farms.md) | 7 | |
+| [HTTP validation without a port 80 binding](self-hosted-http-validation.md) — **blocks release** | 7 | ✅ 7/7 (5ffea16) |
+| [Built-in DNS providers](dns-providers.md) | 6 per provider | ✅ Route 53 6/6 (5ffea16); Azure DNS, Google Cloud DNS, DigitalOcean and Hetzner untested (no accounts) |
+| [Certificates for IP addresses](ip-certificates.md) | 5 | ✅ 1-3, 5 (6ab101b, after fixes [#85](https://github.com/panchalvimaldev/sslense/pull/85): IP in the common name, binding behind NAT); 4 (renews on its own) pending |
 
 ### Where certificates go
 
 | Feature | Steps | Result |
 |---|---|---|
-| [IIS FTP sites](ftp-sites.md) | 8 | |
-| [HTTP.sys bindings outside IIS](httpsys-bindings.md) | 6 | |
-| [Remote Desktop and SQL Server](service-targets.md) | 6 | |
-| [Apache, nginx and Tomcat](web-servers.md) | 6 | |
-| [Azure Key Vault](key-vault.md) | 8 | |
-| [Azure App Service](app-service.md) | 6 | |
-| [Sharing from a site with several certificates](sharing-from-multi-certificate-site.md) | 4 | |
-| [Bindings without a host name, and on other ports](other-bindings.md) — **blocks release** | 10 | |
+| [IIS FTP sites](ftp-sites.md) | 8 | ✅ 8/8 (6ab101b); steps 4-5 checked the served certificate with PowerShell instead of FileZilla |
+| [HTTP.sys bindings outside IIS](httpsys-bindings.md) | 6 | ✅ 2-6 (6ab101b); step 1 failed: 0.0.0.0:443 was accepted where every port 443 binding had a host name, fixed in [#87](https://github.com/panchalvimaldev/sslense/pull/87) and passed on 1f313ee (refused, naming site 'Blog'); step 3 used `New-Item WSMan:\localhost\Listener` with a self-signed certificate, and `-SkipRevocationCheck` for the staging certificate |
+| [Remote Desktop and SQL Server](service-targets.md) | 6 | ✅ 1-2 (6ab101b; mstsc's only warning was the untrusted staging root, and the session stayed connected through the renewal); 3, 4 and 6 n/a: SQL Server not installed, the test server has no disk space for it; 5 n/a: turning Remote Desktop off would lock us out of the cloud server, and SSL4058 is covered by the automated tests |
+| [Apache, nginx and Tomcat](web-servers.md) | 6 | ✅ 6/6 (6ab101b; Apache Lounge 2.4.71, nginx 1.30.8 under WinSW 2.14.0, Tomcat 10.1.62 on Temurin 21, all on C: on ports 9444-9446; step 6 was SSL8025 for Tomcat10 before its service existed). The step's "Nginx" is written "nginx" from [#87](https://github.com/panchalvimaldev/sslense/pull/87) |
+| [Sharing from a site with several certificates](sharing-from-multi-certificate-site.md) | 4 | ✅ 4/4 (6ab101b). The renewal's progress named the certificate `Main/www2…` as an IIS site; it names the site from [#87](https://github.com/panchalvimaldev/sslense/pull/87) |
+| [Bindings without a host name, and on other ports](other-bindings.md) — **blocks release** | 10 | ✅ 10/10 (6ab101b; step 1 is `parta`, 83/83) |
 
 ### Day-to-day
 
 | Feature | Steps | Result |
 |---|---|---|
-| [Certificates on other machines](remote-certificates.md) | 8 | |
-| [HTTP-to-HTTPS redirect](https-redirect.md) | 7 | |
-| [Bulk operations](bulk-operations.md) | 5 | |
-| [New version notice](version-notice.md) | 5 | |
-| [Clean-up of unused certificates](certificate-cleanup.md) | 4 | |
-| [Signed webhooks and Microsoft Graph email](more-notifications.md) | 8 | |
-| [Fleet reports](fleet.md) | 8 | |
-| [Automation: JSON, exit codes, settings export, PowerShell](automation.md) | 10 | |
+| [Certificates on other machines](remote-certificates.md) | 8 | ✅ 8/8 (6ab101b), with Apache on the server's private address and port 9444 as the other machine. Step 1 used `watch --port`: in the app, the "On another machine" card was below a long binding list on a screen that did not scroll, fixed in [#87](https://github.com/panchalvimaldev/sslense/pull/87). Step 4's digest also wrongly said that IIS sites 'Main' and 'selfhosted' used their own second certificates, fixed in #87. Both fixes passed on 1f313ee |
+| [HTTP-to-HTTPS redirect](https-redirect.md) | 7 | ✅ 7/7 (6ab101b). Step 3's renewal reused a valid authorization, so the challenge path was checked directly: `/.well-known/acme-challenge/` answered 404, not 301. Step 6 uninstalled URL Rewrite 2.1 and reinstalled it after |
+| [Bulk operations](bulk-operations.md) | 5 | ✅ 5/5 (1f313ee). On 6ab101b, Tick all and `bulk watch` tried two certificates bound only on port 8443 and failed them with SSL4001; [#87](https://github.com/panchalvimaldev/sslense/pull/87) greys them out and skips them, and on 1f313ee `bulk watch` said "Nothing to do." Step 5's production row failed with SSL2001 and no production account key was created |
+| [New version notice](version-notice.md) | 5 | ✅ 5 (1f313ee: 0.24.0 is newer than the latest release, 0.23.0, so no notice). Step 4 failed: `version` printed "No newer release was found, or the check is off" either way, fixed in [#91](https://github.com/panchalvimaldev/sslense/pull/91), retest pending. Steps 1-3 need 0.23.0 installed, which refuses 0.24.0's data, so they wait for the clean VM of section 2 rows 6-7 |
+| [Clean-up of unused certificates](certificate-cleanup.md) | 4 | ✅ 4/4 (1f313ee). The server had no leftovers, because renewals remove what they replace, so step 1 used self-signed certificates: an expired one and a replaced one were listed with their reasons, a newer one and an unrelated valid one were not. Step 2: the WinRM certificate on HTTP.sys port 5986 was not listed; step 4 refused it with SSL4054 |
+| [Signed webhooks](more-notifications.md) | 5 | ✅ 5/5 (1f313ee), with a PowerShell HttpListener on `http://localhost:8099/` as the receiver instead of webhook.site, so the signature was checked on the server and the secret never left it. Step 5 was a round trip on the same server (export with secrets, `notifications clear`, import): the imported channel's signature matched the original secret |
+| [Automation: JSON, exit codes, settings export, PowerShell](automation.md) | 10 | ✅ 10/10 (1f313ee). Step 2 ran through `runas /trustlevel:0x20000`, because the built-in Administrator is always elevated: exit code 3 in the JSON and from the process. Step 7 was the import round trip on the same server (signed webhooks, step 5); there is no second server. Step 5's file held only empty `protectedToken` fields |
 
 ### For everyone
 
 | Feature | Steps | Result |
 |---|---|---|
 | [Accessibility](accessibility.md) — **blocks release** | 7 | |
-| [Dependency scanning and the SBOM](supply-chain.md) | 6 | |
+| [Dependency scanning and the SBOM](supply-chain.md) | 6 | ✅ 1-4, 6. Step 2: CycloneDX 1.5, SSLense 0.24.0 under Apache-2.0, 51 components, all `pkg:nuget`, none test-only. Step 3 was run locally, not on a pushed branch: Newtonsoft.Json 12.0.3 stopped the restore with NU1903 naming GHSA-5crp-9r3c-p9vr, so CI fails before "Check dependencies" is reached. Step 4: CI run 45411297604 on main. Step 6: Dependabot PRs #68-#76. Step 5 waits for the release |
 | [The winget package](winget.md) | 5 | |
 
 ## 5. Compatibility
@@ -130,7 +127,7 @@ One check per row: issue a staging certificate, renew it with `--force`, and ope
 |---|---|---|
 | 1 | Follow the [quick start](../../README.md#quick-start) on a clean server, word for word | |
 | 2 | Follow [moving SSLense to another server](../runbooks/move-or-restore-server.md) from A to B | |
-| 3 | Every link in [docs/README.md](../README.md) opens | |
+| 3 | Every link in [docs/README.md](../README.md) opens | ✅ all 21. Every relative link and section anchor in every Markdown file was checked too: the only broken ones were this plan's rows for features removed in [#88](https://github.com/panchalvimaldev/sslense/pull/88), which this PR removes |
 | 4 | [Known issues](../upgrading.md#known-issues) match what this test found | |
 
 ## 7. Sign-off

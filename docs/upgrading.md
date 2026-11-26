@@ -8,7 +8,7 @@
    - Interrupted operations from before the upgrade are recovered at start, as always.
 3. Run `SSLense.Cli health`.
 
-**Downgrades are not supported.** An older SSLense refuses files written by a newer one (SSL6023), and leaves them untouched. To go back:
+**Downgrades are not supported.** An older SSLense refuses files written by a newer one (SSL6023), and leaves them untouched. Up to 0.23.0, it may report such a file as invalid JSON (SSL6022) instead; the file is still left untouched. To go back:
 1. Install the newer version again.
 2. Or restore the `.bak` copies with the older version installed. Changes made since the upgrade are lost.
 
