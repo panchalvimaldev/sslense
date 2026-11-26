@@ -49,8 +49,10 @@ public static class AccessibilityTheme
     };
 
     /// <summary>
-    /// Replaces the theme's brushes before any window is created, because views take them as static resources. Turning
-    /// high contrast on or off later takes effect at the next start.
+    /// Replaces the theme's brushes before any window is created, because views take them as static resources. The
+    /// styles in DesignSystem.xaml take them as dynamic resources, so they follow the replacement too; as static
+    /// resources they kept the normal colours, which the combined test found. Turning high contrast on or off later
+    /// takes effect at the next start.
     /// </summary>
     public static bool ApplyHighContrast(ResourceDictionary resources, bool highContrast)
     {

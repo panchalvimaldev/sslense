@@ -27,6 +27,40 @@ public sealed class AccessibilityThemeTests
         });
     }
 
+    /// <summary>
+    /// Found in the combined test: in high contrast the styles kept their normal colours, because they took the brushes
+    /// when the theme loaded. Cards stayed white under white text, and the title stayed dark blue on black.
+    /// </summary>
+    [Fact]
+    public void InHighContrast_StyledControlsShowTheSystemColours()
+    {
+        GuiThread.Run(() =>
+        {
+            var card = new System.Windows.Controls.Border { Style = (Style)Application.Current.FindResource("Card") };
+            var banner = new System.Windows.Controls.Border { Style = (Style)Application.Current.FindResource("SuccessBanner") };
+            var title = new System.Windows.Controls.TextBlock { Style = (Style)Application.Current.FindResource("DetailTitle") };
+            var box = new System.Windows.Controls.TextBox();
+            var panel = new System.Windows.Controls.StackPanel { Children = { card, banner, title, box } };
+            AccessibilityTheme.ApplyHighContrast(panel.Resources, highContrast: true);
+            var window = new Window { Content = panel, Left = -10000, Top = -10000, Width = 200, Height = 200, ShowActivated = false, ShowInTaskbar = false };
+            try
+            {
+                window.Show();
+
+                Assert.Same(SystemColors.WindowBrush, card.Background);
+                Assert.Same(SystemColors.WindowTextBrush, card.BorderBrush);
+                Assert.Same(SystemColors.WindowBrush, banner.Background);
+                Assert.Same(SystemColors.WindowTextBrush, title.Foreground);
+                Assert.Same(SystemColors.WindowBrush, box.Background);
+                Assert.Same(SystemColors.WindowTextBrush, box.Foreground);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
     /// <summary>A colour written into a view would stay the same in high contrast, so views use the theme's brushes only.</summary>
     [Fact]
     public void NoViewWritesAColourOfItsOwn()
