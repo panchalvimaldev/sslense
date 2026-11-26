@@ -77,7 +77,7 @@ Run each linked document's steps in order. The count is its number of steps.
 |---|---|---|
 | [IIS FTP sites](ftp-sites.md) | 8 | ✅ 8/8 (6ab101b); steps 4-5 checked the served certificate with PowerShell instead of FileZilla |
 | [HTTP.sys bindings outside IIS](httpsys-bindings.md) | 6 | ✅ 2-6 (6ab101b); step 1 failed: 0.0.0.0:443 was accepted where every port 443 binding had a host name, fixed in [#87](https://github.com/panchalvimaldev/sslense/pull/87), retest pending; step 3 used `New-Item WSMan:\localhost\Listener` with a self-signed certificate, and `-SkipRevocationCheck` for the staging certificate |
-| [Remote Desktop and SQL Server](service-targets.md) | 6 | |
+| [Remote Desktop and SQL Server](service-targets.md) | 6 | ✅ 1-2 (6ab101b; mstsc's only warning was the untrusted staging root, and the session stayed connected through the renewal); 3, 4 and 6 n/a: SQL Server not installed, the test server has no disk space for it; 5 n/a: turning Remote Desktop off would lock us out of the cloud server, and SSL4058 is covered by the automated tests |
 | [Apache, nginx and Tomcat](web-servers.md) | 6 | |
 | [Azure Key Vault](key-vault.md) | 8 | |
 | [Azure App Service](app-service.md) | 6 | |
