@@ -23,8 +23,7 @@ public enum DeploymentStepKind
     /// <summary>Sets the certificate as the SSL certificate of an IIS FTP site (docs/design/ftp-sites.md).</summary>
     FtpSite = 6,
 
-    /// <summary>Imports the certificate and its key into an Azure Key Vault, as a new version (docs/design/key-vault.md).</summary>
-    KeyVault = 7,
+    // 7 was Azure Key Vault, removed before 0.24.0 was released. Kinds are stored as numbers, so it stays unused.
 
     /// <summary>Binds the certificate to an HTTP.sys endpoint outside IIS, such as WinRM or a service on its own port (docs/design/httpsys-bindings.md).</summary>
     HttpSysBinding = 8,
@@ -36,17 +35,16 @@ public enum DeploymentStepKind
     SqlServer = 10,
 
     /// <summary>Writes the files Apache, nginx or Tomcat on Windows reads, then restarts its service (docs/design/web-servers.md).</summary>
-    WebServer = 11,
+    WebServer = 11
 
-    /// <summary>Uploads the certificate to Azure App Service and binds the app's custom domains it covers (docs/design/app-service.md).</summary>
-    AppService = 12
+    // 12 was Azure App Service, removed before 0.24.0 was released. It stays unused.
 }
 
 /// <summary>Something that runs after every install and renewal of a certificate. See docs/design/deployment-steps.md.</summary>
 /// <param name="Value">The account, as Windows names it; the service name; or, for a script, the original file's name, for display.</param>
 /// <param name="ScriptSha256">For a script, the hash of SSLense's copy, which is checked before every run.</param>
 /// <param name="TimeoutSeconds">For a script, how long it may run.</param>
-/// <param name="ProtectedPassword">For a PFX or Central Certificate Store export, the password, encrypted with DPAPI. For Azure Key Vault, the app registration as "tenant:client ID:client secret", encrypted the same way.</param>
+/// <param name="ProtectedPassword">For a PFX, Central Certificate Store or Tomcat keystore export, the password, encrypted with DPAPI.</param>
 public sealed record DeploymentStep(
     Guid Id,
     DeploymentStepKind Kind,
@@ -64,12 +62,10 @@ public sealed record DeploymentStep(
         DeploymentStepKind.ExportPem => $"Export PEM files to '{Value}'",
         DeploymentStepKind.CentralStore => $"Export to the IIS Central Certificate Store at '{Value}'",
         DeploymentStepKind.FtpSite => $"Use it for the IIS FTP site '{Value}'",
-        DeploymentStepKind.KeyVault => $"Import it into Azure Key Vault as '{Value}'",
         DeploymentStepKind.HttpSysBinding => $"Bind it in HTTP.sys to {Value}",
         DeploymentStepKind.RemoteDesktop => "Use it for Remote Desktop on this server",
         DeploymentStepKind.SqlServer => $"Use it for SQL Server '{Value}', and restart it",
         DeploymentStepKind.WebServer => WebServerTarget.Parse(Value).Describe(),
-        DeploymentStepKind.AppService => $"Use it for the Azure App Service app '{Value}'",
         _ => $"Unknown step '{Value}'"
     };
 }

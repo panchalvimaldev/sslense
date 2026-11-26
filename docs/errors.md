@@ -192,6 +192,12 @@ Redirecting HTTP to HTTPS would send visitors nowhere. Give the site a certifica
 
 After the rule was added, a validation path on the site was still redirected, so SSLense removed the rule. Check for another redirect rule or module on the site, or in its parent configuration.
 
+<a id="ssl1032"></a>
+
+### SSL1032: Site folder is IIS's configuration history
+
+The site's physical path is IIS's configuration history folder (C:\inetpub\history), where IIS keeps backups of its configuration and which only Administrators can read. Give the site its own folder in IIS Manager › Basic Settings.
+
 ## SSL2xxx: ACME and certificate authorities
 
 <a id="ssl2001"></a>
@@ -1278,15 +1284,33 @@ Importing would leave a certificate without the certificate authority that renew
 
 <a id="ssl6033"></a>
 
-### SSL6033: Web farm folder not usable
+### SSL6033: Web farm folder not usable (retired)
 
-Each folder is another server's site root, as a full UNC path this server can write to, such as \web2\c$\inetpub\shop, for a certificate validated over HTTP from its IIS site. When SSLense runs as SYSTEM, give the computer account write access to the share.
+Not used by any released version: web farm folders were removed before 0.24.0. In a web farm, use DNS validation, which works whichever server the certificate authority reaches.
 
 <a id="ssl6034"></a>
 
-### SSL6034: Fleet folder not usable
+### SSL6034: Fleet folder not usable (retired)
 
-Fleet reports go to one shared folder every server can write to and read, as a full path such as \files\sslense-fleet. When the SSLense service runs as SYSTEM, give each server's computer account modify access to the share.
+Not used by any released version: fleet reports were removed before 0.24.0. Use 'SSLense.Cli status --json' on each server instead.
+
+<a id="ssl6035"></a>
+
+### SSL6035: IP address is not on this server
+
+The certificate's IP address is not on any of this server's network adapters, and the server has several addresses of that kind, so SSLense cannot tell which one receives its traffic. Behind NAT (a cloud server, or a router forwarding ports 80 and 443), a server with one address of that kind is bound automatically. Add the public address to an adapter, or leave the server one address of that kind.
+
+<a id="ssl6036"></a>
+
+### SSL6036: Command options not valid together
+
+The options given cannot be used together, or one that is needed is missing. The message says which to give or leave out; add --help to the command to list its options.
+
+<a id="ssl6037"></a>
+
+### SSL6037: Confirmation required
+
+The command changes something that cannot be undone, so it runs only with --yes. Read what the message says it will change, then run it again with --yes.
 
 ## SSL7xxx: Notifications
 
@@ -1346,15 +1370,15 @@ Add an email or chat channel, or make sure the Windows Event Log is monitored.
 
 <a id="ssl7010"></a>
 
-### SSL7010: Azure Key Vault import failed
+### SSL7010: Azure Key Vault import failed (retired)
 
-SSLense signs in with the step's app registration and imports the certificate as a new version. Check the tenant, client ID and secret, the vault's name and firewall, and that the app has the Key Vault Certificates Officer role or the Import certificate permission.
+Not used by any released version: the Azure Key Vault step was removed before 0.24.0. A script step can import the certificate with Azure PowerShell.
 
 <a id="ssl7011"></a>
 
-### SSL7011: Azure App Service not updated
+### SSL7011: Azure App Service not updated (retired)
 
-SSLense signs in with the step's app registration, uploads the certificate and binds the app's custom domains it covers. Check the tenant, client ID and secret, the subscription, resource group and app, that the domain is added to the app, and that the app registration has the Website Contributor role.
+Not used by any released version: the Azure App Service step was removed before 0.24.0. A script step can upload the certificate with Azure PowerShell.
 
 ## SSL8xxx: Deployment steps
 

@@ -40,13 +40,9 @@ public enum SmtpAuthentication
 {
     /// <summary>No sign-in, for relays that accept mail by IP address (Microsoft 365 connectors, Exchange receive connectors).</summary>
     None = 0,
-    Password = 1,
+    Password = 1
 
-    /// <summary>
-    /// Not SMTP: sent through Microsoft Graph sendMail with an app registration, for Microsoft 365 tenants without SMTP.
-    /// The host is the tenant ID or domain, the username the application (client) ID, and the password a client secret.
-    /// </summary>
-    MicrosoftGraph = 2
+    // 2 was Microsoft Graph, removed before 0.24.0 was released.
 }
 
 public sealed record EmailNotificationConfig(

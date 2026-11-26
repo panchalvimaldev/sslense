@@ -18,7 +18,6 @@ Prepared for the combined test. Read [upgrading.md](upgrading.md) first: this ve
 - **HTTP validation answered by SSLense** on port 80, so a site needs no HTTP binding (`--validation http-self`).
 - **Built-in DNS providers:** Amazon Route 53, Azure DNS, Google Cloud DNS, DigitalOcean and Hetzner, without SDKs.
 - **Certificates for IP addresses.**
-- **Web farms:** HTTP challenges copied to the other servers' folders (`--farm-folders`, `farm`).
 
 ### More places for a certificate
 
@@ -27,9 +26,7 @@ Prepared for the combined test. Read [upgrading.md](upgrading.md) first: this ve
   - HTTP.sys endpoints outside IIS, such as WinRM;
   - Remote Desktop;
   - SQL Server;
-  - Apache, nginx and Tomcat on Windows;
-  - Azure Key Vault;
-  - Azure App Service.
+  - Apache, nginx and Tomcat on Windows.
 - **Certificates on other machines:** load balancers and appliances are watched and reminded about (`watch`).
 - **Older binding layouts:** HTTPS bindings without a host name are renewed in place, and bindings on other ports, such as 8443, follow the certificate. Sites with them can now be adopted.
 
@@ -39,8 +36,7 @@ Prepared for the combined test. Read [upgrading.md](upgrading.md) first: this ve
 - **Bulk operations:** watch every unmanaged certificate, and issue for many sites from a CSV file (`bulk`).
 - **Clean-up** of expired, test and replaced certificates that nothing uses.
 - **New-version notice:** shown in the app's header, and can be turned off.
-- **Notifications:** signed webhook payloads, and email through Microsoft Graph for Microsoft 365 tenants without SMTP.
-- **Fleet reports:** several servers report to one shared folder, and `fleet status` shows them all.
+- **Notifications:** signed webhook payloads.
 
 ### Automation
 
@@ -71,4 +67,8 @@ Prepared for the combined test. Read [upgrading.md](upgrading.md) first: this ve
 
 ### Not tested on real accounts yet
 
-The new DNS providers, Graph email, Key Vault and App Service. See [known issues](upgrading.md#known-issues).
+The Azure DNS, Google Cloud DNS, DigitalOcean and Hetzner providers. Amazon Route 53 passed the combined test. See [known issues](upgrading.md#known-issues).
+
+### Left out of this release
+
+To keep SSLense focused on IIS administrators, five features built during development were removed before release: Azure Key Vault and Azure App Service steps, web farm challenge copies, fleet reports, and email through Microsoft Graph. Their designs are kept in [docs/design](design/) and they can return if users ask; see the [roadmap](../ROADMAP.md).

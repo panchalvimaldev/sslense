@@ -13,7 +13,8 @@ public enum CertificateHistoryKind
     Renewed = 1,
     RenewalFailed = 2,
     RolledBack = 3,
-    Revoked = 4
+    Revoked = 4,
+    RolledForward = 5
 }
 
 /// <summary>One thing that happened to a managed certificate, for its timeline (docs/design/history-and-rollback.md).</summary>
@@ -202,7 +203,9 @@ internal sealed class CertificateHistoryService(
         var notBefore = new DateTimeOffset(certificate.NotBefore.ToUniversalTime());
         var notAfter = new DateTimeOffset(certificate.NotAfter.ToUniversalTime());
         var hold = HoldUntil(now, notBefore, notAfter);
-        var message = $"Rolled back to certificate {previous} on {now:yyyy-MM-dd HH:mm} UTC.";
+        // Going back to a newer certificate, after a rollback, is rolling forward: the same action, named for what it does.
+        var forward = notBefore > record.NotBefore;
+        var message = $"Rolled {(forward ? "forward" : "back")} to certificate {previous} on {now:yyyy-MM-dd HH:mm} UTC.";
         ManagedCertificate RolledBack(ManagedCertificate value) => value with
         {
             Thumbprint = previous,
@@ -243,7 +246,8 @@ internal sealed class CertificateHistoryService(
         await _journal.UpdateStageAsync(transaction.Id, CertificateTransactionStage.StateSaved, CancellationToken.None).ConfigureAwait(false);
         await _journal.CompleteAsync(transaction.Id, CancellationToken.None).ConfigureAwait(false);
         await history.TryAddAsync(new CertificateHistoryEntry(
-                now, record.Id, record.SiteName, CertificateHistoryKind.RolledBack, message, previous, record.Thumbprint, notAfter))
+                now, record.Id, record.SiteName, forward ? CertificateHistoryKind.RolledForward : CertificateHistoryKind.RolledBack,
+                message, previous, record.Thumbprint, notAfter))
             .ConfigureAwait(false);
 
         return string.Join(" ", new[]

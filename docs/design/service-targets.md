@@ -33,7 +33,8 @@ This is managed-certificate schema 18.
 ## Still to come in feature 25
 
 - Apache, nginx and Tomcat on Windows (files and a reload).
-- Azure App Service.
+
+Update: Apache, nginx and Tomcat were built ([web-servers.md](web-servers.md)). Azure App Service was built and then removed before 0.24.0 ([app-service.md](app-service.md)).
 
 ## Tests
 

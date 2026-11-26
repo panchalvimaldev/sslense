@@ -417,10 +417,29 @@ public sealed class RenewalServiceTests
             result =>
             {
                 Assert.False(result.Attempted);
+                // Backing off after failures is still failing, so the heartbeat reports it.
+                Assert.False(result.Waiting);
                 Assert.Contains("attempt 3", result.Message, StringComparison.Ordinal);
             },
             result => Assert.True(result.Succeeded));
         acme.VerifyAll();
+    }
+
+    [Fact]
+    public async Task RenewAsync_ScheduledRunHeldAfterARollback_IsWaiting_NotFailing()
+    {
+        // Found in the combined test: a hold the administrator chose showed as "Renewal is failing" in the health check.
+        var managed = new Mock<IManagedCertificateStore>(MockBehavior.Strict);
+        managed.Setup(value => value.GetAllAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([CreateCertificate(DateTimeOffset.UtcNow.AddDays(5)) with { NextRetryAt = DateTimeOffset.UtcNow.AddDays(6) }]);
+        var service = CreateService(managed, MockConfig(), new Mock<IAcmeService>(MockBehavior.Strict));
+
+        var result = Assert.Single(await service.RenewAsync(new RenewalRequest(All: true, Scheduled: true)));
+
+        Assert.False(result.Attempted);
+        Assert.False(result.Succeeded);
+        Assert.True(result.Waiting);
+        Assert.Contains("after a rollback", result.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -592,6 +611,7 @@ public sealed class RenewalServiceTests
             waiting =>
             {
                 Assert.False(waiting.Attempted);
+                Assert.True(waiting.Waiting);
                 Assert.StartsWith("Waiting for the maintenance window", waiting.Message, StringComparison.Ordinal);
             },
             urgent => Assert.True(urgent.Succeeded));

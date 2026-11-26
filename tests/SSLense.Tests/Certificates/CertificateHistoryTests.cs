@@ -88,6 +88,20 @@ public sealed class CertificateHistoryTests
     }
 
     [Fact]
+    public async Task GoingBackToTheNewerCertificate_IsRecordedAsRollingForward()
+    {
+        // After a rollback the kept certificate is the newer one, so the same action now rolls forward.
+        _store.Setup(value => value.OpenAsync("PREVIOUS", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => Create(DateTimeOffset.UtcNow.AddHours(-1), DateTimeOffset.UtcNow.AddDays(89), "shop.example.com"));
+
+        await Service().RollBackAsync("Shop");
+
+        var entry = Assert.Single(await History.GetAllAsync());
+        Assert.Equal(CertificateHistoryKind.RolledForward, entry.Kind);
+        Assert.StartsWith("Rolled forward to certificate PREVIOUS", entry.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RollingBack_WhenTheBindingFails_LeavesTheRecordAlone()
     {
         _iis.Setup(value => value.ConfigureHttpsBindingsAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<string>>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))

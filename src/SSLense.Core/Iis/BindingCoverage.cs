@@ -21,7 +21,7 @@ public static class BindingCoverage
         var isAddress = System.Net.IPAddress.TryParse(host, out var address);
         var own = https
             .Where(binding => isAddress
-                ? binding.HostName.Length == 0 && System.Net.IPAddress.TryParse(binding.IpAddress.Trim('[', ']'), out var bound) && bound.Equals(address)
+                ? binding.HostName.Length == 0 && LocalAddress.Receives(binding.IpAddress, address!)
                 : string.Equals(binding.HostName, host, StringComparison.OrdinalIgnoreCase))
             .ToArray();
         return own.Length > 0 || isAddress ? own : [.. https.Where(binding => binding.HostName.Length == 0)];
@@ -59,8 +59,8 @@ public static class BindingCoverage
             .OfType<System.Net.IPAddress>()
             .ToArray();
         return addresses.Length == 0 ||
-               !System.Net.IPAddress.TryParse(bindingAddress.Trim('[', ']'), out var bound) ||
-               addresses.Contains(bound);
+               !System.Net.IPAddress.TryParse(bindingAddress.Trim('[', ']'), out _) ||
+               addresses.Any(address => LocalAddress.Receives(bindingAddress, address));
     }
 
     /// <summary>

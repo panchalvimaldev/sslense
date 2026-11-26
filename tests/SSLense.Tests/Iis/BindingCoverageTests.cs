@@ -126,6 +126,37 @@ public sealed class BindingCoverageTests
         Assert.Empty(site.ServingBindings("198.51.100.1"));
     }
 
+    [Theory]
+    // The server has the address: bound there.
+    [InlineData("203.0.113.7", "203.0.113.7,172.31.11.222", "203.0.113.7")]
+    // Behind NAT (a cloud server): the public address is on no adapter, so the server's only IPv4 address receives it.
+    [InlineData("203.0.113.7", "172.31.11.222", "172.31.11.222")]
+    [InlineData("203.0.113.7", "172.31.11.222,fe80::1,2001:db8::5", "172.31.11.222")]
+    // Several IPv4 addresses and none of them the public one: SSLense cannot tell.
+    [InlineData("203.0.113.7", "10.0.0.4,10.0.1.4", null)]
+    [InlineData("2001:db8::10", "172.31.11.222,2001:db8::5", "2001:db8::5")]
+    public void AnIpAddress_IsBoundWhereItsTrafficArrives(string address, string serverAddresses, string? expected)
+    {
+        var server = serverAddresses.Split(',').Select(System.Net.IPAddress.Parse).ToArray();
+
+        Assert.Equal(expected, LocalAddress.For(System.Net.IPAddress.Parse(address), server)?.ToString());
+    }
+
+    [Fact]
+    public void BehindNat_ThePublicAddressIsServedAndRemoved_ThroughTheServersOwnAddress()
+    {
+        using var addresses = LocalAddress.UseAddressesForTesting(System.Net.IPAddress.Parse("172.31.11.222"));
+        var site = new IisSite(1, "Shop", "Started", null,
+        [
+            new IisBinding("https", "172.31.11.222", 443, "", "NATTED", "My", false),
+            new IisBinding("https", "*", 443, "shop.example.com", "OWN", "My", true)
+        ]);
+
+        Assert.Equal(["NATTED"], site.ServingBindings("203.0.113.7").Select(binding => binding.CertificateThumbprint));
+        Assert.True(BindingCoverage.BelongsTo("172.31.11.222", "", ["203.0.113.7"]));
+        Assert.False(BindingCoverage.BelongsTo("10.9.9.9", "", ["203.0.113.7"]));
+    }
+
     [Fact]
     public void ASiteWithoutHttpsOn443_ServesNothing()
     {
